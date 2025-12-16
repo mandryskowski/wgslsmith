@@ -36,17 +36,17 @@ pub enum Harness {
 
 pub fn exec_shader(
     harness: &Harness,
-    config: Option<ConfigId>,
+    configs: Vec<ConfigId>,
     shader: &str,
     metadata: &str,
     mut logger: impl FnMut(String),
 ) -> eyre::Result<ExecutionResult> {
-    exec_shader_impl(harness, config, shader, metadata, &mut logger)
+    exec_shader_impl(harness, configs, shader, metadata, &mut logger)
 }
 
 fn exec_shader_impl(
     harness: &Harness,
-    config: Option<ConfigId>,
+    configs: Vec<ConfigId>,
     shader: &str,
     metadata: &str,
     logger: &mut dyn FnMut(String),
@@ -60,7 +60,7 @@ fn exec_shader_impl(
         }),
     };
 
-    if let Some(config) = config {
+    for config in configs {
         cmd.args(["-c", &config.to_string()]);
     }
 
@@ -113,7 +113,7 @@ fn wait_for_child_with_line_logger(
             move || {
                 BufReader::new(stdout)
                     .lines()
-                    .map_while(Result::ok)
+                    .flatten()
                     .try_for_each(|line| tx.send((StdioKind::Stdout, line)))
                     .unwrap();
             }
@@ -126,7 +126,7 @@ fn wait_for_child_with_line_logger(
             move || {
                 BufReader::new(stderr)
                     .lines()
-                    .map_while(Result::ok)
+                    .flatten()
                     .try_for_each(|line| tx.send((StdioKind::Stderr, line)))
                     .unwrap();
             }

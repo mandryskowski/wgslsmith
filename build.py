@@ -136,7 +136,7 @@ def dawn_gen_cmake():
 
 def build_tint():
     print(f"> building tint (target={build_target})")
-    cmake_build(dawn_build_dir, ["tint"])
+    cmake_build(dawn_build_dir, ["tint_cmd_tint_cmd"])
 
 
 def build_wgslsmith():

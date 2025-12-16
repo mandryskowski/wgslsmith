@@ -59,9 +59,8 @@ pub struct Options {
     #[clap(long, action)]
     enable_pointers: bool,
 
-    /// Specific harness configuration to test.
-    #[clap(long, action)]
-    config: Option<ConfigId>,
+    #[clap(short, long = "config", action)]
+    configs: Vec<ConfigId>,
 
     /// Disable the fancy terminal dashboard UI.
     #[clap(long, action)]
@@ -151,7 +150,7 @@ fn save_shader(
         "[year]-[month]-[day]-[hour]-[minute]-[second]",
     )?)?;
 
-    let out = out.join(timestamp);
+    let out = out.join(&timestamp);
 
     std::fs::create_dir_all(&out)?;
 
@@ -192,7 +191,7 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
         worker(config, options, harness, &mut |result| {
             worker_tx.send(result).unwrap()
         })
-        .unwrap()
+            .unwrap()
     });
 
     if disable_tui {
@@ -328,7 +327,7 @@ fn worker_iteration(
 
     let exec_result = harness_runner::exec_shader(
         harness,
-        options.config.clone(),
+        options.configs.clone(),
         &reconditioned,
         metadata,
         logger,
