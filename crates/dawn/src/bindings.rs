@@ -1,15 +1,18 @@
+use crate::dawn;
+use crate::webgpu::*;
+use futures::channel::oneshot;
 use std::ffi::{c_void, CStr, CString};
 use std::mem::zeroed;
 use std::os::raw::c_char;
 use std::ptr::{null, null_mut};
 use std::usize;
-use crate::dawn;
-use crate::webgpu::*;
-use futures::channel::oneshot;
 
 fn make_string_view(ptr: *const c_char) -> WGPUStringView {
     if ptr.is_null() {
-        return WGPUStringView { data: null(), length: 0};
+        return WGPUStringView {
+            data: null(),
+            length: 0,
+        };
     }
     WGPUStringView {
         data: ptr,
@@ -41,7 +44,10 @@ impl Instance {
         unsafe extern "C" fn cb(info: *const WGPUAdapterInfo, userdata: *mut c_void) {
             let info_ref = &*info;
             let name_str = if !info_ref.device.data.is_null() {
-                let slice = std::slice::from_raw_parts(info_ref.device.data as *const u8, info_ref.device.length);
+                let slice = std::slice::from_raw_parts(
+                    info_ref.device.data as *const u8,
+                    info_ref.device.length,
+                );
                 String::from_utf8_lossy(slice).to_string()
             } else {
                 String::from("Unknown Adapter")
@@ -73,9 +79,7 @@ impl Instance {
             panic!("failed to create dawn device");
         }
 
-        let device = Device {
-            handle,
-        };
+        let device = Device { handle };
 
         Some(device)
     }
@@ -307,10 +311,7 @@ impl DeviceBuffer {
                 userdata1: *mut c_void,
                 _userdata2: *mut c_void,
             ) {
-                assert_eq!(
-                    res,
-                    WGPUMapAsyncStatus_WGPUMapAsyncStatus_Success
-                );
+                assert_eq!(res, WGPUMapAsyncStatus_WGPUMapAsyncStatus_Success);
                 let mut tx = Box::from_raw(userdata1 as *mut Option<oneshot::Sender<()>>);
                 (*tx).take().unwrap().send(()).unwrap();
             }
@@ -326,13 +327,7 @@ impl DeviceBuffer {
                 userdata2: null_mut(),
             };
 
-            wgpuBufferMapAsync(
-                self.handle,
-                mode.bits as _,
-                0,
-                size as _,
-                callback_info
-            );
+            wgpuBufferMapAsync(self.handle, mode.bits as _, 0, size as _, callback_info);
 
             rx
         }
@@ -396,7 +391,7 @@ impl<'a> From<&BindGroupEntry<'a>> for WGPUBindGroupEntry {
             size: entry.size as _,
             sampler: null_mut(),
             textureView: null_mut(),
-            nextInChain: null_mut()
+            nextInChain: null_mut(),
         }
     }
 }
@@ -582,10 +577,7 @@ impl<'a> ErrorScope<'a> {
         };
 
         unsafe {
-            wgpuDevicePopErrorScope(
-                self.device.handle,
-                callback_info
-            );
+            wgpuDevicePopErrorScope(self.device.handle, callback_info);
         }
 
         result

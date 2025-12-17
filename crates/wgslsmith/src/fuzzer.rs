@@ -191,7 +191,7 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
         worker(config, options, harness, &mut |result| {
             worker_tx.send(result).unwrap()
         })
-            .unwrap()
+        .unwrap()
     });
 
     if disable_tui {
