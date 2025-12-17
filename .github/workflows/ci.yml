@@ -124,7 +124,11 @@ jobs:
         if: matrix.target == 'win64'
         run: |
           sudo apt-get update
-          sudo apt-get install clang-15 clang-tools-15 llvm-15 lld-15
+          # Install LLVM 19 repo script as it is not in default ubuntu repos yet
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y clang-19 clang-tools-19 llvm-19 lld-19
 
       - name: Install linux dependencies
         if: matrix.target == 'linux64'
@@ -150,17 +154,18 @@ jobs:
       - name: Build harness
         env:
           DAWN_BUILD_DIR: ${{ github.workspace }}/dawn-static-${{ matrix.target }}
+          DAWN_SRC_DIR: ${{ github.workspace }}/external/dawn
           CARGO_BUILD_TARGET: ${{ matrix.rust-target }}
           CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: >-
-            -C linker=lld-link-15
+            -C linker=lld-link-19
             -Lnative=${{ github.workspace }}/.xwin-cache/splat/crt/lib/x86_64
             -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/ucrt/x86_64
             -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/um/x86_64
-          CXX_x86_64_pc_windows_msvc: clang-cl-15
+          CXX_x86_64_pc_windows_msvc: clang-cl-19
           CXXFLAGS_x86_64_pc_windows_msvc: >-
             /imsvc ${{ github.workspace }}/.xwin-cache/splat/crt/include
             /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/ucrt
-          AR_x86_64_pc_windows_msvc: llvm-lib-15
+          AR_x86_64_pc_windows_msvc: llvm-lib-19
           MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: cargo build -p harness --release
 
