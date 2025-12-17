@@ -13,7 +13,7 @@ fn make_string_view(ptr: *const c_char) -> WGPUStringView {
     }
     WGPUStringView {
         data: ptr,
-        length: usize::MAX as u64, // WGPU_STRLEN (undefined length, null-terminated)
+        length: usize::MAX, // WGPU_STRLEN (undefined length, null-terminated)
     }
 }
 
@@ -40,14 +40,8 @@ impl Instance {
         #[allow(non_upper_case_globals)]
         unsafe extern "C" fn cb(info: *const WGPUAdapterInfo, userdata: *mut c_void) {
             let info_ref = &*info;
-            let raw_len = info_ref.device.length;
             let name_str = if !info_ref.device.data.is_null() {
-                let len = if raw_len == usize::MAX as u64 {
-                    unsafe { CStr::from_ptr(info_ref.device.data).to_bytes().len() }
-                } else {
-                    raw_len as usize
-                };
-                let slice = std::slice::from_raw_parts(info_ref.device.data as *const u8, len);
+                let slice = std::slice::from_raw_parts(info_ref.device.data as *const u8, info_ref.device.length);
                 String::from_utf8_lossy(slice).to_string()
             } else {
                 String::from("Unknown Adapter")
@@ -569,12 +563,7 @@ impl<'a> ErrorScope<'a> {
 
             if !message.data.is_null() {
                 // Handle WGPUStringView
-                let len = if message.length == usize::MAX as u64 {
-                    unsafe { CStr::from_ptr(message.data).to_bytes().len() }
-                } else {
-                    message.length as usize
-                };
-                let slice = std::slice::from_raw_parts(message.data as *const u8, len);
+                let slice = std::slice::from_raw_parts(message.data as *const u8, message.length);
                 let message_str = String::from_utf8_lossy(slice);
                 eprintln!("{message_str}");
             }
