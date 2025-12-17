@@ -120,6 +120,7 @@ def dawn_gen_cmake():
                 f"-DLLVM_NATIVE_TOOLCHAIN={os.environ['LLVM_NATIVE_TOOLCHAIN']}",
                 f"-DXWIN_CACHE={os.environ['XWIN_CACHE']}",
                 f"-DCMAKE_TOOLCHAIN_FILE={Path('cmake/WinMsvc.cmake').absolute()}",
+                "-DDAWN_FORCE_SYSTEM_COMPONENT_LOAD=ON",
             ]
 
             env = {"CXXFLAGS": "-Wno-float-equal"}
