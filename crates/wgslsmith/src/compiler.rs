@@ -88,7 +88,7 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
                 ..Default::default()
             };
 
-            let entry_point = module.entry_points.first()
+            let ep = module.entry_points.first()
                 .ok_or_else(|| eyre!("no entry point found"))?;
 
             let pipeline_options = hlsl::PipelineOptions {
