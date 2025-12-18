@@ -89,16 +89,14 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
             };
 
             let entry_point = module.entry_points.first()
-                .ok_or_else(|| eyre!("no entry point found"))?
-                .name
-                .clone();
+                .ok_or_else(|| eyre!("no entry point found"))?;
 
             let pipeline_options = hlsl::PipelineOptions {
-                entry_point,
+                entry_point: Some((ep.stage, ep.name.clone())),
             };
 
-            hlsl::Writer::new(&mut out, &options)
-                .write(&module, &validation, Some(&pipeline_options))?;
+            hlsl::Writer::new(&mut out, &options, &pipeline_options)
+                .write(&module, &validation, None)?;
         }
         Backend::Msl => {
             msl::Writer::new(&mut out).write(
