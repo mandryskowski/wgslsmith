@@ -41,7 +41,7 @@ version = "3.0.0"
 features = ["derive"]
 
 [dependencies.naga]
-path = "../../external/naga"
+path = "../../external/wgpu/naga"
 features = ["validate", "wgsl-in", "hlsl-out", "msl-out"]
 optional = true
 
