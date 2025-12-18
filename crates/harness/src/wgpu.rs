@@ -8,7 +8,7 @@ use wgpu::wgt::PollType::Wait;
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, DeviceDescriptor,
-    Instance, Limits, MapMode, PollType, ShaderModuleDescriptor, ShaderSource,
+    Instance, Limits, MapMode, ShaderModuleDescriptor, ShaderSource,
 };
 
 pub fn get_adapters() -> Vec<types::Adapter> {

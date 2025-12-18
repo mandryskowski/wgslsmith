@@ -56,7 +56,7 @@ pub async fn run(
     let instance = Instance::new();
 
     let device = instance
-        .create_device(backend, config.device_id as u32)
+        .create_device(backend, config.device_id)
         .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
     let queue = device.create_queue();
