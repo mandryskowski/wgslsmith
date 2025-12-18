@@ -82,14 +82,23 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
 
     match backend {
         Backend::Hlsl => {
-            let pipeline_options = hlsl::PipelineOptions {
+            let options = hlsl::Options {
                 shader_model: hlsl::ShaderModel::V5_1,
                 binding_map: Default::default(),
-                vertex_pulling_transform: false,
+                ..Default::default()
             };
 
-            hlsl::Writer::new(&mut out, &hlsl::Options::default(), &pipeline_options)
-                .write(&module, &validation, None)?;
+            let entry_point = module.entry_points.first()
+                .ok_or_else(|| eyre!("no entry point found"))?
+                .name
+                .clone();
+
+            let pipeline_options = hlsl::PipelineOptions {
+                entry_point,
+            };
+
+            hlsl::Writer::new(&mut out, &options)
+                .write(&module, &validation, Some(&pipeline_options))?;
         }
         Backend::Msl => {
             msl::Writer::new(&mut out).write(
