@@ -1,7 +1,7 @@
 use crate::dawn;
 use crate::webgpu::*;
 use futures::channel::oneshot;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{c_void, CString};
 use std::mem::zeroed;
 use std::os::raw::c_char;
 use std::ptr::{null, null_mut};
