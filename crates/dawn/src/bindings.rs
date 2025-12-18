@@ -73,7 +73,8 @@ impl Instance {
 
     pub fn create_device(&self, backend: WGPUBackendType, device_id: u32) -> Option<Device> {
         let callback: WGPUUncapturedErrorCallback = Some(default_error_callback);
-        let handle = unsafe { dawn::create_device(self.0, backend, device_id, callback, null_mut()) };
+        let handle =
+            unsafe { dawn::create_device(self.0, backend, device_id, callback, null_mut()) };
 
         if handle.is_null() {
             panic!("failed to create dawn device");
