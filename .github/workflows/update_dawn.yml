@@ -1,0 +1,75 @@
+name: Update Dawn Dependency
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-dawn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wgslsmith
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch latest release info from dawn-build
+        id: fetch-info
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_JSON=$(gh release view --repo mandryskowski/dawn-build --json tagName,body)
+          
+          TAG=$(echo "$RELEASE_JSON" | jq -r .tagName)
+
+          BODY=$(echo "$RELEASE_JSON" | jq -r .body)
+          COMMIT=$(echo "$BODY" | grep -oP 'dawn@\K[0-9a-f]+')
+
+          echo "Found Release Tag: $TAG"
+          echo "Found Dawn Commit: $COMMIT"
+
+          echo "LATEST_TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "LATEST_COMMIT=$COMMIT" >> $GITHUB_OUTPUT
+
+      - name: Check current version
+        id: check-version
+        run: |
+          CURRENT_TAG=$(grep "^dawn:" .github/dependency_versions.yaml | awk '{print $2}')
+          
+          if [ "$CURRENT_TAG" == "${{ steps.fetch-info.outputs.LATEST_TAG }}" ]; then
+            echo "Already up to date."
+            echo "UPDATED=false" >> $GITHUB_OUTPUT
+          else
+            echo "Update needed."
+            echo "UPDATED=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update files
+        if: steps.check-version.outputs.UPDATED == 'true'
+        run: |
+          sed -i "s/^dawn: .*/dawn: ${{ steps.fetch-info.outputs.LATEST_TAG }}/" .github/dependency_versions.yaml
+
+          cd external/dawn
+
+          git fetch origin ${{ steps.fetch-info.outputs.LATEST_COMMIT }}
+          git checkout ${{ steps.fetch-info.outputs.LATEST_COMMIT }}
+          cd ../..
+
+      - name: Create Pull Request
+        if: steps.check-version.outputs.UPDATED == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update dawn to ${{ steps.fetch-info.outputs.LATEST_TAG }}"
+          branch: dependabot/dawn-update
+          delete-branch: true
+          title: "chore: update dawn to ${{ steps.fetch-info.outputs.LATEST_TAG }}"
+          body: |
+            Automated update of Dawn dependencies.
+            
+            - **Dawn Build Release**: [${{ steps.fetch-info.outputs.LATEST_TAG }}](https://github.com/mandryskowski/dawn-build/releases/tag/${{ steps.fetch-info.outputs.LATEST_TAG }})
+            - **Dawn Commit**: `${{ steps.fetch-info.outputs.LATEST_COMMIT }}`
+            
+            This PR updates the `.github/dependency_versions.yaml` and moves the `external/dawn` submodule pointer.
