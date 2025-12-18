@@ -1,11 +1,15 @@
 use std::borrow::Cow;
 
+use crate::ConfigId;
 use color_eyre::eyre::eyre;
 use color_eyre::Result;
 use reflection::{PipelineDescription, ResourceKind};
-use wgpu::{Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, DeviceDescriptor, Instance, Limits, MapMode, PollType, ShaderModuleDescriptor, ShaderSource};
 use wgpu::wgt::PollType::Wait;
-use crate::ConfigId;
+use wgpu::{
+    Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
+    CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, DeviceDescriptor,
+    Instance, Limits, MapMode, PollType, ShaderModuleDescriptor, ShaderSource,
+};
 
 pub fn get_adapters() -> Vec<types::Adapter> {
     let instance = Instance::new(&wgpu::InstanceDescriptor {
@@ -14,7 +18,8 @@ pub fn get_adapters() -> Vec<types::Adapter> {
     });
 
     let adapters = futures::executor::block_on(instance.enumerate_adapters(Backends::all()));
-    adapters.into_iter()
+    adapters
+        .into_iter()
         .filter_map(|adapter| {
             let info = adapter.get_info();
             Some(types::Adapter {
@@ -156,11 +161,17 @@ pub async fn run(
     let bind_group_entries = resource_buffers
         .iter()
         .map(|res| match res {
-            ResourceBuffer::Storage { binding, gpu_buffer, .. } => BindGroupEntry {
+            ResourceBuffer::Storage {
+                binding,
+                gpu_buffer,
+                ..
+            } => BindGroupEntry {
                 binding: *binding,
                 resource: gpu_buffer.as_entire_binding(),
             },
-            ResourceBuffer::Uniform { binding, buffer, .. } => BindGroupEntry {
+            ResourceBuffer::Uniform {
+                binding, buffer, ..
+            } => BindGroupEntry {
                 binding: *binding,
                 resource: buffer.as_entire_binding(),
             },
@@ -183,7 +194,13 @@ pub async fn run(
         }
 
         for res in &resource_buffers {
-            if let ResourceBuffer::Storage { size, gpu_buffer, staging_buffer, .. } = res {
+            if let ResourceBuffer::Storage {
+                size,
+                gpu_buffer,
+                staging_buffer,
+                ..
+            } = res
+            {
                 encoder.copy_buffer_to_buffer(gpu_buffer, 0, staging_buffer, 0, *size);
             }
         }
