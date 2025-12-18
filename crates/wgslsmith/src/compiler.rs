@@ -82,7 +82,14 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
 
     match backend {
         Backend::Hlsl => {
-            hlsl::Writer::new(&mut out, &hlsl::Options::default()).write(&module, &validation)?;
+            let pipeline_options = hlsl::PipelineOptions {
+                shader_model: hlsl::ShaderModel::V5_1,
+                binding_map: Default::default(),
+                vertex_pulling_transform: false,
+            };
+
+            hlsl::Writer::new(&mut out, &hlsl::Options::default(), &pipeline_options)
+                .write(&module, &validation, None)?;
         }
         Backend::Msl => {
             msl::Writer::new(&mut out).write(
