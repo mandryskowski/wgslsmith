@@ -2,6 +2,7 @@ mod safe_wrappers;
 
 pub mod analysis;
 pub mod cli;
+pub mod evaluator;
 
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -82,6 +83,9 @@ pub fn recondition(ast: Module) -> Module {
 
 pub fn recondition_with(mut ast: Module, options: Options) -> Module {
     let mut reconditioner = Reconditioner::new(options);
+
+    // Abstract numerics
+    ast = evaluator::concretize(ast);
 
     let functions = ast
         .functions
