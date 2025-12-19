@@ -1,8 +1,8 @@
 mod builtin;
 mod value;
-use value::*;
-use builtin::*;
 use ast::*;
+use builtin::*;
+use value::*;
 
 /* Concretized node struct contains a concretized node and
    the value from evaluating that node. The value is None
@@ -155,15 +155,15 @@ impl Evaluator {
                 LetDeclStatement::new(ident, self.concretize_expr(initializer)).into()
             }
             Statement::VarDecl(VarDeclStatement {
-                                   ident,
-                                   data_type,
-                                   initializer,
-                               }) => VarDeclStatement::new(
+                ident,
+                data_type,
+                initializer,
+            }) => VarDeclStatement::new(
                 ident,
                 data_type,
                 initializer.map(|e| self.concretize_expr(e).into()),
             )
-                .into(),
+            .into(),
             Statement::Assignment(AssignmentStatement { lhs, op, rhs }) => {
                 AssignmentStatement::new(lhs, op, self.concretize_expr(rhs.into())).into()
             }
@@ -171,24 +171,24 @@ impl Evaluator {
                 Statement::Compound(s.into_iter().map(|s| self.concretize_stmt(s)).collect())
             }
             Statement::If(IfStatement {
-                              condition,
-                              body,
-                              else_,
-                          }) => IfStatement::new(
+                condition,
+                body,
+                else_,
+            }) => IfStatement::new(
                 self.concretize_expr(condition.into()),
                 body.into_iter().map(|s| self.concretize_stmt(s)).collect(),
             )
-                .with_else(else_.map(|els| *els))
-                .into(),
+            .with_else(else_.map(|els| *els))
+            .into(),
             Statement::Return(ReturnStatement { value }) => ReturnStatement {
                 value: value.map(|e| self.concretize_expr(e).into()),
             }
-                .into(),
+            .into(),
             Statement::Switch(SwitchStatement {
-                                  selector,
-                                  cases,
-                                  default,
-                              }) => SwitchStatement::new(
+                selector,
+                cases,
+                default,
+            }) => SwitchStatement::new(
                 self.concretize_expr(selector).into(),
                 cases
                     .into_iter()
@@ -199,14 +199,14 @@ impl Evaluator {
                     .map(|s| self.concretize_stmt(s))
                     .collect(),
             )
-                .into(),
+            .into(),
             Statement::FnCall(FnCallStatement { ident, args }) => FnCallStatement::new(
                 ident,
                 args.into_iter()
                     .map(|e| self.concretize_expr(e).into())
                     .collect(),
             )
-                .into(),
+            .into(),
             Statement::Loop(LoopStatement { body }) => {
                 LoopStatement::new(body.into_iter().map(|s| self.concretize_stmt(s)).collect())
                     .into()
@@ -221,7 +221,7 @@ impl Evaluator {
                 },
                 body.into_iter().map(|s| self.concretize_stmt(s)).collect(),
             )
-                .into(),
+            .into(),
             Statement::Break => Statement::Break,
             Statement::Continue => Statement::Continue,
             Statement::Fallthrough => Statement::Fallthrough,
@@ -231,10 +231,10 @@ impl Evaluator {
     fn concretize_for_init(&self, init: ForLoopInit) -> ForLoopInit {
         match init {
             ForLoopInit::VarDecl(VarDeclStatement {
-                                     ident,
-                                     data_type,
-                                     initializer,
-                                 }) => ForLoopInit::VarDecl(VarDeclStatement::new(
+                ident,
+                data_type,
+                initializer,
+            }) => ForLoopInit::VarDecl(VarDeclStatement::new(
                 ident,
                 data_type,
                 initializer.map(|e| self.concretize_expr(e).into()),
@@ -259,7 +259,7 @@ impl Evaluator {
             AssignmentLhs::Phony => AssignmentLhs::Phony,
             AssignmentLhs::Expr(expr) => AssignmentLhs::Expr(self.concretize_lhs_expr(expr)),
         }
-            .into()
+        .into()
     }
 
     fn concretize_lhs_expr(&self, node: LhsExprNode) -> LhsExprNode {
