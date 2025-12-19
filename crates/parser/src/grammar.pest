@@ -9,8 +9,17 @@ ident = @{
 
 bool_literal = { "true" | "false" }
 uint_literal = @{ ASCII_DIGIT+ ~ "u" }
-int_literal  = @{ ("-")? ~ ASCII_DIGIT+ ~ !"u" }
-float_literal = @{ ("-")? ~ ASCII_DIGIT* ~ "." ~ ASCII_DIGIT+ }
+int_literal = @{
+    ( ("-")? ~ ASCII_DIGIT+ ~ "i"? ~ !("u" | "f" | ".") )
+    |
+    ( "i32(" ~ ("-")? ~ ASCII_DIGIT+ ~ ")" )
+}
+
+float_literal = @{
+    ( ("-")? ~ ASCII_DIGIT* ~ "." ~ ASCII_DIGIT+ ~ "f"? )
+    |
+    ( ("-")? ~ ASCII_DIGIT+ ~ "f" )
+}
 
 // TYPES
 
