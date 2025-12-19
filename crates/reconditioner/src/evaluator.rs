@@ -30,24 +30,22 @@ macro_rules! binop_int_arith {
    analagous for >>
    Macro performs first check for bit width
 */
-macro_rules! binop_int_shift {
-    ($op:expr, $l:expr, $r:expr) => {
-        // rust checked_shl and checked_shr do not
-        // include overflow checks
-        match ($l, $r) {
-            (Lit::I32(l), Lit::U32(r)) => match $op {
-                BinOp::LShift => Value::from_i32(l.checked_shl(r)),
-                BinOp::RShift => Value::from_i32(l.checked_shr(r)),
-                _ => None,
-            },
-            (Lit::U32(l), Lit::U32(r)) => match $op {
-                BinOp::LShift => Value::from_u32(l.checked_shl(r)),
-                BinOp::RShift => Value::from_u32(l.checked_shr(r)),
-                _ => None,
-            },
+fn binop_int_shift(op: &BinOp, l: Lit, r: Lit) -> Option<Value> {
+    // rust checked_shl and checked_shr do not
+    // include overflow checks
+    match (l, r) {
+        (Lit::I32(l), Lit::U32(r)) => match op {
+            BinOp::LShift => Value::from_i32(l.checked_shl(r)),
+            BinOp::RShift => Value::from_i32(l.checked_shr(r)),
             _ => None,
-        }
-    };
+        },
+        (Lit::U32(l), Lit::U32(r)) => match op {
+            BinOp::LShift => Value::from_u32(l.checked_shl(r)),
+            BinOp::RShift => Value::from_u32(l.checked_shr(r)),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn binop_float(op: &BinOp, l: f32, r: f32) -> Option<f32> {
@@ -576,7 +574,7 @@ impl Evaluator {
 
     fn eval_bin_op_shift(&self, op: &BinOp, lv: Lit, rv: Lit) -> Option<Value> {
         // check condition 1
-        let result = binop_int_shift!(op, lv, rv);
+        let result = binop_int_shift(op, lv, rv);
 
         result.as_ref()?;
 
