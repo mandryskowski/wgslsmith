@@ -761,7 +761,7 @@ fn parse_literal_expression(pair: Pair<Rule>) -> ExprNode {
         ),
         Rule::int_literal => (
             ScalarType::I32,
-            Lit::I32(if pair.as_str().chars().last().unwrap() != ')' {
+            Lit::I32(if !pair.as_str().ends_with(')') {
                 pair.as_str().trim_end_matches('i').parse().unwrap()
             } else {
                 pair.as_str()
