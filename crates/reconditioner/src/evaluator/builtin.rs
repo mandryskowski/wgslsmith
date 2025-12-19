@@ -147,7 +147,7 @@ fn exp2(val: Lit) -> Option<Value> {
 
             let result = in_float_range(a.powf(v));
 
-            return Value::from_f32(result);
+            Value::from_f32(result)
         }
         _ => None,
     }
@@ -156,9 +156,9 @@ fn exp2(val: Lit) -> Option<Value> {
 //TODO: remove duplication of float range check
 fn in_float_range(f: f32) -> Option<f32> {
     if f.abs() <= 0.1_f32 || f.abs() >= (16777216_f32) {
-        return None;
+        None
     } else {
-        return Some(f);
+        Some(f)
     }
 }
 

@@ -60,16 +60,16 @@ fn binop_float(op: &BinOp, l: f32, r: f32) -> Option<f32> {
         _ => todo!(),
     };
 
-    return in_float_range(result);
+    in_float_range(result)
 
     // TODO: add float division and mod check
 }
 
 fn in_float_range(f: f32) -> Option<f32> {
     if f.abs() <= 0.1_f32 || f.abs() >= (16777216_f32) {
-        return None;
+        None
     } else {
-        return Some(f);
+        Some(f)
     }
 }
 
@@ -82,10 +82,7 @@ pub struct ConNode {
 // from ExprNode to ConNode (for passing into concretize fns)
 impl From<ExprNode> for ConNode {
     fn from(node: ExprNode) -> Self {
-        ConNode {
-            node: node,
-            value: None,
-        }
+        ConNode { node, value: None }
     }
 }
 
@@ -165,7 +162,7 @@ impl Evaluator {
             )
             .into(),
             Statement::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                AssignmentStatement::new(lhs, op, self.concretize_expr(rhs.into())).into()
+                AssignmentStatement::new(lhs, op, self.concretize_expr(rhs)).into()
             }
             Statement::Compound(s) => {
                 Statement::Compound(s.into_iter().map(|s| self.concretize_stmt(s)).collect())
@@ -175,7 +172,7 @@ impl Evaluator {
                 body,
                 else_,
             }) => IfStatement::new(
-                self.concretize_expr(condition.into()),
+                self.concretize_expr(condition),
                 body.into_iter().map(|s| self.concretize_stmt(s)).collect(),
             )
             .with_else(else_.map(|els| *els))
@@ -259,7 +256,6 @@ impl Evaluator {
             AssignmentLhs::Phony => AssignmentLhs::Phony,
             AssignmentLhs::Expr(expr) => AssignmentLhs::Expr(self.concretize_lhs_expr(expr)),
         }
-        .into()
     }
 
     fn concretize_lhs_expr(&self, node: LhsExprNode) -> LhsExprNode {
@@ -280,7 +276,7 @@ impl Evaluator {
 
         LhsExprNode {
             data_type: node.data_type,
-            expr: expr,
+            expr,
         }
     }
 
@@ -303,22 +299,18 @@ impl Evaluator {
         //TODO: if expr contains var, return (since not concretizable)
 
         match node.expr {
-            Expr::Lit(lit) => {
-                return self.concretize_lit(lit);
-            }
-            Expr::TypeCons(expr) => {
-                return self.concretize_typecons(node.data_type, expr);
-            }
+            Expr::Lit(lit) => self.concretize_lit(lit),
+            Expr::TypeCons(expr) => self.concretize_typecons(node.data_type, expr),
             Expr::UnOp(expr) => {
                 let con_inner = self.concretize_expr(*expr.inner);
 
-                return self.concretize_unop(node.data_type, expr.op, con_inner);
+                self.concretize_unop(node.data_type, expr.op, con_inner)
             }
             Expr::BinOp(expr) => {
                 let left = self.concretize_expr(*expr.left);
                 let right = self.concretize_expr(*expr.right);
 
-                return self.concretize_bin_op(node.data_type, expr.op, left, right);
+                self.concretize_bin_op(node.data_type, expr.op, left, right)
             }
             Expr::FnCall(expr) => {
                 let concrete_args = expr
@@ -327,7 +319,7 @@ impl Evaluator {
                     .map(|e| self.concretize_expr(e))
                     .collect();
 
-                return self.concretize_fncall(node.data_type, expr.ident, concrete_args);
+                self.concretize_fncall(node.data_type, expr.ident, concrete_args)
             }
             Expr::Postfix(expr) => {
                 let concrete_inner = self.concretize_expr(*expr.inner);
@@ -339,10 +331,10 @@ impl Evaluator {
                     Postfix::Member(string) => Postfix::Member(string),
                 };
 
-                return ConNode {
+                ConNode {
                     node: PostfixExpr::new(concrete_inner, concrete_postfix).into(),
                     value: None,
-                };
+                }
             }
             Expr::Var(expr) => {
                 ConNode {
@@ -393,7 +385,7 @@ impl Evaluator {
         }
     }
 
-    fn contains_none(&self, vals: &Vec<Option<Value>>) -> bool {
+    fn contains_none(&self, vals: &[Option<Value>]) -> bool {
         vals.iter().any(|v| v.is_none())
     }
 
@@ -414,10 +406,10 @@ impl Evaluator {
             ))
         };
 
-        return ConNode {
+        ConNode {
             node: TypeConsExpr::new(data_type, new_node).into(),
             value: new_val,
-        };
+        }
     }
 
     // function decomposes Vec<ConNode> to a tuple
@@ -456,7 +448,7 @@ impl Evaluator {
         if left.value.is_none() || right.value.is_none() {
             return ConNode {
                 node: ExprNode {
-                    data_type: data_type,
+                    data_type,
                     expr: Expr::BinOp(BinOpExpr::new(op, left, right)),
                 },
                 value: None,
@@ -464,22 +456,21 @@ impl Evaluator {
         }
 
         let value: Option<Value> = self.evaluate_bin_op(
-            &data_type,
             &op,
             left.value.clone().unwrap(),
             right.value.clone().unwrap(),
         );
 
         if value.is_none() {
-            return self.default_node(data_type);
+            self.default_node(data_type)
         } else {
-            return ConNode {
+            ConNode {
                 node: ExprNode {
-                    data_type: data_type,
+                    data_type,
                     expr: Expr::BinOp(BinOpExpr::new(op, left, right)),
                 },
-                value: value,
-            };
+                value,
+            }
         }
     }
 
@@ -535,32 +526,22 @@ impl Evaluator {
         }
     }
 
-    fn evaluate_bin_op(
-        &self,
-        data_type: &DataType,
-        op: &BinOp,
-        l: Value,
-        r: Value,
-    ) -> Option<Value> {
+    fn evaluate_bin_op(&self, op: &BinOp, l: Value, r: Value) -> Option<Value> {
         match (l.clone(), r.clone()) {
-            (Value::Vector(lv), Value::Vector(rv)) => {
-                return self.eval_bin_op_vector(data_type, op, lv, rv);
-            }
+            (Value::Vector(lv), Value::Vector(rv)) => self.eval_bin_op_vector(op, lv, rv),
 
-            (Value::Lit(lv), Value::Lit(rv)) => {
-                return self.eval_bin_op_scalar(op, lv, rv);
-            }
+            (Value::Lit(lv), Value::Lit(rv)) => self.eval_bin_op_scalar(op, lv, rv),
             // mixed scalar and vector binops require converting the
             // scalar s to a vector<s> and performing component wise binop
             (Value::Lit(_), Value::Vector(rv)) => {
                 let lv_vec = vec![l; rv.len()];
 
-                return self.eval_bin_op_vector(data_type, op, lv_vec, rv.to_vec());
+                self.eval_bin_op_vector(op, lv_vec, rv.to_vec())
             }
             (Value::Vector(lv), Value::Lit(_)) => {
                 let rv_vec = vec![r; lv.len()];
 
-                return self.eval_bin_op_vector(data_type, op, lv.to_vec(), rv_vec);
+                self.eval_bin_op_vector(op, lv.to_vec(), rv_vec)
             }
         }
     }
@@ -571,31 +552,25 @@ impl Evaluator {
                (1) bit width of shiftee < value of shifter
                (2) no overflow
             */
-            BinOp::LShift | BinOp::RShift => {
-                return self.eval_bin_op_shift(op, lv, rv);
-            }
+            BinOp::LShift | BinOp::RShift => self.eval_bin_op_shift(op, lv, rv),
             BinOp::Plus | BinOp::Minus | BinOp::Times | BinOp::Divide | BinOp::Mod => {
                 match (lv, rv) {
                     (Lit::I32(l_lit), Lit::I32(r_lit)) => {
                         let result = binop_int_arith!(op, l_lit, r_lit);
-                        return Value::from_i32(result);
+                        Value::from_i32(result)
                     }
                     (Lit::U32(l_lit), Lit::U32(r_lit)) => {
                         let result = binop_int_arith!(op, l_lit, r_lit);
-                        return Value::from_u32(result);
+                        Value::from_u32(result)
                     }
                     (Lit::F32(l_lit), Lit::F32(r_lit)) => {
                         let result = binop_float(op, l_lit, r_lit);
-                        return Value::from_f32(result);
+                        Value::from_f32(result)
                     }
-                    _ => {
-                        return None;
-                    }
+                    _ => None,
                 }
             }
-            _ => {
-                return None;
-            }
+            _ => None,
         }
     }
 
@@ -603,42 +578,29 @@ impl Evaluator {
         // check condition 1
         let result = binop_int_shift!(op, lv, rv);
 
-        if result.is_none() {
-            return None;
-        }
+        result.as_ref()?;
 
         // check condition 2
         match (lv, rv) {
-            (Lit::I32(l), Lit::U32(r)) => match op {
-                BinOp::LShift => {
-                    if l.leading_zeros() < (r + 1) && l.leading_ones() < (r + 1) {
-                        return None;
-                    }
+            (Lit::I32(l), Lit::U32(r)) => {
+                if op == &BinOp::LShift && l.leading_zeros() < (r + 1) && l.leading_ones() < (r + 1)
+                {
+                    return None;
                 }
-                _ => (),
-            },
-            (Lit::U32(l), Lit::U32(r)) => match op {
-                BinOp::LShift => {
-                    if l.leading_zeros() < r {
-                        return None;
-                    }
+            }
+            (Lit::U32(l), Lit::U32(r)) => {
+                if op == &BinOp::LShift && l.leading_zeros() < r {
+                    return None;
                 }
-                _ => (),
-            },
+            }
             _ => todo!(),
         }
 
         // if we have passed all of the checks, return the result
-        return result;
+        result
     }
 
-    fn eval_bin_op_vector(
-        &self,
-        data_type: &DataType,
-        op: &BinOp,
-        l: Vec<Value>,
-        r: Vec<Value>,
-    ) -> Option<Value> {
+    fn eval_bin_op_vector(&self, op: &BinOp, l: Vec<Value>, r: Vec<Value>) -> Option<Value> {
         let mut result: Vec<Value> = Vec::new();
 
         for (a, b) in l.iter().zip(r.iter()) {
@@ -646,7 +608,7 @@ impl Evaluator {
                 (Value::Lit(lv), Value::Lit(rv)) => self.eval_bin_op_scalar(op, *lv, *rv),
 
                 (Value::Vector(lv), Value::Vector(rv)) => {
-                    self.eval_bin_op_vector(data_type, op, lv.to_vec(), rv.to_vec())
+                    self.eval_bin_op_vector(op, lv.to_vec(), rv.to_vec())
                 }
 
                 // rules for binop on mixed scalar and vector operands are that
@@ -655,12 +617,12 @@ impl Evaluator {
                 (Value::Vector(lv), Value::Lit(_)) => {
                     let rv_vec = vec![(*b).clone(); lv.len()];
 
-                    self.eval_bin_op_vector(data_type, op, lv.to_vec(), rv_vec)
+                    self.eval_bin_op_vector(op, lv.to_vec(), rv_vec)
                 }
                 (Value::Lit(_), Value::Vector(rv)) => {
                     let lv_vec = vec![(*a).clone(); rv.len()];
 
-                    self.eval_bin_op_vector(data_type, op, lv_vec, rv.to_vec())
+                    self.eval_bin_op_vector(op, lv_vec, rv.to_vec())
                 }
             };
 
@@ -672,7 +634,7 @@ impl Evaluator {
             }
         }
 
-        return Some(Value::Vector(result));
+        Some(Value::Vector(result))
     }
 
     fn concretize_unop(&self, data_type: DataType, op: UnOp, inner: ConNode) -> ConNode {
@@ -696,12 +658,8 @@ impl Evaluator {
 
     fn eval_unop(&self, op: UnOp, inner: ConNode) -> Option<Value> {
         match inner.value.unwrap() {
-            Value::Vector(v) => {
-                return self.eval_unop_vector(op, v);
-            }
-            Value::Lit(v) => {
-                return self.eval_unop_scalar(op, v);
-            }
+            Value::Vector(v) => self.eval_unop_vector(op, v),
+            Value::Lit(v) => self.eval_unop_scalar(op, v),
         }
     }
 
@@ -745,7 +703,7 @@ impl Evaluator {
                     let elem = self.eval_unop_scalar(op, v);
 
                     match elem {
-                        Some(e) => result.push(e.into()),
+                        Some(e) => result.push(e),
                         None => {
                             return None;
                         }
@@ -755,7 +713,7 @@ impl Evaluator {
                     let elem = self.eval_unop_vector(op, v.to_vec());
 
                     match elem {
-                        Some(e) => result.push(e.into()),
+                        Some(e) => result.push(e),
                         None => {
                             return None;
                         }
@@ -764,6 +722,6 @@ impl Evaluator {
             }
         }
 
-        return Some(Value::Vector(result));
+        Some(Value::Vector(result))
     }
 }
