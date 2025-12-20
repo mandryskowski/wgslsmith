@@ -81,6 +81,7 @@ jobs:
           - win64
           # - macos64
           - linux64
+          - android
         include:
           - target: win64
             os: ubuntu-latest
@@ -94,12 +95,26 @@ jobs:
             os: ubuntu-latest
             rust-target: x86_64-unknown-linux-gnu
             exe_suffix: ""
+          - target: android
+            os: ubuntu-latest
+            rust-target: aarch64-linux-android
+            exe_suffix: "" 
 
     steps:
       - name: Checkout git repo
         uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Setup Android NDK
+        if: matrix.target == 'android'
+        uses: android-actions/setup-ndk@v3
+        with:
+          ndk-version: r26d
+          
+      - name: Install cargo-ndk
+        if: matrix.target == 'android'
+        run: cargo install cargo-ndk
 
       - name: Install rust toolchain
         run: rustup target add ${{ matrix.rust-target }}
@@ -148,6 +163,7 @@ jobs:
           tar -xvf dawn-static-${{ matrix.target }}.tar.gz
 
       - name: Build harness
+        if: matrix.target != 'android'
         env:
           DAWN_BUILD_DIR: ${{ github.workspace }}/dawn-static-${{ matrix.target }}
           DAWN_SRC_DIR: ${{ github.workspace }}/external/dawn
@@ -172,6 +188,17 @@ jobs:
           AR_x86_64_pc_windows_msvc: llvm-lib-19
           MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: cargo build -p harness --release
+
+      - name: Build harness (Android)
+        if: matrix.target == 'android'
+        env:
+          DAWN_BUILD_DIR: ${{ github.workspace }}/dawn-static-${{ matrix.target }}
+          DAWN_SRC_DIR: ${{ github.workspace }}/external/dawn
+          BINDGEN_EXTRA_CLANG_ARGS: >-
+             --sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+             --target=aarch64-linux-android
+        run: |
+          cargo ndk -t aarch64-linux-android -p 30 build -p harness --release
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
