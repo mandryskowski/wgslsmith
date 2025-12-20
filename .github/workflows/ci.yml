@@ -227,9 +227,10 @@ jobs:
 
       - name: Install Vulkan SDK (macOS)
         if: matrix.os == 'macos-latest'
-        uses: humbletim/install-vulkan-sdk@v1.1.1
+        uses: jakoch/install-vulkan-sdk-action@v1
         with:
           version: latest
+          install_runtime: true
           cache: true
 
       - name: Run test shaders
