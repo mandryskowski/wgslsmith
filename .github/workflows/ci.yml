@@ -198,7 +198,7 @@ jobs:
              --sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
              --target=aarch64-linux-android
         run: |
-          cargo ndk -t aarch64-linux-android -p 30 build -p harness --release
+          cargo ndk -t aarch64-linux-android --platform 30 build -p harness --release
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
