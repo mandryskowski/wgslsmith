@@ -210,8 +210,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          release_tag=`gh release view --json tagName -q '.tagName' -R wgslsmith/swiftshader-build`
-          gh release download $release_tag -p swiftshader-${{ matrix.artifact }}.tar.gz -R wgslsmith/swiftshader-build
+          release_tag=`gh release view --json tagName -q '.tagName' -R mandryskowski/swiftshader-build`
+          gh release download $release_tag -p swiftshader-${{ matrix.artifact }}.tar.gz -R mandryskowski/swiftshader-build
           mkdir swiftshader-${{ matrix.artifact }}
           tar -xvf swiftshader-${{ matrix.artifact }}.tar.gz
 
