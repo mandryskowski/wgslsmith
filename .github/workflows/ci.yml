@@ -108,7 +108,7 @@ jobs:
 
       - name: Setup Android NDK
         if: matrix.target == 'android'
-        uses: android-actions/setup-ndk@v3
+        uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
           
