@@ -190,11 +190,14 @@ jobs:
         os:
           - windows-latest
           - ubuntu-latest
+          - macos-latest
         include:
           - os: windows-latest
             artifact: win64
           - os: ubuntu-latest
             artifact: linux64
+          - os: macos-latest
+            artifact: macos64
 
     steps:
       - name: Checkout git repo
@@ -221,6 +224,13 @@ jobs:
       - name: Copy vulkan loader
         if: matrix.os == 'windows-latest'
         run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll .
+
+      - name: Install Vulkan SDK (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+          version: latest
+          cache: true
 
       - name: Run test shaders
         env:
