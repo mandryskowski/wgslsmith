@@ -81,6 +81,7 @@ jobs:
           - win64
           - macos64
           - linux64
+          - android
         include:
           - target: win64
             os: ubuntu-latest
@@ -94,12 +95,27 @@ jobs:
             os: ubuntu-latest
             rust-target: x86_64-unknown-linux-gnu
             exe_suffix: ""
+          - target: android
+            os: ubuntu-latest
+            rust-target: aarch64-linux-android
+            exe_suffix: "" 
 
     steps:
       - name: Checkout git repo
         uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        if: matrix.target == 'android'
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          
+      - name: Install cargo-ndk
+        if: matrix.target == 'android'
+        run: cargo install cargo-ndk
 
       - name: Install rust toolchain
         run: rustup target add ${{ matrix.rust-target }}
@@ -148,6 +164,7 @@ jobs:
           tar -xvf dawn-static-${{ matrix.target }}.tar.gz
 
       - name: Build harness
+        if: matrix.target != 'android'
         env:
           DAWN_BUILD_DIR: ${{ github.workspace }}/dawn-static-${{ matrix.target }}
           DAWN_SRC_DIR: ${{ github.workspace }}/external/dawn
@@ -173,11 +190,25 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: cargo build -p harness --release
 
+      - name: Build harness (Android)
+        if: matrix.target == 'android'
+        env:
+          DAWN_BUILD_DIR: ${{ github.workspace }}/dawn-static-${{ matrix.target }}
+          DAWN_SRC_DIR: ${{ github.workspace }}/external/dawn
+          BINDGEN_EXTRA_CLANG_ARGS: >-
+             --sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+             --target=aarch64-linux-android
+        run: |
+          cargo ndk -t aarch64-linux-android --platform 30 build -p harness --release
+          mkdir -p android-staging
+          cp target/${{ matrix.rust-target }}/release/wgslsmith-harness android-staging/
+          cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so android-staging/
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: harness-${{ matrix.target }}
-          path: target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }}
+          path: ${{ matrix.target == 'android' && 'android-staging/*' || format('target/{0}/release/wgslsmith-harness{1}', matrix.rust-target, matrix.exe_suffix) }}
 
   test_harness:
     runs-on: ${{ matrix.os }}
