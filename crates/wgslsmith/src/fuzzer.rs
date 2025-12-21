@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -12,7 +11,7 @@ use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use eyre::{eyre, Context};
+use eyre::eyre;
 use harness_types::ConfigId;
 use regex::Regex;
 use tap::Tap;
@@ -24,7 +23,6 @@ use tui::widgets::{Block, Borders, Paragraph};
 use tui::Terminal;
 
 use crate::config::Config;
-use crate::fuzzer::WorkerResultKind::Success;
 use crate::harness_runner::{self, ExecutionResult, Harness, Target, TargetPath};
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -317,7 +315,7 @@ fn worker(
 ) -> eyre::Result<()> {
     loop {
         let mut logger = |line| on_message(WorkerMessage::Log(line));
-        let result = worker_iteration(&config, &options, &targets, &mut logger)?;
+        let result = worker_iteration(&config, &options, targets, &mut logger)?;
         on_message(WorkerMessage::Result(result))
     }
 }

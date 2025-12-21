@@ -1,7 +1,6 @@
 use crate::config::Config;
-use crate::fuzzer::Options;
 use bincode::{Decode, Encode};
-use eyre::{eyre, Report};
+use eyre::eyre;
 use harness_types::ConfigId;
 use std::fmt::{Display, Write as _};
 use std::io::{self, BufRead, BufReader, BufWriter, Write as _};
