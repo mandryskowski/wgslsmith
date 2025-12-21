@@ -107,6 +107,7 @@ jobs:
           submodules: true
 
       - name: Setup Android NDK
+        id: setup-ndk
         if: matrix.target == 'android'
         uses: nttld/setup-ndk@v1
         with:
