@@ -79,7 +79,7 @@ jobs:
       matrix:
         target:
           - win64
-          # - macos64
+          - macos64
           - linux64
           - android
         include:
@@ -87,10 +87,10 @@ jobs:
             os: ubuntu-latest
             rust-target: x86_64-pc-windows-msvc
             exe_suffix: .exe
-          # - target: macos64
-          #   os: macos-latest
-          #   rust-target: x86_64-apple-darwin
-          #   exe_suffix: ""
+          - target: macos64
+            os: macos-latest
+            rust-target: x86_64-apple-darwin
+            exe_suffix: ""
           - target: linux64
             os: ubuntu-latest
             rust-target: x86_64-unknown-linux-gnu
@@ -221,11 +221,14 @@ jobs:
         os:
           - windows-latest
           - ubuntu-latest
+          - macos-latest
         include:
           - os: windows-latest
             artifact: win64
           - os: ubuntu-latest
             artifact: linux64
+          - os: macos-latest
+            artifact: macos64
 
     steps:
       - name: Checkout git repo
@@ -238,8 +241,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          release_tag=`gh release view --json tagName -q '.tagName' -R wgslsmith/swiftshader-build`
-          gh release download $release_tag -p swiftshader-${{ matrix.artifact }}.tar.gz -R wgslsmith/swiftshader-build
+          release_tag=`gh release view --json tagName -q '.tagName' -R mandryskowski/swiftshader-build`
+          gh release download $release_tag -p swiftshader-${{ matrix.artifact }}.tar.gz -R mandryskowski/swiftshader-build
           mkdir swiftshader-${{ matrix.artifact }}
           tar -xvf swiftshader-${{ matrix.artifact }}.tar.gz
 
@@ -252,6 +255,14 @@ jobs:
       - name: Copy vulkan loader
         if: matrix.os == 'windows-latest'
         run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll .
+
+      - name: Install Vulkan SDK (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          version: latest
+          install_runtime: true
+          cache: true
 
       - name: Run test shaders
         env:
