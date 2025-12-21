@@ -199,12 +199,15 @@ jobs:
              --target=aarch64-linux-android
         run: |
           cargo ndk -t aarch64-linux-android --platform 30 build -p harness --release
+          mkdir -p android-staging
+          cp target/${{ matrix.rust-target }}/release/wgslsmith-harness android-staging/
+          cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so android-staging/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: harness-${{ matrix.target }}
-          path: target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }}
+          path: ${{ matrix.target == 'android' && 'android-staging/*' || format('target/{0}/release/wgslsmith-harness{1}', matrix.rust-target, matrix.exe_suffix) }}
 
   test_harness:
     runs-on: ${{ matrix.os }}
