@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,7 +12,7 @@ use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use eyre::eyre;
+use eyre::{eyre, Context};
 use harness_types::ConfigId;
 use regex::Regex;
 use tap::Tap;
@@ -23,7 +24,8 @@ use tui::widgets::{Block, Borders, Paragraph};
 use tui::Terminal;
 
 use crate::config::Config;
-use crate::harness_runner::{self, ExecutionResult, Harness};
+use crate::fuzzer::WorkerResultKind::Success;
+use crate::harness_runner::{self, ExecutionResult, Harness, Target, TargetPath};
 
 #[derive(Copy, Clone, ValueEnum)]
 enum SaveStrategy {
@@ -61,6 +63,9 @@ pub struct Options {
 
     #[clap(short, long = "config", action)]
     configs: Vec<ConfigId>,
+
+    #[clap(short = 't', long = "target", action)]
+    targets: Vec<TargetPath>,
 
     /// Disable the fancy terminal dashboard UI.
     #[clap(long, action)]
@@ -123,7 +128,7 @@ impl ExecutionResult {
         mut ignore: impl Iterator<Item = &'a Regex>,
     ) -> bool {
         match self {
-            ExecutionResult::Success => false,
+            ExecutionResult::Success(_) => false,
             // ExecutionResult::Timeout => false,
             ExecutionResult::Crash(output) => {
                 matches!(strategy, SaveStrategy::All | SaveStrategy::Crashes)
@@ -165,30 +170,45 @@ fn save_shader(
     Ok(())
 }
 
+fn get_targets(config: &Config, options: &Options) -> eyre::Result<Vec<Target>> {
+    let mut targets = options
+        .targets
+        .iter()
+        .map(|target_path| Target::from_path(target_path.clone(), config))
+        .collect::<eyre::Result<Vec<Target>>>()?;
+
+    if options.server.is_some() || !options.configs.is_empty() || targets.is_empty() {
+        let harness = match options
+            .server
+            .as_deref()
+            .or_else(|| config.default_remote())
+        {
+            Some(server) => Harness::Remote(server.to_owned()),
+            None => Harness::Local(
+                config
+                    .harness
+                    .path
+                    .clone()
+                    .map(Ok)
+                    .unwrap_or_else(std::env::current_exe)?,
+            ),
+        };
+
+        targets.push(Target::new(harness, options.configs.clone()));
+    }
+    Ok(targets)
+}
+
 pub fn run(config: Config, options: Options) -> eyre::Result<()> {
     unsafe { UTC_OFFSET = Some(UtcOffset::current_local_offset()?) };
 
     let disable_tui = options.disable_tui;
-    let harness = match options
-        .server
-        .as_deref()
-        .or_else(|| config.default_remote())
-    {
-        Some(server) => Harness::Remote(server.to_owned()),
-        None => Harness::Local(
-            config
-                .harness
-                .path
-                .clone()
-                .map(Ok)
-                .unwrap_or_else(std::env::current_exe)?,
-        ),
-    };
+    let targets = get_targets(&config, &options)?;
 
     let (worker_tx, worker_rx) = crossbeam_channel::bounded(1);
 
     std::thread::spawn(move || {
-        worker(config, options, harness, &mut |result| {
+        worker(config, options, &targets, &mut |result| {
             worker_tx.send(result).unwrap()
         })
         .unwrap()
@@ -292,12 +312,12 @@ enum WorkerResultKind {
 fn worker(
     config: Config,
     options: Options,
-    harness: Harness,
+    targets: &[Target],
     on_message: &mut dyn FnMut(WorkerMessage),
 ) -> eyre::Result<()> {
     loop {
         let mut logger = |line| on_message(WorkerMessage::Log(line));
-        let result = worker_iteration(&config, &options, &harness, &mut logger)?;
+        let result = worker_iteration(&config, &options, &targets, &mut logger)?;
         on_message(WorkerMessage::Result(result))
     }
 }
@@ -305,7 +325,7 @@ fn worker(
 fn worker_iteration(
     config: &Config,
     options: &Options,
-    harness: &Harness,
+    targets: &[Target],
     logger: &mut dyn FnMut(String),
 ) -> eyre::Result<WorkerResult> {
     let shader = gen_shader(options)?;
@@ -325,35 +345,52 @@ fn worker_iteration(
         }
     };
 
-    let exec_result = harness_runner::exec_shader(
-        harness,
-        options.configs.clone(),
-        &reconditioned,
-        metadata,
-        logger,
-    );
+    let mut result = None;
+    for target in targets {
+        let prev = result;
 
-    let result = match exec_result {
-        Ok(result) => result,
-        Err(e) => {
-            if options.save_failures {
-                save_shader(
-                    &options.output,
-                    shader,
-                    &reconditioned,
-                    metadata,
-                    Some(&format!("{e:#?}")),
-                )?;
+        let exec_result = harness_runner::exec_shader(
+            &target.harness,
+            target.configs.clone(),
+            &reconditioned,
+            metadata,
+            &mut *logger,
+        );
+
+        result = match exec_result {
+            Ok(result) => Some(result),
+            Err(e) => {
+                if options.save_failures {
+                    save_shader(
+                        &options.output,
+                        shader,
+                        &reconditioned,
+                        metadata,
+                        Some(&format!("{e:#?}")),
+                    )?;
+                }
+                return Ok(WorkerResult {
+                    kind: WorkerResultKind::ExecutionFailure,
+                    saved: false,
+                });
             }
-            return Ok(WorkerResult {
-                kind: WorkerResultKind::ExecutionFailure,
-                saved: false,
-            });
+        };
+
+        if !matches!(result, Some(ExecutionResult::Success(_))) {
+            break;
         }
-    };
+
+        // Mismatch between harnesses
+        if prev.is_some() && result != prev {
+            result = Some(ExecutionResult::Mismatch);
+            break;
+        }
+    }
+
+    let result = result.unwrap_or(ExecutionResult::Success(vec![]));
 
     let result_kind = match result {
-        ExecutionResult::Success => WorkerResultKind::Success,
+        ExecutionResult::Success(_) => WorkerResultKind::Success,
         ExecutionResult::Crash(_) => WorkerResultKind::Crash,
         ExecutionResult::Mismatch => WorkerResultKind::Mismatch,
         // ExecutionResult::Timeout => WorkerResultKind::Timeout,
