@@ -83,6 +83,7 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
     pipeline_desc: &PipelineDescription,
     configs: &[ConfigId],
     timeout: Option<Duration>,
+    parallelism: Option<usize>,
     mut on_event: E,
 ) -> Result<(), ExecutionError> {
     let default_configs;
@@ -100,66 +101,84 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
         configs
     };
 
-    let on_event_mutex = Mutex::new(on_event);
+    let on_event = Mutex::new(on_event);
+    let configs_iter = Mutex::new(configs.iter());
+    let num_threads = if let Some(p) = parallelism {
+        p.min(configs.len())
+    } else {
+        configs.len()
+    };
 
     std::thread::scope(|s| {
         let mut handles = vec![];
 
-        for config in configs {
-            let on_event = &on_event_mutex;
+        for _ in 0..num_threads {
+            let on_event = &on_event;
+            let configs_iter = &configs_iter;
 
             handles.push(s.spawn(move || -> Result<(), ExecutionError> {
-                {
-                    let mut lock = on_event.lock().expect("mutex poisoned");
-                    lock(ExecutionEvent::Start(config.clone()))?;
-                }
-
-                let mut child = Host::exec_command()
-                    .arg(config.to_string())
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
-
-                let mut stdin = child.stdin.take().unwrap();
-
-                bincode::encode_into_std_write(
-                    ExecutionArgs {
-                        shader,
-                        pipeline_desc,
-                    },
-                    &mut stdin,
-                    bincode::config::standard(),
-                )?;
-
-                let mut child = child.controlled_with_output();
-                if let Some(timeout) = timeout {
-                    child = child.time_limit(timeout).terminate_for_timeout();
-                }
-
-                let output = child.wait()?;
-
-                let mut lock = on_event.lock().expect("mutex poisoned");
-
-                match output {
-                    Some(output) => {
-                        if output.status.success() {
-                            let (output, _): (ExecutionOutput, _) =
-                                bincode::decode_from_slice(&output.stdout, bincode::config::standard())?;
-                            lock(ExecutionEvent::Success(output.buffers))
-                        } else {
-                            lock(ExecutionEvent::Failure(output.stderr))
+                loop {
+                    let config = {
+                        let mut iter = configs_iter.lock().expect("iter mutex poisoned");
+                        match iter.next() {
+                            Some(c) => c.clone(),
+                            None => return Ok(()),
                         }
+                    };
+
+                    {
+                        let mut lock = on_event.lock().expect("event mutex poisoned");
+                        lock(ExecutionEvent::Start(config.clone()))?;
                     }
-                    None => lock(ExecutionEvent::Timeout),
+
+                    let mut child = Host::exec_command()
+                        .arg(config.to_string())
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?;
+
+                    let mut stdin = child.stdin.take().unwrap();
+
+                    bincode::encode_into_std_write(
+                        ExecutionArgs {
+                            shader,
+                            pipeline_desc,
+                        },
+                        &mut stdin,
+                        bincode::config::standard(),
+                    )?;
+
+                    let mut child = child.controlled_with_output();
+                    if let Some(timeout) = timeout {
+                        child = child.time_limit(timeout).terminate_for_timeout();
+                    }
+
+                    let output = match child.wait()? {
+                        Some(output) => output,
+                        None => {
+                            let mut lock = on_event.lock().expect("event mutex poisoned");
+                            lock(ExecutionEvent::Timeout)?;
+                            continue;
+                        }
+                    };
+
+                    let mut lock = on_event.lock().expect("event mutex poisoned");
+                    if output.status.success() {
+                        let (output, _): (ExecutionOutput, _) = bincode::decode_from_slice(
+                            &output.stdout,
+                            bincode::config::standard(),
+                        )?;
+                        lock(ExecutionEvent::Success(output.buffers))?;
+                    } else {
+                        lock(ExecutionEvent::Failure(output.stderr))?;
+                    }
                 }
             }));
         }
 
         for handle in handles {
-            if let Err(e) = handle.join().unwrap() {
-                return Err(e);
-            }
+            handle.join().unwrap()?;
         }
 
         Ok(())

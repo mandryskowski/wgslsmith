@@ -152,6 +152,7 @@ pub trait Executor {
         pipeline_desc: &PipelineDescription,
         configs: &[ConfigId],
         timeout: Option<Duration>,
+        parallelism: Option<usize>,
         on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
     ) -> Result<(), ExecutionError>;
 }
@@ -191,6 +192,12 @@ pub mod cli {
         #[clap(long, action, default_value = "30")]
         pub timeout: u64,
 
+        /// Limit the number of parallel configurations executing at once.
+        ///
+        /// If not provided, execution will spawn a thread for every configuration.
+        #[clap(long, short = 'j', action)]
+        pub parallelism: Option<usize>,
+
         /// Print the final output if all configurations returned the same output.
         ///
         /// Timeouts are ignored.
@@ -229,6 +236,7 @@ pub mod cli {
                 &pipeline_desc,
                 &options.configs,
                 timeout,
+                options.parallelism,
                 &mut on_event,
             )
             .map_err(|e| match e {
