@@ -56,6 +56,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .include(dawn_src_dir.join("include"))
         .define("TINT_BUILD_WGSL_READER", "1")
         .define("TINT_BUILD_HLSL_WRITER", "1")
+        .define("TINT_BUILD_SPV_WRITER", "1")
         .define("TINT_BUILD_MSL_WRITER", "1");
 
     if build_target.contains("msvc") {

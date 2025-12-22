@@ -1,7 +1,20 @@
 use std::fmt::Display;
 
-use clap::ValueEnum;
+use clap::{Parser, ValueEnum};
 use eyre::{eyre, Context};
+
+#[derive(Parser)]
+pub struct Options {
+    /// Path to wgsl shader program to be executed (use '-' for stdin)
+    #[clap(action, default_value = "-")]
+    pub shader: String,
+
+    #[clap(long, value_enum, action, requires("backend"))]
+    pub(crate) compiler: Compiler,
+
+    #[clap(long, value_enum, action)]
+    pub(crate) backend: Backend,
+}
 
 #[derive(ValueEnum, Clone)]
 pub enum Compiler {
@@ -121,7 +134,9 @@ fn compile_tint(source: &str, backend: Backend) -> eyre::Result<String> {
     let out = match backend {
         Backend::Hlsl => tint::compile_shader_to_hlsl(source),
         Backend::Msl => tint::compile_shader_to_msl(source),
-        Backend::Spirv => todo!(),
+        Backend::Spirv => {
+            format!("{:?}", tint::compile_shader_to_spirv(source))
+        }
     };
     Ok(out)
 }

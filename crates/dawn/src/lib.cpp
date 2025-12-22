@@ -16,6 +16,7 @@ extern "C" dawn::native::Instance* new_instance() {
     // instance->EnableBackendValidation(true);
     // instance->SetBackendValidationLevel(dawn::native::BackendValidationLevel::Full);
 
+
     WGPURequestAdapterOptions options = {};
     instance->EnumerateAdapters(&options); 
 
@@ -71,6 +72,7 @@ extern "C" WGPUDevice create_device(
 
         if (info.backendType == backendType && info.deviceID == deviceID) {
             WGPUDeviceDescriptor descriptor = {};
+
             WGPUUncapturedErrorCallbackInfo errorCallbackInfo = {};
             errorCallbackInfo.callback = errorCallback;
             errorCallbackInfo.userdata1 = errorUserdata;
