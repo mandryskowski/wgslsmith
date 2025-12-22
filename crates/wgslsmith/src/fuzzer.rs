@@ -15,6 +15,7 @@ use eyre::eyre;
 use harness_types::ConfigId;
 use regex::Regex;
 use tap::Tap;
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use time::{format_description, OffsetDateTime, UtcOffset};
 use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::Rect;
@@ -343,10 +344,9 @@ fn worker_iteration(
         }
     };
 
-    let mut result = None;
+    let mut result = ExecutionResult::Success(vec![]);
+    let mut consensus = None;
     for target in targets {
-        let prev = result;
-
         let exec_result = harness_runner::exec_shader(
             &target.harness,
             target.configs.clone(),
@@ -356,7 +356,7 @@ fn worker_iteration(
         );
 
         result = match exec_result {
-            Ok(result) => Some(result),
+            Ok(result) => result,
             Err(e) => {
                 if options.save_failures {
                     save_shader(
@@ -374,18 +374,32 @@ fn worker_iteration(
             }
         };
 
-        if !matches!(result, Some(ExecutionResult::Success(_))) {
-            break;
-        }
+        if let ExecutionResult::Success(ref buf) = result {
+            // This one timed out
+            if buf.is_empty() {
+                continue;
+            }
 
-        // Mismatch between harnesses
-        if prev.is_some() && result != prev {
-            result = Some(ExecutionResult::Mismatch);
+            if consensus.is_none() {
+                // First valid consensus
+                consensus = Some(buf.clone());
+            } else if *buf != consensus.clone().unwrap() {
+                // Harness mismatch
+                let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+                result = ExecutionResult::Mismatch;
+
+                let mut red = ColorSpec::new();
+                red.set_fg(Some(Color::Red));
+                stdout.set_color(&red)?;
+
+                writeln!(stdout, "harness mismatch\n")?;
+                stdout.reset()?;
+                break;
+            }
+        } else {
             break;
         }
     }
-
-    let result = result.unwrap_or(ExecutionResult::Success(vec![]));
 
     let result_kind = match result {
         ExecutionResult::Success(_) => WorkerResultKind::Success,
