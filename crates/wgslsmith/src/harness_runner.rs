@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::thread;
 use tap::Tap;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExecutionResult {
     Success(Vec<u8>),
     Crash(String),

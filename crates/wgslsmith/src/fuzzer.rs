@@ -148,13 +148,18 @@ fn save_shader(
     reconditioned: &str,
     metadata: &str,
     output: Option<&str>,
+    kind: Option<ExecutionResult>,
 ) -> eyre::Result<()> {
     let now = OffsetDateTime::now_utc().to_offset(unsafe { UTC_OFFSET }.unwrap());
-    let timestamp = now.format(&format_description::parse(
+    let mut filename = now.format(&format_description::parse(
         "[year]-[month]-[day]-[hour]-[minute]-[second]",
     )?)?;
 
-    let out = out.join(&timestamp);
+    if let Some(kind) = kind {
+        filename = format!("{filename}-{kind}");
+    }
+
+    let out = out.join(&filename);
 
     std::fs::create_dir_all(&out)?;
 
@@ -365,6 +370,7 @@ fn worker_iteration(
                         &reconditioned,
                         metadata,
                         Some(&format!("{e:#?}")),
+                        None,
                     )?;
                 }
                 return Ok(WorkerResult {
@@ -419,7 +425,14 @@ fn worker_iteration(
     );
 
     if should_save {
-        save_shader(&options.output, shader, &reconditioned, metadata, output)?;
+        save_shader(
+            &options.output,
+            shader,
+            &reconditioned,
+            metadata,
+            output,
+            Some(result.clone()),
+        )?;
     }
 
     Ok(WorkerResult {
