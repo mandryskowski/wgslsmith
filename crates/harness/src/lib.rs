@@ -5,6 +5,7 @@ mod wgpu;
 pub mod cli;
 
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use frontend::{ExecutionError, ExecutionEvent};
@@ -77,7 +78,7 @@ struct ExecutionOutput {
     pub buffers: Vec<Vec<u8>>,
 }
 
-pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), ExecutionError>>(
+pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
     shader: &str,
     pipeline_desc: &PipelineDescription,
     configs: &[ConfigId],
@@ -99,44 +100,69 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
         configs
     };
 
-    configs.iter().try_for_each(|config| {
-        on_event(ExecutionEvent::Start(config.clone()))?;
+    let on_event_mutex = Mutex::new(on_event);
 
-        let mut child = Host::exec_command()
-            .arg(config.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+    std::thread::scope(|s| {
+        let mut handles = vec![];
 
-        let mut stdin = child.stdin.take().unwrap();
+        for config in configs {
+            let on_event = &on_event_mutex;
 
-        bincode::encode_into_std_write(
-            ExecutionArgs {
-                shader,
-                pipeline_desc,
-            },
-            &mut stdin,
-            bincode::config::standard(),
-        )?;
+            handles.push(s.spawn(move || -> Result<(), ExecutionError> {
+                {
+                    let mut lock = on_event.lock().expect("mutex poisoned");
+                    lock(ExecutionEvent::Start(config.clone()))?;
+                }
 
-        let mut child = child.controlled_with_output();
-        if let Some(timeout) = timeout {
-            child = child.time_limit(timeout).terminate_for_timeout();
+                let mut child = Host::exec_command()
+                    .arg(config.to_string())
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?;
+
+                let mut stdin = child.stdin.take().unwrap();
+
+                bincode::encode_into_std_write(
+                    ExecutionArgs {
+                        shader,
+                        pipeline_desc,
+                    },
+                    &mut stdin,
+                    bincode::config::standard(),
+                )?;
+
+                let mut child = child.controlled_with_output();
+                if let Some(timeout) = timeout {
+                    child = child.time_limit(timeout).terminate_for_timeout();
+                }
+
+                let output = child.wait()?;
+
+                let mut lock = on_event.lock().expect("mutex poisoned");
+
+                match output {
+                    Some(output) => {
+                        if output.status.success() {
+                            let (output, _): (ExecutionOutput, _) =
+                                bincode::decode_from_slice(&output.stdout, bincode::config::standard())?;
+                            lock(ExecutionEvent::Success(output.buffers))
+                        } else {
+                            lock(ExecutionEvent::Failure(output.stderr))
+                        }
+                    }
+                    None => lock(ExecutionEvent::Timeout),
+                }
+            }));
         }
 
-        let output = match child.wait()? {
-            Some(output) => output,
-            None => return on_event(ExecutionEvent::Timeout),
-        };
-
-        if output.status.success() {
-            let (output, _): (ExecutionOutput, _) =
-                bincode::decode_from_slice(&output.stdout, bincode::config::standard())?;
-            on_event(ExecutionEvent::Success(output.buffers))
-        } else {
-            on_event(ExecutionEvent::Failure(output.stderr))
+        for handle in handles {
+            if let Err(e) = handle.join().unwrap() {
+                return Err(e);
+            }
         }
+
+        Ok(())
     })
 }
 

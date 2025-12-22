@@ -71,7 +71,7 @@ pub fn execute<Host: HarnessHost>(options: RunOptions) -> eyre::Result<()> {
             pipeline_desc: &PipelineDescription,
             configs: &[ConfigId],
             timeout: Option<Duration>,
-            on_event: &mut dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>,
+            on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
         ) -> Result<(), ExecutionError> {
             crate::execute::<Host, _>(shader, pipeline_desc, configs, timeout, on_event)
         }

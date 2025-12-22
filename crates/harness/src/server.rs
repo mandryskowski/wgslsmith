@@ -1,6 +1,6 @@
 use std::io::{self, BufReader, BufWriter};
 use std::net::TcpListener;
-
+use std::sync::Mutex;
 use clap::Parser;
 use color_eyre::eyre::{self, eyre};
 use frontend::{ExecutionError, ExecutionEvent};
@@ -61,10 +61,12 @@ fn handle_list_request(mut writer: impl io::Write) -> eyre::Result<()> {
     Ok(())
 }
 
-fn handle_run_request<Host: HarnessHost, W: io::Write>(
+fn handle_run_request<Host: HarnessHost, W: io::Write + Send>(
     req: RunRequest,
-    mut writer: W,
+    writer: W,
 ) -> eyre::Result<()> {
+    let writer = Mutex::new(writer);
+
     let on_event = |e| {
         let message = match e {
             ExecutionEvent::UsingDefaultConfigs(configs) => {
@@ -75,7 +77,9 @@ fn handle_run_request<Host: HarnessHost, W: io::Write>(
             ExecutionEvent::Failure(stderr) => RunMessage::ExecFailure(stderr),
             ExecutionEvent::Timeout => RunMessage::ExecTimeout,
         };
-        send(&mut writer, message)?;
+
+        let mut writer = writer.lock().expect("writer mutex poisoned");
+        send(&mut *writer, message)?;
         writer.flush()?;
         Ok(())
     };
@@ -87,15 +91,17 @@ fn handle_run_request<Host: HarnessHost, W: io::Write>(
         req.timeout,
         on_event,
     )
-    .map_err(|e| match e {
-        ExecutionError::NoDefaultConfigs => RunError::NoDefaultConfigs,
-        e => {
-            eprintln!("{:?}", eyre!(e));
-            RunError::InternalServerError
-        }
-    });
+        .map_err(|e| match e {
+            ExecutionError::NoDefaultConfigs => RunError::NoDefaultConfigs,
+            e => {
+                eprintln!("{:?}", eyre!(e));
+                RunError::InternalServerError
+            }
+        });
 
-    send(&mut writer, RunMessage::End(result))?;
+    // Lock writer one last time to send the final result
+    let mut writer = writer.lock().expect("writer mutex poisoned");
+    send(&mut *writer, RunMessage::End(result))?;
 
     Ok(())
 }

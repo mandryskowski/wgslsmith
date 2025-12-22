@@ -152,7 +152,7 @@ pub trait Executor {
         pipeline_desc: &PipelineDescription,
         configs: &[ConfigId],
         timeout: Option<Duration>,
-        on_event: &mut dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>,
+        on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
     ) -> Result<(), ExecutionError>;
 }
 
