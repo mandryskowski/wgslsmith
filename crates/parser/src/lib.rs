@@ -1,6 +1,3 @@
-use std::hash::Hash;
-use std::rc::Rc;
-
 use ast::types::{DataType, MemoryViewType, ScalarType};
 use ast::*;
 use peeking_take_while::PeekableExt;
@@ -8,6 +5,8 @@ use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use rpds::HashTrieMap;
+use std::hash::Hash;
+use std::rc::Rc;
 use strum::IntoEnumIterator;
 
 #[derive(pest_derive::Parser)]
@@ -83,12 +82,6 @@ pub fn parse(input: &str) -> Module {
     let pairs = WGSLParser::parse(Rule::translation_unit, input).unwrap();
     let pair = pairs.into_iter().next().unwrap();
     parse_translation_unit(pair, &mut Environment::new())
-}
-
-pub fn parse_fn(input: &str, env: &mut Environment) -> FnDecl {
-    let pairs = WGSLParser::parse(Rule::function_decl, input).unwrap();
-    let pair = pairs.into_iter().next().unwrap();
-    parse_function_decl(pair, env)
 }
 
 fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
@@ -678,23 +671,15 @@ fn precedence_table() -> PrecClimber<Rule> {
 }
 
 fn parse_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
-    let pair = pair.into_inner().next().unwrap();
-    match pair.as_rule() {
-        Rule::infix_expression => parse_infix_expression(pair, env),
-        Rule::unary_expression => parse_unary_expression(pair, env),
-        _ => unreachable!(),
-    }
-}
-
-fn parse_infix_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     let pairs = pair.into_inner();
 
-    let unary = |pair| parse_unary_expression(pair, env);
+    let primary = |pair| parse_unary_expression(pair, env);
+
     let infix = |l: ExprNode, op: Pair<Rule>, r: ExprNode| -> ExprNode {
         BinOpExpr::new(op.as_rule().into(), l, r).into()
     };
 
-    precedence_table().climb(pairs, unary, infix)
+    precedence_table().climb(pairs, primary, infix)
 }
 
 fn parse_unary_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
