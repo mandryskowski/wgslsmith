@@ -1,16 +1,18 @@
+use crate::config::Config;
+use bincode::{Decode, Encode};
+use eyre::eyre;
+use harness_types::ConfigId;
 use std::fmt::{Display, Write as _};
 use std::io::{self, BufRead, BufReader, BufWriter, Write as _};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::str::FromStr;
 use std::thread;
-
-use eyre::eyre;
-use harness_types::ConfigId;
 use tap::Tap;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExecutionResult {
-    Success,
+    Success(Vec<u8>),
     Crash(String),
     Mismatch,
     // TODO: Detect timeouts from running harness
@@ -21,7 +23,7 @@ pub enum ExecutionResult {
 impl Display for ExecutionResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExecutionResult::Success => write!(f, "success"),
+            ExecutionResult::Success(_) => write!(f, "success"),
             ExecutionResult::Crash(_) => write!(f, "crash"),
             ExecutionResult::Mismatch => write!(f, "mismatch"),
             // ExecutionResult::Timeout => write!(f, "timeout"),
@@ -29,9 +31,72 @@ impl Display for ExecutionResult {
     }
 }
 
+#[derive(Clone)]
 pub enum Harness {
     Local(PathBuf),
     Remote(String),
+}
+
+#[derive(Clone, Debug, Decode, Encode)]
+pub struct TargetPath {
+    harness_name: String,
+    configs: Vec<ConfigId>,
+}
+
+impl FromStr for TargetPath {
+    type Err = eyre::Error;
+
+    fn from_str(arg: &str) -> Result<TargetPath, Self::Err> {
+        let (config_str, harness_name) = arg
+            .split_once('@')
+            .ok_or_else(|| eyre!("Target format must be configs@address"))?;
+
+        let configs: Vec<ConfigId> = if config_str.is_empty() {
+            vec![]
+        } else {
+            config_str
+                .split(',')
+                .map(|s| s.trim().parse::<ConfigId>())
+                .collect::<Result<_, _>>()
+                .map_err(|s| eyre!(s))?
+        };
+
+        Ok(TargetPath {
+            harness_name: harness_name.to_owned(),
+            configs,
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct Target {
+    pub harness: Harness,
+    pub configs: Vec<ConfigId>,
+}
+
+impl Target {
+    pub fn from_path(target_path: TargetPath, config: &Config) -> eyre::Result<Self> {
+        let harness = match target_path.harness_name.as_str() {
+            "local" => Harness::Local(
+                config
+                    .harness
+                    .path
+                    .clone()
+                    .map(Ok)
+                    .unwrap_or_else(std::env::current_exe)?,
+            ),
+            server => Harness::Remote(server.to_owned()),
+        };
+
+        Ok(Target {
+            harness,
+            configs: target_path.configs,
+        })
+    }
+
+    pub fn new(harness: Harness, configs: Vec<ConfigId>) -> Self {
+        Self { harness, configs }
+    }
 }
 
 pub fn exec_shader(
@@ -64,6 +129,8 @@ fn exec_shader_impl(
         cmd.args(["-c", &config.to_string()]);
     }
 
+    cmd.args(["--print-output-if-ok"]);
+
     let mut harness = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -78,15 +145,32 @@ fn exec_shader_impl(
     }
 
     let mut output = String::new();
+    let mut consensus_str = None;
 
     let status = wait_for_child_with_line_logger(harness, &mut |_, line| {
+        if line.starts_with("output-consensus: ") {
+            consensus_str = Some(line.trim_start_matches("output-consensus: ").to_string());
+            return;
+        }
         writeln!(output, "{line}").unwrap();
         logger(line);
     })?;
 
+    let consensus: Vec<_> = consensus_str
+        .as_ref()
+        .map(|s| {
+            s.trim()
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .split(',')
+                .map(|x| x.trim().parse::<u8>().expect("Invalid byte string"))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let result = match status.code() {
         None => return Err(eyre!("failed to get harness exit code")),
-        Some(0) => ExecutionResult::Success,
+        Some(0) => ExecutionResult::Success(consensus),
         Some(1) => ExecutionResult::Mismatch,
         Some(101) => ExecutionResult::Crash(output),
         Some(code) => return Err(eyre!("harness exited with unrecognised code `{code}`")),

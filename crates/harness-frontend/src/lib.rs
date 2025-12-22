@@ -190,6 +190,12 @@ pub mod cli {
         /// Use 0 to disable the timeout. Note that the timeout is per-execution rather than a global timeout.
         #[clap(long, action, default_value = "30")]
         pub timeout: u64,
+
+        /// Print the final output if all configurations returned the same output.
+        ///
+        /// Timeouts are ignored.
+        #[clap(long, action, default_value = "false")]
+        pub print_output_if_ok: bool,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {
@@ -240,6 +246,19 @@ pub mod cli {
 
         if buffer_check::compare(executions.iter(), &pipeline_desc, &type_descs) {
             printer.print_execution_result(ExecutionResult::Ok)?;
+
+            if options.print_output_if_ok {
+                if let Some(first_execution) = executions.first() {
+                    eprintln!(
+                        "output-consensus: {:?}",
+                        buffer_check::normalize_execution(
+                            first_execution,
+                            &pipeline_desc,
+                            &type_descs
+                        )
+                    );
+                }
+            }
         } else {
             printer.print_execution_result(ExecutionResult::Mismatch)?;
             std::process::exit(1);

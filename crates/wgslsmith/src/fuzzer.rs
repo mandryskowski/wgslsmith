@@ -15,6 +15,7 @@ use eyre::eyre;
 use harness_types::ConfigId;
 use regex::Regex;
 use tap::Tap;
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use time::{format_description, OffsetDateTime, UtcOffset};
 use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::Rect;
@@ -23,7 +24,7 @@ use tui::widgets::{Block, Borders, Paragraph};
 use tui::Terminal;
 
 use crate::config::Config;
-use crate::harness_runner::{self, ExecutionResult, Harness};
+use crate::harness_runner::{self, ExecutionResult, Harness, Target, TargetPath};
 
 #[derive(Copy, Clone, ValueEnum)]
 enum SaveStrategy {
@@ -61,6 +62,9 @@ pub struct Options {
 
     #[clap(short, long = "config", action)]
     configs: Vec<ConfigId>,
+
+    #[clap(short = 't', long = "target", action)]
+    targets: Vec<TargetPath>,
 
     /// Disable the fancy terminal dashboard UI.
     #[clap(long, action)]
@@ -123,7 +127,7 @@ impl ExecutionResult {
         mut ignore: impl Iterator<Item = &'a Regex>,
     ) -> bool {
         match self {
-            ExecutionResult::Success => false,
+            ExecutionResult::Success(_) => false,
             // ExecutionResult::Timeout => false,
             ExecutionResult::Crash(output) => {
                 matches!(strategy, SaveStrategy::All | SaveStrategy::Crashes)
@@ -144,13 +148,18 @@ fn save_shader(
     reconditioned: &str,
     metadata: &str,
     output: Option<&str>,
+    kind: Option<ExecutionResult>,
 ) -> eyre::Result<()> {
     let now = OffsetDateTime::now_utc().to_offset(unsafe { UTC_OFFSET }.unwrap());
-    let timestamp = now.format(&format_description::parse(
+    let mut filename = now.format(&format_description::parse(
         "[year]-[month]-[day]-[hour]-[minute]-[second]",
     )?)?;
 
-    let out = out.join(&timestamp);
+    if let Some(kind) = kind {
+        filename = format!("{filename}-{kind}");
+    }
+
+    let out = out.join(&filename);
 
     std::fs::create_dir_all(&out)?;
 
@@ -165,30 +174,45 @@ fn save_shader(
     Ok(())
 }
 
+fn get_targets(config: &Config, options: &Options) -> eyre::Result<Vec<Target>> {
+    let mut targets = options
+        .targets
+        .iter()
+        .map(|target_path| Target::from_path(target_path.clone(), config))
+        .collect::<eyre::Result<Vec<Target>>>()?;
+
+    if options.server.is_some() || !options.configs.is_empty() || targets.is_empty() {
+        let harness = match options
+            .server
+            .as_deref()
+            .or_else(|| config.default_remote())
+        {
+            Some(server) => Harness::Remote(server.to_owned()),
+            None => Harness::Local(
+                config
+                    .harness
+                    .path
+                    .clone()
+                    .map(Ok)
+                    .unwrap_or_else(std::env::current_exe)?,
+            ),
+        };
+
+        targets.push(Target::new(harness, options.configs.clone()));
+    }
+    Ok(targets)
+}
+
 pub fn run(config: Config, options: Options) -> eyre::Result<()> {
     unsafe { UTC_OFFSET = Some(UtcOffset::current_local_offset()?) };
 
     let disable_tui = options.disable_tui;
-    let harness = match options
-        .server
-        .as_deref()
-        .or_else(|| config.default_remote())
-    {
-        Some(server) => Harness::Remote(server.to_owned()),
-        None => Harness::Local(
-            config
-                .harness
-                .path
-                .clone()
-                .map(Ok)
-                .unwrap_or_else(std::env::current_exe)?,
-        ),
-    };
+    let targets = get_targets(&config, &options)?;
 
     let (worker_tx, worker_rx) = crossbeam_channel::bounded(1);
 
     std::thread::spawn(move || {
-        worker(config, options, harness, &mut |result| {
+        worker(config, options, &targets, &mut |result| {
             worker_tx.send(result).unwrap()
         })
         .unwrap()
@@ -292,12 +316,12 @@ enum WorkerResultKind {
 fn worker(
     config: Config,
     options: Options,
-    harness: Harness,
+    targets: &[Target],
     on_message: &mut dyn FnMut(WorkerMessage),
 ) -> eyre::Result<()> {
     loop {
         let mut logger = |line| on_message(WorkerMessage::Log(line));
-        let result = worker_iteration(&config, &options, &harness, &mut logger)?;
+        let result = worker_iteration(&config, &options, targets, &mut logger)?;
         on_message(WorkerMessage::Result(result))
     }
 }
@@ -305,7 +329,7 @@ fn worker(
 fn worker_iteration(
     config: &Config,
     options: &Options,
-    harness: &Harness,
+    targets: &[Target],
     logger: &mut dyn FnMut(String),
 ) -> eyre::Result<WorkerResult> {
     let shader = gen_shader(options)?;
@@ -325,35 +349,66 @@ fn worker_iteration(
         }
     };
 
-    let exec_result = harness_runner::exec_shader(
-        harness,
-        options.configs.clone(),
-        &reconditioned,
-        metadata,
-        logger,
-    );
+    let mut result = ExecutionResult::Success(vec![]);
+    let mut consensus = None;
+    for target in targets {
+        let exec_result = harness_runner::exec_shader(
+            &target.harness,
+            target.configs.clone(),
+            &reconditioned,
+            metadata,
+            &mut *logger,
+        );
 
-    let result = match exec_result {
-        Ok(result) => result,
-        Err(e) => {
-            if options.save_failures {
-                save_shader(
-                    &options.output,
-                    shader,
-                    &reconditioned,
-                    metadata,
-                    Some(&format!("{e:#?}")),
-                )?;
+        result = match exec_result {
+            Ok(result) => result,
+            Err(e) => {
+                if options.save_failures {
+                    save_shader(
+                        &options.output,
+                        shader,
+                        &reconditioned,
+                        metadata,
+                        Some(&format!("{e:#?}")),
+                        None,
+                    )?;
+                }
+                return Ok(WorkerResult {
+                    kind: WorkerResultKind::ExecutionFailure,
+                    saved: false,
+                });
             }
-            return Ok(WorkerResult {
-                kind: WorkerResultKind::ExecutionFailure,
-                saved: false,
-            });
+        };
+
+        if let ExecutionResult::Success(ref buf) = result {
+            // This one timed out
+            if buf.is_empty() {
+                continue;
+            }
+
+            if consensus.is_none() {
+                // First valid consensus
+                consensus = Some(buf.clone());
+            } else if *buf != consensus.clone().unwrap() {
+                // Harness mismatch
+                let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+                result = ExecutionResult::Mismatch;
+
+                let mut red = ColorSpec::new();
+                red.set_fg(Some(Color::Red));
+                stdout.set_color(&red)?;
+
+                writeln!(stdout, "harness mismatch\n")?;
+                stdout.reset()?;
+                break;
+            }
+        } else {
+            break;
         }
-    };
+    }
 
     let result_kind = match result {
-        ExecutionResult::Success => WorkerResultKind::Success,
+        ExecutionResult::Success(_) => WorkerResultKind::Success,
         ExecutionResult::Crash(_) => WorkerResultKind::Crash,
         ExecutionResult::Mismatch => WorkerResultKind::Mismatch,
         // ExecutionResult::Timeout => WorkerResultKind::Timeout,
@@ -370,7 +425,14 @@ fn worker_iteration(
     );
 
     if should_save {
-        save_shader(&options.output, shader, &reconditioned, metadata, output)?;
+        save_shader(
+            &options.output,
+            shader,
+            &reconditioned,
+            metadata,
+            output,
+            Some(result.clone()),
+        )?;
     }
 
     Ok(WorkerResult {

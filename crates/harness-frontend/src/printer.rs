@@ -1,7 +1,7 @@
-use std::io::{self, Write};
-
 use bincode::{Decode, Encode};
+use chrono::Local;
 use reflection::{PipelineDescription, ResourceKind};
+use std::io::{self, Write};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use types::{Config, ConfigId};
 
@@ -106,7 +106,11 @@ impl Printer {
     ) -> io::Result<()> {
         let mut stdout = StandardStream::stdout(ColorChoice::Auto);
 
-        write!(&mut stdout, "executing ")?;
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
+        write!(&mut stdout, "[{}]", Local::now().format("%H:%M:%S"))?;
+        stdout.reset()?;
+
+        write!(&mut stdout, " executing ")?;
 
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
         writeln!(&mut stdout, "{config}")?;
