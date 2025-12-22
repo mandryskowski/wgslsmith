@@ -15,6 +15,7 @@ use tap::Tap;
 
 use crate::compiler::{Backend, Compiler};
 use crate::config::Config;
+use crate::harness_runner::TargetPath;
 
 #[derive(ValueEnum, Clone)]
 pub enum ReductionKind {
@@ -51,6 +52,9 @@ pub struct Options {
     /// This is only valid if we're reducing a crash.
     #[clap(long, action, conflicts_with("compiler"))]
     config: Option<String>,
+
+    #[clap(short = 't', long = "target", action)]
+    targets: Vec<TargetPath>,
 
     /// Compiler to use for reducing a crash.
     #[clap(long, action, action, requires("backend"))]
@@ -283,6 +287,17 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
 
             if let Some(tmpdir) = &config.reducer.tmpdir {
                 cmd.env("TMPDIR", tmpdir);
+            }
+
+            let targets = options
+                .targets
+                .iter()
+                .map(|t| "--target ".to_owned() + &t.to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            if !targets.is_empty() {
+                cmd.env("WGSLREDUCE_TARGETS", targets);
             }
         });
 

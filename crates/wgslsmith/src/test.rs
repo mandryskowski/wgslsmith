@@ -8,7 +8,7 @@ use regex::Regex;
 
 use crate::compiler::{Backend, Compiler};
 use crate::config::Config;
-use crate::harness_runner::{ExecutionResult, Harness};
+use crate::harness_runner::{ExecutionResult, Target, TargetPath};
 use crate::reducer::ReductionKind;
 use crate::{harness_runner, validator};
 
@@ -37,6 +37,9 @@ pub struct Options {
 pub struct CrashOptions {
     #[clap(long, action, conflicts_with("compiler"))]
     config: Option<ConfigId>,
+
+    #[clap(short = 't', long = "target", action)]
+    targets: Vec<TargetPath>,
 
     #[clap(long, value_enum, action, requires("backend"))]
     compiler: Option<Compiler>,
@@ -89,18 +92,18 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
 
     let metadata = std::fs::read_to_string(input_path)?;
 
-    let harness = if let Some(server) = options.server {
-        Harness::Remote(server)
+    let configs = if let Some(c) = options.crash_options.config.clone() {
+        vec![c]
     } else {
-        Harness::Local(
-            config
-                .harness
-                .path
-                .clone()
-                .map(Ok)
-                .unwrap_or_else(std::env::current_exe)?,
-        )
+        vec![]
     };
+
+    let targets = harness_runner::get_targets(
+        config,
+        &options.server,
+        &configs,
+        &options.crash_options.targets,
+    )?;
 
     match options.kind {
         ReductionKind::Crash => reduce_crash(
@@ -108,10 +111,10 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
             options.crash_options,
             source,
             metadata,
-            &harness,
+            &targets,
             options.quiet,
         )?,
-        ReductionKind::Mismatch => reduce_mismatch(source, metadata, &harness, options.quiet)?,
+        ReductionKind::Mismatch => reduce_mismatch(source, metadata, &targets, options.quiet)?,
     }
 
     println!("interesting :)");
@@ -124,7 +127,7 @@ fn reduce_crash(
     options: CrashOptions,
     source: String,
     metadata: String,
-    harness: &Harness,
+    targets: &[Target],
     quiet: bool,
 ) -> eyre::Result<()> {
     let regex = options.regex.unwrap();
@@ -136,17 +139,26 @@ fn reduce_crash(
         source
     };
 
-    let interesting = if let Some(config) = options.config {
-        let result =
-            harness_runner::exec_shader(harness, vec![config], &source, &metadata, |line| {
+    let interesting = if options.config.is_some() {
+        let mut any_crash_matched = false;
+
+        for target in targets {
+            let result = harness_runner::exec_shader(target, &source, &metadata, |line| {
                 if !quiet {
                     println!("{line}");
                 }
             })?;
 
-        eprintln!("{result:?}");
+            if !quiet {
+                eprintln!("{result:?}");
+            }
 
-        matches!(result, ExecutionResult::Crash(output) if regex.is_match(&output))
+            if matches!(result, ExecutionResult::Crash(output) if regex.is_match(&output)) {
+                any_crash_matched = true;
+                break;
+            }
+        }
+        any_crash_matched
     } else {
         let compiler = options.compiler.unwrap();
         let backend = options.backend.unwrap();
@@ -173,7 +185,7 @@ fn reduce_crash(
 fn reduce_mismatch(
     source: String,
     metadata: String,
-    harness: &Harness,
+    targets: &[Target],
     quiet: bool,
 ) -> eyre::Result<()> {
     let module = parser::parse(&source);
@@ -182,14 +194,45 @@ fn reduce_mismatch(
     Compiler::Naga.validate(&reconditioned)?;
     Compiler::Tint.validate(&reconditioned)?;
 
-    let result = harness_runner::exec_shader(harness, vec![], &reconditioned, &metadata, |line| {
-        if !quiet {
-            println!("{line}");
-        }
-    })?;
+    let mut consensus: Option<Vec<u8>> = None;
+    let mut mismatch_found = false;
 
-    if result != ExecutionResult::Mismatch {
-        return Err(eyre!("shader is not interesting"));
+    for target in targets {
+        let result = harness_runner::exec_shader(target, &reconditioned, &metadata, |line| {
+            if !quiet {
+                println!("{line}");
+            }
+        })?;
+
+        match result {
+            ExecutionResult::Mismatch => {
+                mismatch_found = true;
+                break;
+            }
+            ExecutionResult::Success(buf) => {
+                if buf.is_empty() {
+                    // timeout or empty result, skip for consensus
+                    continue;
+                }
+
+                if let Some(ref existing_consensus) = consensus {
+                    if buf != *existing_consensus {
+                        if !quiet {
+                            println!("harness mismatch between targets");
+                        }
+                        mismatch_found = true;
+                        break;
+                    }
+                } else {
+                    consensus = Some(buf);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !mismatch_found {
+        return Err(eyre!("shader is not interesting (no mismatch found)"));
     }
 
     Ok(())

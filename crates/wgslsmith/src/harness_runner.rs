@@ -68,6 +68,19 @@ impl FromStr for TargetPath {
     }
 }
 
+impl std::fmt::Display for TargetPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let config_str = self
+            .configs
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        write!(f, "{}@{}", config_str, self.harness_name)
+    }
+}
+
 #[derive(Clone)]
 pub struct Target {
     pub harness: Harness,
@@ -99,29 +112,58 @@ impl Target {
     }
 }
 
+pub fn get_targets(
+    config: &Config,
+    server: &Option<String>,
+    configs: &[ConfigId],
+    targets: &[TargetPath],
+) -> eyre::Result<Vec<Target>> {
+    let mut targets = targets
+        .iter()
+        .map(|target_path| Target::from_path(target_path.clone(), config))
+        .collect::<eyre::Result<Vec<Target>>>()?;
+
+    if server.is_some() || !configs.is_empty() || targets.is_empty() {
+        let harness = match server.as_deref().or_else(|| config.default_remote()) {
+            Some(server) => Harness::Remote(server.to_owned()),
+            None => Harness::Local(
+                config
+                    .harness
+                    .path
+                    .clone()
+                    .map(Ok)
+                    .unwrap_or_else(std::env::current_exe)?,
+            ),
+        };
+
+        targets.push(Target::new(harness, configs.to_owned()));
+    }
+    Ok(targets)
+}
+
 pub fn exec_shader(
-    harness: &Harness,
-    configs: Vec<ConfigId>,
+    target: &Target,
     shader: &str,
     metadata: &str,
     mut logger: impl FnMut(String),
 ) -> eyre::Result<ExecutionResult> {
-    exec_shader_impl(harness, configs, shader, metadata, &mut logger)
+    exec_shader_impl(target, shader, metadata, &mut logger)
 }
 
 fn exec_shader_impl(
-    harness: &Harness,
-    configs: Vec<ConfigId>,
+    target: &Target,
     shader: &str,
     metadata: &str,
     logger: &mut dyn FnMut(String),
 ) -> eyre::Result<ExecutionResult> {
+    let harness = target.harness.clone();
+    let configs = target.configs.clone();
     let mut cmd = match harness {
         Harness::Local(harness_path) => Command::new(harness_path).tap_mut(|cmd| {
             cmd.args(["run", "-", metadata]);
         }),
         Harness::Remote(remote) => Command::new(std::env::current_exe()?).tap_mut(|cmd| {
-            cmd.args(["remote", remote, "run", "-", metadata]);
+            cmd.args(["remote", &remote, "run", "-", metadata]);
         }),
     };
 

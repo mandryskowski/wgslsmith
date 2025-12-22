@@ -24,7 +24,7 @@ use tui::widgets::{Block, Borders, Paragraph};
 use tui::Terminal;
 
 use crate::config::Config;
-use crate::harness_runner::{self, ExecutionResult, Harness, Target, TargetPath};
+use crate::harness_runner::{self, get_targets, ExecutionResult, Target, TargetPath};
 
 #[derive(Copy, Clone, ValueEnum)]
 enum SaveStrategy {
@@ -174,40 +174,11 @@ fn save_shader(
     Ok(())
 }
 
-fn get_targets(config: &Config, options: &Options) -> eyre::Result<Vec<Target>> {
-    let mut targets = options
-        .targets
-        .iter()
-        .map(|target_path| Target::from_path(target_path.clone(), config))
-        .collect::<eyre::Result<Vec<Target>>>()?;
-
-    if options.server.is_some() || !options.configs.is_empty() || targets.is_empty() {
-        let harness = match options
-            .server
-            .as_deref()
-            .or_else(|| config.default_remote())
-        {
-            Some(server) => Harness::Remote(server.to_owned()),
-            None => Harness::Local(
-                config
-                    .harness
-                    .path
-                    .clone()
-                    .map(Ok)
-                    .unwrap_or_else(std::env::current_exe)?,
-            ),
-        };
-
-        targets.push(Target::new(harness, options.configs.clone()));
-    }
-    Ok(targets)
-}
-
 pub fn run(config: Config, options: Options) -> eyre::Result<()> {
     unsafe { UTC_OFFSET = Some(UtcOffset::current_local_offset()?) };
 
     let disable_tui = options.disable_tui;
-    let targets = get_targets(&config, &options)?;
+    let targets = get_targets(&config, &options.server, &options.configs, &options.targets)?;
 
     let (worker_tx, worker_rx) = crossbeam_channel::bounded(1);
 
@@ -352,13 +323,8 @@ fn worker_iteration(
     let mut result = ExecutionResult::Success(vec![]);
     let mut consensus = None;
     for target in targets {
-        let exec_result = harness_runner::exec_shader(
-            &target.harness,
-            target.configs.clone(),
-            &reconditioned,
-            metadata,
-            &mut *logger,
-        );
+        let exec_result =
+            harness_runner::exec_shader(target, &reconditioned, metadata, &mut *logger);
 
         result = match exec_result {
             Ok(result) => result,

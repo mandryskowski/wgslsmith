@@ -12,6 +12,10 @@ if [[ -n "${WGSLREDUCE_SERVER-}" ]]; then
     args+=("--server" "$WGSLREDUCE_SERVER")
 fi
 
+if [[ -n "${WGSLREDUCE_TARGETS-}" ]]; then
+    args+=(${WGSLREDUCE_TARGETS-})
+fi
+
 if [[ "$WGSLREDUCE_KIND" == "crash" ]]; then
     args+=("--regex" "$WGSLREDUCE_REGEX")
 
