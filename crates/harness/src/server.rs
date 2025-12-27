@@ -1,10 +1,10 @@
-use std::io::{self, BufReader, BufWriter};
-use std::net::TcpListener;
-
 use clap::Parser;
 use color_eyre::eyre::{self, eyre};
 use frontend::{ExecutionError, ExecutionEvent};
 use server_types::{ListResponse, Request, RunError, RunMessage, RunRequest};
+use std::io::{self, BufReader, BufWriter};
+use std::net::TcpListener;
+use std::sync::Mutex;
 use threadpool::ThreadPool;
 
 use crate::HarnessHost;
@@ -20,6 +20,12 @@ pub struct Options {
     /// Defaults to the number of available CPUs.
     #[clap(long, action)]
     parallelism: Option<usize>,
+
+    /// Limit the number of parallel configurations executing a shader at once.
+    ///
+    /// If not provided, execution will spawn a thread for every configuration.
+    #[clap(long, short = 'j', action)]
+    config_parallelism: Option<usize>,
 }
 
 pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
@@ -46,7 +52,9 @@ pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
             let writer = BufWriter::new(&stream);
             match req {
                 Request::List => handle_list_request(writer).unwrap(),
-                Request::Run(req) => handle_run_request::<Host, _>(req, writer).unwrap(),
+                Request::Run(req) => {
+                    handle_run_request::<Host, _>(req, writer, options.config_parallelism).unwrap()
+                }
             }
         });
     }
@@ -61,10 +69,13 @@ fn handle_list_request(mut writer: impl io::Write) -> eyre::Result<()> {
     Ok(())
 }
 
-fn handle_run_request<Host: HarnessHost, W: io::Write>(
+fn handle_run_request<Host: HarnessHost, W: io::Write + Send>(
     req: RunRequest,
-    mut writer: W,
+    writer: W,
+    config_parallelism: Option<usize>,
 ) -> eyre::Result<()> {
+    let writer = Mutex::new(writer);
+
     let on_event = |e| {
         let message = match e {
             ExecutionEvent::UsingDefaultConfigs(configs) => {
@@ -75,7 +86,9 @@ fn handle_run_request<Host: HarnessHost, W: io::Write>(
             ExecutionEvent::Failure(stderr) => RunMessage::ExecFailure(stderr),
             ExecutionEvent::Timeout => RunMessage::ExecTimeout,
         };
-        send(&mut writer, message)?;
+
+        let mut writer = writer.lock().expect("writer mutex poisoned");
+        send(&mut *writer, message)?;
         writer.flush()?;
         Ok(())
     };
@@ -85,6 +98,7 @@ fn handle_run_request<Host: HarnessHost, W: io::Write>(
         &req.pipeline_desc,
         &req.configs,
         req.timeout,
+        config_parallelism,
         on_event,
     )
     .map_err(|e| match e {
@@ -95,7 +109,9 @@ fn handle_run_request<Host: HarnessHost, W: io::Write>(
         }
     });
 
-    send(&mut writer, RunMessage::End(result))?;
+    // Lock writer one last time to send the final result
+    let mut writer = writer.lock().expect("writer mutex poisoned");
+    send(&mut *writer, RunMessage::End(result))?;
 
     Ok(())
 }

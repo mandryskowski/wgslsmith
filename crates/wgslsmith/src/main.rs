@@ -135,7 +135,9 @@ fn main() -> eyre::Result<()> {
                             pipeline_desc: &PipelineDescription,
                             configs: &[ConfigId],
                             timeout: Option<Duration>,
-                            on_event: &mut dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>,
+                            _parallelism: Option<usize>,
+                            on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>
+                                      + Send),
                         ) -> Result<(), ExecutionError> {
                             remote::execute(
                                 self.0,
