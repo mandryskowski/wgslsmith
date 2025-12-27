@@ -8,7 +8,7 @@ use wgpu::wgt::PollType::Wait;
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, DeviceDescriptor,
-    Instance, Limits, MapMode, ShaderModuleDescriptor, ShaderSource,
+    DxcShaderModel, Instance, Limits, MapMode, ShaderModuleDescriptor, ShaderSource,
 };
 
 pub fn get_adapters() -> Vec<types::Adapter> {
@@ -49,8 +49,21 @@ pub async fn run(
         crate::BackendType::Vulkan => wgpu::Backend::Vulkan,
     };
 
+    let dx12_shader_compiler = wgpu::Dx12Compiler::DynamicDxc {
+        dxc_path: "./dxcompiler.dll".to_owned(),
+        max_shader_model: DxcShaderModel::V6_7,
+    };
+
     let instance = Instance::new(&wgpu::InstanceDescriptor {
         backends: Backends::all(),
+        backend_options: wgpu::BackendOptions {
+            gl: Default::default(),
+            dx12: wgpu::Dx12BackendOptions {
+                shader_compiler: dx12_shader_compiler,
+                ..Default::default()
+            },
+            noop: Default::default(),
+        },
         ..Default::default()
     });
 
