@@ -19,7 +19,7 @@ use std::time::Duration;
 use clap::Parser;
 use color_eyre::Help;
 use eyre::{eyre, Context};
-use harness_frontend::{ExecutionError, ExecutionEvent};
+use harness_frontend::{read_shader_from_path, ExecutionError, ExecutionEvent};
 use harness_types::ConfigId;
 use reflection_types::PipelineDescription;
 
@@ -33,6 +33,9 @@ struct Options {
 
 #[derive(Parser)]
 enum Cmd {
+    /// Compile WGSL to an intermediate representation (HSL/SPIR-V/MSL)
+    #[cfg(all(target_family = "unix", feature = "reducer"))]
+    Compile(compiler::Options),
     /// Open the wgslsmith config file in the default text editor.
     Config,
     /// Generate a random shader.
@@ -90,6 +93,12 @@ fn main() -> eyre::Result<()> {
     let config = config::Config::load(&config_file)?;
 
     match options.cmd {
+        #[cfg(all(target_family = "unix", feature = "reducer"))]
+        Cmd::Compile(options) => {
+            let shader = read_shader_from_path(&options.shader)?;
+            println!("{}", options.compiler.compile(&shader, options.backend)?);
+            Ok(())
+        }
         Cmd::Config => {
             if let Some(dir) = config_file.parent() {
                 fs::create_dir_all(dir)?;

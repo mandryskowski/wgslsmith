@@ -6,6 +6,7 @@
 
 #include "src/tint/lang/hlsl/writer/writer.h"
 #include "src/tint/lang/msl/writer/writer.h"
+#include "src/tint/lang/spirv/writer/writer.h"
 
 #include "src/tint/lang/wgsl/inspector/inspector.h"
 
@@ -88,4 +89,35 @@ std::unique_ptr<std::string> compile_shader_to_msl(const char* source) {
     }
 
     return std::make_unique<std::string>(std::move(result.Get().msl));
+}
+
+std::unique_ptr<std::vector<uint32_t>> compile_shader_to_spirv(const char* source) {
+    tint::wgsl::reader::Options parser_options;
+    auto source_file = std::make_unique<tint::Source::File>("[memory]", source);
+    auto program = tint::wgsl::reader::Parse(source_file.get(), parser_options);
+
+    if (!program.IsValid()) {
+        return {};
+    }
+
+    auto ir_result = tint::wgsl::reader::ProgramToLoweredIR(program);
+    if (ir_result != tint::Success) {
+        return {};
+    }
+    auto& ir = ir_result.Get();
+
+    tint::spirv::writer::Options gen_options;
+
+    std::string ep_name = get_entry_point_name(program);
+    if(ep_name.empty()) return nullptr;
+
+    gen_options.bindings = tint::GenerateBindings(ir, ep_name, false, false);
+    gen_options.entry_point_name = ep_name;
+
+    auto result = tint::spirv::writer::Generate(ir, gen_options);
+    if (result != tint::Success) {
+        return {};
+    }
+
+    return std::make_unique<std::vector<uint32_t>>(std::move(result.Get().spirv));
 }

@@ -7,6 +7,7 @@ mod ffi {
         unsafe fn validate_shader(source: *const c_char) -> bool;
         unsafe fn compile_shader_to_hlsl(source: *const c_char) -> UniquePtr<CxxString>;
         unsafe fn compile_shader_to_msl(source: *const c_char) -> UniquePtr<CxxString>;
+        unsafe fn compile_shader_to_spirv(source: *const c_char) -> UniquePtr<CxxVector<u32>>;
     }
 }
 
@@ -23,4 +24,15 @@ pub fn compile_shader_to_hlsl(source: &str) -> String {
 pub fn compile_shader_to_msl(source: &str) -> String {
     let source = CString::new(source).unwrap();
     unsafe { ffi::compile_shader_to_msl(source.as_ptr()) }.to_string()
+}
+
+pub fn compile_shader_to_spirv(source: &str) -> Vec<u32> {
+    let source = CString::new(source).unwrap();
+    let result = unsafe { ffi::compile_shader_to_spirv(source.as_ptr()) };
+
+    if result.is_null() {
+        Vec::new()
+    } else {
+        result.as_slice().to_vec()
+    }
 }
