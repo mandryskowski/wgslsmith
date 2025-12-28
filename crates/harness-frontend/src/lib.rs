@@ -11,7 +11,6 @@ use eyre::{eyre, Context};
 use reflection::PipelineDescription;
 
 pub use printer::{ExecutionEvent, ExecutionResult, Printer};
-use serde::Serialize;
 use types::ConfigId;
 
 pub fn read_input_data(
@@ -257,9 +256,13 @@ pub mod cli {
 
         let mut buffers_to_configs: HashMap<Vec<u8>, Vec<ConfigId>> = HashMap::new();
         for (index, execution) in executions.iter().enumerate() {
-            let normalized = buffer_check::normalize_execution(execution, &pipeline_desc, &type_descs);
+            let normalized =
+                buffer_check::normalize_execution(execution, &pipeline_desc, &type_descs);
             let config = options.configs[index].clone();
-            buffers_to_configs.entry(normalized).or_default().push(config);
+            buffers_to_configs
+                .entry(normalized)
+                .or_default()
+                .push(config);
         }
 
         if options.print_consensus {

@@ -2,6 +2,7 @@ use crate::config::Config;
 use bincode::{Decode, Encode};
 use eyre::eyre;
 use harness_types::ConfigId;
+use serde::Deserialize;
 use std::fmt::{Display, Write as _};
 use std::io::{self, BufRead, BufReader, BufWriter, Write as _};
 use std::path::PathBuf;
@@ -9,7 +10,6 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::str::FromStr;
 use std::thread;
 use tap::Tap;
-use serde::Deserialize;
 
 #[derive(Debug, Deserialize, PartialEq, Eq, Clone)]
 pub struct ConsensusEntry {
@@ -215,7 +215,10 @@ fn exec_shader_impl(
     let result = match status.code() {
         None => return Err(eyre!("failed to get harness exit code")),
         Some(0) => {
-            let buffer = consensus_list.first().map(|e| e.output.clone()).unwrap_or_default();
+            let buffer = consensus_list
+                .first()
+                .map(|e| e.output.clone())
+                .unwrap_or_default();
             ExecutionResult::Success(buffer)
         }
         Some(1) => ExecutionResult::Mismatch(consensus_list),

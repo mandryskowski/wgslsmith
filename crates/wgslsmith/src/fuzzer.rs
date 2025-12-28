@@ -25,7 +25,9 @@ use tui::widgets::{Block, Borders, Paragraph};
 use tui::Terminal;
 
 use crate::config::Config;
-use crate::harness_runner::{self, get_targets, ConsensusEntry, ExecutionResult, Target, TargetPath};
+use crate::harness_runner::{
+    self, get_targets, ConsensusEntry, ExecutionResult, Target, TargetPath,
+};
 
 #[derive(Copy, Clone, ValueEnum)]
 enum SaveStrategy {
@@ -172,8 +174,15 @@ fn save_shader(
         std::fs::write(out.join("stderr.txt"), output.replace('\0', ""))?;
     }
     if let Some(ExecutionResult::Mismatch(consensus_vec)) = kind {
-        std::fs::write(out.join("consensus.json"), consensus_vec.iter().map(|e| format!("{:?} {:?}", e.configs, e.output)).collect::<Vec<_>>().join("\n"))?;
-    } 
+        std::fs::write(
+            out.join("consensus.json"),
+            consensus_vec
+                .iter()
+                .map(|e| format!("{:?} {:?}", e.configs, e.output))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )?;
+    }
 
     Ok(())
 }
@@ -356,7 +365,10 @@ fn worker_iteration(
                 continue;
             }
 
-            buffers_to_configs.entry(buf.clone()).or_default().push(target.configs[0].to_string());
+            buffers_to_configs
+                .entry(buf.clone())
+                .or_default()
+                .push(target.configs[0].to_string());
         } else {
             break;
         }
@@ -371,7 +383,8 @@ fn worker_iteration(
                 .map(|(buf, configs)| ConsensusEntry {
                     output: buf.clone(),
                     configs: configs.clone(),
-                }).collect();
+                })
+                .collect();
             result = ExecutionResult::Mismatch(consensus_vec);
 
             let mut red = ColorSpec::new();
