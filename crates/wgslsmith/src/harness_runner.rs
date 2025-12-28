@@ -19,7 +19,8 @@ pub struct ConsensusEntry {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExecutionResult {
-    Success(Vec<u8>),
+    // Option, because there is no consensus if all configs timed out
+    Success(Option<ConsensusEntry>),
     Crash(String),
     Mismatch(Vec<ConsensusEntry>),
     // TODO: Detect timeouts from running harness
@@ -214,13 +215,7 @@ fn exec_shader_impl(
 
     let result = match status.code() {
         None => return Err(eyre!("failed to get harness exit code")),
-        Some(0) => {
-            let buffer = consensus_list
-                .first()
-                .map(|e| e.output.clone())
-                .unwrap_or_default();
-            ExecutionResult::Success(buffer)
-        }
+        Some(0) => ExecutionResult::Success(consensus_list.first().cloned()),
         Some(1) => ExecutionResult::Mismatch(consensus_list),
         Some(101) => ExecutionResult::Crash(output),
         Some(code) => return Err(eyre!("harness exited with unrecognised code `{code}`")),

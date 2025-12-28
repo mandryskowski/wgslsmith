@@ -169,7 +169,7 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
                             &output.stdout,
                             bincode::config::standard(),
                         )?;
-                        lock(ExecutionEvent::Success(output.buffers))?;
+                        lock(ExecutionEvent::Success(config, output.buffers))?;
                     } else {
                         lock(ExecutionEvent::Failure(output.stderr))?;
                     }

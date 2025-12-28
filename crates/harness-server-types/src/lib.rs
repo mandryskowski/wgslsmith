@@ -27,7 +27,7 @@ pub struct RunRequest {
 pub enum RunMessage {
     UsingDefaultConfigs(Vec<ConfigId>),
     ExecStart(ConfigId),
-    ExecSuccess(Vec<Vec<u8>>),
+    ExecSuccess(ConfigId, Vec<Vec<u8>>),
     ExecFailure(Vec<u8>),
     ExecTimeout,
     End(Result<(), RunError>),

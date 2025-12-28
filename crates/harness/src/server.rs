@@ -82,7 +82,7 @@ fn handle_run_request<Host: HarnessHost, W: io::Write + Send>(
                 RunMessage::UsingDefaultConfigs(configs)
             }
             ExecutionEvent::Start(config) => RunMessage::ExecStart(config),
-            ExecutionEvent::Success(buffers) => RunMessage::ExecSuccess(buffers),
+            ExecutionEvent::Success(config, buffers) => RunMessage::ExecSuccess(config, buffers),
             ExecutionEvent::Failure(stderr) => RunMessage::ExecFailure(stderr),
             ExecutionEvent::Timeout => RunMessage::ExecTimeout,
         };

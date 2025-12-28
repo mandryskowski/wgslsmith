@@ -214,12 +214,12 @@ pub mod cli {
 
         let printer = super::Printer::new();
 
-        let mut executions = vec![];
+        let mut executions: Vec<(ConfigId, Vec<Vec<u8>>)> = vec![];
         let mut is_fail = false;
         let mut on_event = |event: ExecutionEvent| {
             printer.print_execution_event(&event, &pipeline_desc)?;
-            if let ExecutionEvent::Success(buffers) = event {
-                executions.push(buffers);
+            if let ExecutionEvent::Success(config, buffers) = event {
+                executions.push((config, buffers));
             } else if let ExecutionEvent::Failure(_) = event {
                 is_fail = true
             }
@@ -255,14 +255,13 @@ pub mod cli {
         }
 
         let mut buffers_to_configs: HashMap<Vec<u8>, Vec<ConfigId>> = HashMap::new();
-        for (index, execution) in executions.iter().enumerate() {
+        for (config, execution) in executions.iter() {
             let normalized =
                 buffer_check::normalize_execution(execution, &pipeline_desc, &type_descs);
-            let config = options.configs[index].clone();
             buffers_to_configs
                 .entry(normalized)
                 .or_default()
-                .push(config);
+                .push(config.clone());
         }
 
         if options.print_consensus {

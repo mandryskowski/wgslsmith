@@ -333,7 +333,7 @@ fn worker_iteration(
         }
     };
 
-    let mut result = ExecutionResult::Success(vec![]);
+    let mut result = ExecutionResult::Success(None);
     let mut buffers_to_configs: HashMap<Vec<u8>, Vec<String>> = HashMap::new();
     for target in targets {
         let exec_result =
@@ -359,16 +359,14 @@ fn worker_iteration(
             }
         };
 
-        if let ExecutionResult::Success(ref buf) = result {
-            // This one timed out
-            if buf.is_empty() {
-                continue;
+        if let ExecutionResult::Success(ref e) = result {
+            // if not timeout/empty result
+            if let Some(entry) = e.as_ref() {
+                buffers_to_configs
+                    .entry(entry.output.clone())
+                    .or_default()
+                    .extend(entry.configs.clone());
             }
-
-            buffers_to_configs
-                .entry(buf.clone())
-                .or_default()
-                .push(target.configs[0].to_string());
         } else {
             break;
         }
