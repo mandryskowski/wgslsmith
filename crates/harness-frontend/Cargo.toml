@@ -19,6 +19,7 @@ common = { path = "../common" }
 parser = { path = "../parser" }
 reflection = { path = "../reflection" }
 types = { path = "../harness-types", package = "harness-types" }
+serde = { version = "1.0.228", features = ["derive"] }
 
 [dependencies.clap]
 version = "3.1.17"

@@ -205,7 +205,7 @@ fn reduce_mismatch(
         })?;
 
         match result {
-            ExecutionResult::Mismatch => {
+            ExecutionResult::Mismatch(_) => {
                 mismatch_found = true;
                 break;
             }
