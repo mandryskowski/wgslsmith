@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -24,7 +25,9 @@ use tui::widgets::{Block, Borders, Paragraph};
 use tui::Terminal;
 
 use crate::config::Config;
-use crate::harness_runner::{self, get_targets, ExecutionResult, Target, TargetPath};
+use crate::harness_runner::{
+    self, get_targets, ConsensusEntry, ExecutionResult, Target, TargetPath,
+};
 
 #[derive(Copy, Clone, ValueEnum)]
 enum SaveStrategy {
@@ -133,7 +136,7 @@ impl ExecutionResult {
                 matches!(strategy, SaveStrategy::All | SaveStrategy::Crashes)
                     && !ignore.any(|it| it.is_match(output))
             }
-            ExecutionResult::Mismatch => {
+            ExecutionResult::Mismatch(_) => {
                 matches!(strategy, SaveStrategy::All | SaveStrategy::Mismatches)
             }
         }
@@ -152,10 +155,10 @@ fn save_shader(
 ) -> eyre::Result<()> {
     let now = OffsetDateTime::now_utc().to_offset(unsafe { UTC_OFFSET }.unwrap());
     let mut filename = now.format(&format_description::parse(
-        "[year]-[month]-[day]-[hour]-[minute]-[second]",
+        "[year]-[month]/[day]/[hour]-[minute]-[second]",
     )?)?;
 
-    if let Some(kind) = kind {
+    if let Some(kind) = &kind {
         filename = format!("{filename}-{kind}");
     }
 
@@ -169,6 +172,16 @@ fn save_shader(
 
     if let Some(output) = output {
         std::fs::write(out.join("stderr.txt"), output.replace('\0', ""))?;
+    }
+    if let Some(ExecutionResult::Mismatch(consensus_vec)) = kind {
+        std::fs::write(
+            out.join("consensus.json"),
+            consensus_vec
+                .iter()
+                .map(|e| format!("{:?} {:?}", e.configs, e.output))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )?;
     }
 
     Ok(())
@@ -320,8 +333,8 @@ fn worker_iteration(
         }
     };
 
-    let mut result = ExecutionResult::Success(vec![]);
-    let mut consensus = None;
+    let mut result = ExecutionResult::Success(None);
+    let mut buffers_to_configs: HashMap<Vec<u8>, Vec<String>> = HashMap::new();
     for target in targets {
         let exec_result =
             harness_runner::exec_shader(target, &reconditioned, metadata, &mut *logger);
@@ -346,37 +359,45 @@ fn worker_iteration(
             }
         };
 
-        if let ExecutionResult::Success(ref buf) = result {
-            // This one timed out
-            if buf.is_empty() {
-                continue;
-            }
-
-            if consensus.is_none() {
-                // First valid consensus
-                consensus = Some(buf.clone());
-            } else if *buf != consensus.clone().unwrap() {
-                // Harness mismatch
-                let mut stdout = StandardStream::stdout(ColorChoice::Auto);
-                result = ExecutionResult::Mismatch;
-
-                let mut red = ColorSpec::new();
-                red.set_fg(Some(Color::Red));
-                stdout.set_color(&red)?;
-
-                writeln!(stdout, "harness mismatch\n")?;
-                stdout.reset()?;
-                break;
+        if let ExecutionResult::Success(ref e) = result {
+            // if not timeout/empty result
+            if let Some(entry) = e.as_ref() {
+                buffers_to_configs
+                    .entry(entry.output.clone())
+                    .or_default()
+                    .extend(entry.configs.clone());
             }
         } else {
             break;
         }
     }
 
+    // harness mismatch
+    if let ExecutionResult::Success(_) = result {
+        if buffers_to_configs.len() > 1 {
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            let consensus_vec: Vec<ConsensusEntry> = buffers_to_configs
+                .iter()
+                .map(|(buf, configs)| ConsensusEntry {
+                    output: buf.clone(),
+                    configs: configs.clone(),
+                })
+                .collect();
+            result = ExecutionResult::Mismatch(consensus_vec);
+
+            let mut red = ColorSpec::new();
+            red.set_fg(Some(Color::Red));
+            stdout.set_color(&red)?;
+
+            writeln!(stdout, "harness mismatch\n")?;
+            stdout.reset()?;
+        }
+    }
+
     let result_kind = match result {
         ExecutionResult::Success(_) => WorkerResultKind::Success,
         ExecutionResult::Crash(_) => WorkerResultKind::Crash,
-        ExecutionResult::Mismatch => WorkerResultKind::Mismatch,
+        ExecutionResult::Mismatch(_) => WorkerResultKind::Mismatch,
         // ExecutionResult::Timeout => WorkerResultKind::Timeout,
     };
 

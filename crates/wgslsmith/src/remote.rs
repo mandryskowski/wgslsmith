@@ -37,7 +37,9 @@ pub fn execute(
                 on_event(ExecutionEvent::UsingDefaultConfigs(configs))?
             }
             RunMessage::ExecStart(config) => on_event(ExecutionEvent::Start(config))?,
-            RunMessage::ExecSuccess(buffers) => on_event(ExecutionEvent::Success(buffers))?,
+            RunMessage::ExecSuccess(config, buffers) => {
+                on_event(ExecutionEvent::Success(config, buffers))?
+            }
             RunMessage::ExecFailure(stderr) => on_event(ExecutionEvent::Failure(stderr))?,
             RunMessage::ExecTimeout => on_event(ExecutionEvent::Timeout)?,
             RunMessage::End(result) => {

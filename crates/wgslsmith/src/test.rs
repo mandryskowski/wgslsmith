@@ -205,18 +205,19 @@ fn reduce_mismatch(
         })?;
 
         match result {
-            ExecutionResult::Mismatch => {
+            ExecutionResult::Mismatch(_) => {
                 mismatch_found = true;
                 break;
             }
-            ExecutionResult::Success(buf) => {
-                if buf.is_empty() {
+            ExecutionResult::Success(e) => {
+                if e.is_none() {
                     // timeout or empty result, skip for consensus
                     continue;
                 }
+                let e = e.unwrap();
 
                 if let Some(ref existing_consensus) = consensus {
-                    if buf != *existing_consensus {
+                    if e.output != *existing_consensus {
                         if !quiet {
                             println!("harness mismatch between targets");
                         }
@@ -224,7 +225,7 @@ fn reduce_mismatch(
                         break;
                     }
                 } else {
-                    consensus = Some(buf);
+                    consensus = Some(e.output);
                 }
             }
             _ => {}

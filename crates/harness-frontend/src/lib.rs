@@ -158,11 +158,13 @@ pub trait Executor {
 }
 
 pub mod cli {
+    use std::collections::HashMap;
     use std::time::Duration;
 
     use clap::Parser;
     use color_eyre::Help;
     use eyre::eyre;
+    use serde::Serialize;
     use types::ConfigId;
 
     use crate::{ExecutionEvent, ExecutionResult, Executor};
@@ -189,7 +191,7 @@ pub mod cli {
         /// Timeout in seconds.
         ///
         /// Use 0 to disable the timeout. Note that the timeout is per-execution rather than a global timeout.
-        #[clap(long, action, default_value = "30")]
+        #[clap(long, action, default_value = "45")]
         pub timeout: u64,
 
         /// Limit the number of parallel configurations executing at once.
@@ -198,11 +200,11 @@ pub mod cli {
         #[clap(long, short = 'j', action)]
         pub parallelism: Option<usize>,
 
-        /// Print the final output if all configurations returned the same output.
+        /// Print all unique outputs, as well as their corresponding configurations.
         ///
-        /// Timeouts are ignored.
+        /// Configs that timed out are ignored.
         #[clap(long, action, default_value = "false")]
-        pub print_output_if_ok: bool,
+        pub print_consensus: bool,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {
@@ -212,12 +214,12 @@ pub mod cli {
 
         let printer = super::Printer::new();
 
-        let mut executions = vec![];
+        let mut executions: Vec<(ConfigId, Vec<Vec<u8>>)> = vec![];
         let mut is_fail = false;
         let mut on_event = |event: ExecutionEvent| {
             printer.print_execution_event(&event, &pipeline_desc)?;
-            if let ExecutionEvent::Success(buffers) = event {
-                executions.push(buffers);
+            if let ExecutionEvent::Success(config, buffers) = event {
+                executions.push((config, buffers));
             } else if let ExecutionEvent::Failure(_) = event {
                 is_fail = true
             }
@@ -252,23 +254,41 @@ pub mod cli {
             panic!("one or more executions failed");
         }
 
-        if buffer_check::compare(executions.iter(), &pipeline_desc, &type_descs) {
-            printer.print_execution_result(ExecutionResult::Ok)?;
+        let mut buffers_to_configs: HashMap<Vec<u8>, Vec<ConfigId>> = HashMap::new();
+        for (config, execution) in executions.iter() {
+            let normalized =
+                buffer_check::normalize_execution(execution, &pipeline_desc, &type_descs);
+            buffers_to_configs
+                .entry(normalized)
+                .or_default()
+                .push(config.clone());
+        }
 
-            if options.print_output_if_ok {
-                if let Some(first_execution) = executions.first() {
-                    eprintln!(
-                        "output-consensus: {:?}",
-                        buffer_check::normalize_execution(
-                            first_execution,
-                            &pipeline_desc,
-                            &type_descs
-                        )
-                    );
-                }
+        if options.print_consensus {
+            #[derive(Serialize)]
+            struct ConsensusEntry<'a> {
+                output: &'a [u8],
+                configs: Vec<String>,
             }
+
+            let report: Vec<ConsensusEntry> = buffers_to_configs
+                .iter()
+                .map(|(buf, configs)| ConsensusEntry {
+                    output: buf,
+                    configs: configs.iter().map(|it| it.to_string()).collect(),
+                })
+                .collect();
+
+            if let Ok(json_str) = serde_json::to_string(&report) {
+                eprintln!("output-consensus: {}", json_str);
+            }
+        }
+
+        if buffers_to_configs.len() <= 1 {
+            printer.print_execution_result(ExecutionResult::Ok)?;
         } else {
             printer.print_execution_result(ExecutionResult::Mismatch)?;
+
             std::process::exit(1);
         }
 

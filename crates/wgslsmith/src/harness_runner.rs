@@ -2,6 +2,7 @@ use crate::config::Config;
 use bincode::{Decode, Encode};
 use eyre::eyre;
 use harness_types::ConfigId;
+use serde::Deserialize;
 use std::fmt::{Display, Write as _};
 use std::io::{self, BufRead, BufReader, BufWriter, Write as _};
 use std::path::PathBuf;
@@ -10,11 +11,18 @@ use std::str::FromStr;
 use std::thread;
 use tap::Tap;
 
+#[derive(Debug, Deserialize, PartialEq, Eq, Clone)]
+pub struct ConsensusEntry {
+    pub(crate) output: Vec<u8>,
+    pub(crate) configs: Vec<String>,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExecutionResult {
-    Success(Vec<u8>),
+    // Option, because there is no consensus if all configs timed out
+    Success(Option<ConsensusEntry>),
     Crash(String),
-    Mismatch,
+    Mismatch(Vec<ConsensusEntry>),
     // TODO: Detect timeouts from running harness
     // Might not actually be necessary since it's probably fine to treat them as successful runs
     // Timeout,
@@ -25,7 +33,7 @@ impl Display for ExecutionResult {
         match self {
             ExecutionResult::Success(_) => write!(f, "success"),
             ExecutionResult::Crash(_) => write!(f, "crash"),
-            ExecutionResult::Mismatch => write!(f, "mismatch"),
+            ExecutionResult::Mismatch(_) => write!(f, "mismatch"),
             // ExecutionResult::Timeout => write!(f, "timeout"),
         }
     }
@@ -171,7 +179,7 @@ fn exec_shader_impl(
         cmd.args(["-c", &config.to_string()]);
     }
 
-    cmd.args(["--print-output-if-ok"]);
+    cmd.args(["--print-consensus"]);
 
     let mut harness = cmd
         .stdout(Stdio::piped())
@@ -187,33 +195,28 @@ fn exec_shader_impl(
     }
 
     let mut output = String::new();
-    let mut consensus_str = None;
+    let mut consensus_list: Vec<ConsensusEntry> = Vec::new();
 
     let status = wait_for_child_with_line_logger(harness, &mut |_, line| {
-        if line.starts_with("output-consensus: ") {
-            consensus_str = Some(line.trim_start_matches("output-consensus: ").to_string());
+        if let Some(json_content) = line.strip_prefix("output-consensus: ") {
+            match serde_json::from_str::<Vec<ConsensusEntry>>(json_content) {
+                Ok(parsed) => {
+                    consensus_list = parsed;
+                }
+                Err(e) => {
+                    writeln!(output, "!! Consensus Parse Error: {e}").unwrap();
+                }
+            }
             return;
         }
         writeln!(output, "{line}").unwrap();
         logger(line);
     })?;
 
-    let consensus: Vec<_> = consensus_str
-        .as_ref()
-        .map(|s| {
-            s.trim()
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .split(',')
-                .map(|x| x.trim().parse::<u8>().expect("Invalid byte string"))
-                .collect()
-        })
-        .unwrap_or_default();
-
     let result = match status.code() {
         None => return Err(eyre!("failed to get harness exit code")),
-        Some(0) => ExecutionResult::Success(consensus),
-        Some(1) => ExecutionResult::Mismatch,
+        Some(0) => ExecutionResult::Success(consensus_list.first().cloned()),
+        Some(1) => ExecutionResult::Mismatch(consensus_list),
         Some(101) => ExecutionResult::Crash(output),
         Some(code) => return Err(eyre!("harness exited with unrecognised code `{code}`")),
     };

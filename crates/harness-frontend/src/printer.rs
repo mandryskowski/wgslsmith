@@ -9,7 +9,7 @@ use types::{Config, ConfigId};
 pub enum ExecutionEvent {
     UsingDefaultConfigs(Vec<ConfigId>),
     Start(ConfigId),
-    Success(Vec<Vec<u8>>),
+    Success(ConfigId, Vec<Vec<u8>>),
     Failure(Vec<u8>),
     Timeout,
 }
@@ -112,11 +112,9 @@ impl Printer {
 
         write!(&mut stdout, " executing ")?;
 
-        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
-        writeln!(&mut stdout, "{config}")?;
-        stdout.reset()?;
+        self.print_config(&mut stdout, config)?;
 
-        writeln!(&mut stdout, "inputs:")?;
+        writeln!(&mut stdout, "\ninputs:")?;
 
         let mut no_inputs = true;
         for resource in pipeline_desc.resources.iter() {
@@ -137,12 +135,15 @@ impl Printer {
 
     fn print_post_execution(
         &self,
+        config: &ConfigId,
         buffers: &[Vec<u8>],
         pipeline_desc: &PipelineDescription,
     ) -> io::Result<()> {
         let mut stdout = StandardStream::stdout(ColorChoice::Auto);
 
-        writeln!(&mut stdout, "outputs:")?;
+        write!(&mut stdout, "outputs (")?;
+        self.print_config(&mut stdout, config)?;
+        writeln!(&mut stdout, "):")?;
 
         let mut no_outputs = true;
         for (index, resource) in pipeline_desc
@@ -167,6 +168,13 @@ impl Printer {
         Ok(())
     }
 
+    fn print_config(&self, mut stdout: &mut StandardStream, config: &ConfigId) -> io::Result<()> {
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+        write!(&mut stdout, "{config}")?;
+        stdout.reset()?;
+        Ok(())
+    }
+
     pub fn print_execution_event(
         &self,
         event: &ExecutionEvent,
@@ -175,7 +183,9 @@ impl Printer {
         match event {
             ExecutionEvent::UsingDefaultConfigs(configs) => self.print_default_configs(configs),
             ExecutionEvent::Start(config) => self.print_pre_execution(config, pipeline_desc),
-            ExecutionEvent::Success(buffers) => self.print_post_execution(buffers, pipeline_desc),
+            ExecutionEvent::Success(config, buffers) => {
+                self.print_post_execution(config, buffers, pipeline_desc)
+            }
             ExecutionEvent::Failure(stderr) => {
                 std::io::stdout().write_all(stderr)?;
                 println!();
