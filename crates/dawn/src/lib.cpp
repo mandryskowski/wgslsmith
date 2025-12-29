@@ -87,7 +87,8 @@ extern "C" WGPUDevice create_device(
 
         if (info.backendType == backendType && info.deviceID == deviceID) {
             const char* enabledToggles[] = {
-                "dump_shaders", "disable_symbol_renaming", "use_dxc"
+//                "dump_shaders", "disable_symbol_renaming",
+                "use_dxc"
             };
             const char* disabledToggles[] = {
             };
