@@ -2,26 +2,35 @@ use crate::evaluator::value;
 use ast::*;
 use value::Value;
 
+#[derive(Debug)]
 pub enum Builtin {
     Abs,
+    All,
+    Any,
     Exp2,
     CountOneBits,
     ReverseBits,
     FirstLeadingBit,
+    FirstTrailingBit,
     Min,
     Max,
+    Select,
 }
 
 impl Builtin {
     pub fn convert(ident: String) -> Option<Builtin> {
         match ident.as_str() {
             "exp2" => Some(Builtin::Exp2),
+            "all" => Some(Builtin::All),
+            "any" => Some(Builtin::Any),
             "abs" => Some(Builtin::Abs),
             "countOneBits" => Some(Builtin::CountOneBits),
             "reverseBits" => Some(Builtin::ReverseBits),
             "firstLeadingBit" => Some(Builtin::FirstLeadingBit),
+            "firstTrailingBit" => Some(Builtin::FirstTrailingBit),
             "min" => Some(Builtin::Min),
             "max" => Some(Builtin::Max),
+            "select" => Some(Builtin::Select),
             _ => None,
         }
     }
@@ -30,12 +39,27 @@ impl Builtin {
 pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Value> {
     // evaluate based on number of arguments passed to builtin
     match ident {
+        Builtin::Select => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            let arg3 = args[2].clone().unwrap();
+
+            evaluate_three_arg_builtin(ident, arg1, arg2, arg3)
+        }
+
         Builtin::Min | Builtin::Max => {
             let arg1 = args[0].clone().unwrap();
             let arg2 = args[1].clone().unwrap();
 
             evaluate_two_arg_builtin(ident, arg1, arg2)
         }
+
+        // these are reductions (Vector -> Scalar), so we can't use evaluate_single_arg_builtin
+        Builtin::All | Builtin::Any => {
+            let arg = args[0].clone().unwrap();
+            evaluate_bool_reduction(ident, arg)
+        }
+
         _ => {
             let single_arg = args[0].clone().unwrap();
             evaluate_single_arg_builtin(ident, single_arg)
@@ -88,6 +112,36 @@ fn evaluate_two_arg_builtin(ident: &Builtin, arg1: Value, arg2: Value) -> Option
     }
 }
 
+fn evaluate_three_arg_builtin(
+    ident: &Builtin,
+    arg1: Value,
+    arg2: Value,
+    arg3: Value,
+) -> Option<Value> {
+    match (arg1, arg2, arg3) {
+        (Value::Lit(val1), Value::Lit(val2), Value::Lit(val3)) => {
+            evaluate_three_args(ident, val1, val2, val3)
+        }
+        (Value::Vector(val1), Value::Vector(val2), Value::Vector(val3)) => {
+            let mut result = Vec::new();
+
+            for ((x, y), z) in val1.iter().zip(val2.iter()).zip(val3.iter()) {
+                let elem = evaluate_three_arg_builtin(ident, x.clone(), y.clone(), z.clone());
+
+                match elem {
+                    Some(e) => result.push(e),
+                    None => {
+                        return None;
+                    }
+                }
+            }
+
+            Some(Value::Vector(result))
+        }
+        _ => None,
+    }
+}
+
 fn evaluate(ident: &Builtin, val: Lit) -> Option<Value> {
     match ident {
         Builtin::Exp2 => exp2(val),
@@ -95,6 +149,7 @@ fn evaluate(ident: &Builtin, val: Lit) -> Option<Value> {
         Builtin::CountOneBits => count_one_bits(val),
         Builtin::ReverseBits => reverse_bits(val),
         Builtin::FirstLeadingBit => first_leading_bit(val),
+        Builtin::FirstTrailingBit => first_trailing_bit(val),
         _ => todo!(),
     }
 }
@@ -104,6 +159,39 @@ fn evaluate_two_args(ident: &Builtin, val1: Lit, val2: Lit) -> Option<Value> {
         Builtin::Min => min(val1, val2),
         Builtin::Max => max(val1, val2),
         _ => todo!(),
+    }
+}
+
+fn evaluate_three_args(ident: &Builtin, val1: Lit, val2: Lit, val3: Lit) -> Option<Value> {
+    match ident {
+        Builtin::Select => select(val1, val2, val3),
+        _ => todo!(),
+    }
+}
+
+fn evaluate_bool_reduction(ident: &Builtin, arg: Value) -> Option<Value> {
+    match arg {
+        Value::Vector(vec) => {
+            // If the vector contains anything other than bools, it's invalid WGSL.
+            let mut bool_values = Vec::with_capacity(vec.len());
+
+            for v in vec {
+                match v {
+                    Value::Lit(Lit::Bool(b)) => bool_values.push(b),
+                    _ => return None,
+                }
+            }
+
+            let result = match ident {
+                Builtin::Any => bool_values.into_iter().any(|b| b),
+                Builtin::All => bool_values.into_iter().all(|b| b),
+                _ => return None,
+            };
+
+            Some(result.into())
+        }
+        Value::Lit(Lit::Bool(b)) => Some(b.into()),
+        _ => None,
     }
 }
 
@@ -117,11 +205,8 @@ fn count_one_bits(val: Lit) -> Option<Value> {
 
 fn abs(val: Lit) -> Option<Value> {
     match val {
-        Lit::I32(v) => Value::from_i32(Some(v.abs())),
+        Lit::I32(v) => Value::from_i32(Some(v.wrapping_abs())),
         Lit::F32(v) => Value::from_f32(Some(v.abs())),
-
-        // abs() is not implemented for u32 in Rust,
-        // but it is implemented in WGSL
         Lit::U32(v) => Value::from_u32(Some(v)),
         _ => None,
     }
@@ -130,6 +215,8 @@ fn abs(val: Lit) -> Option<Value> {
 fn exp2(val: Lit) -> Option<Value> {
     match val {
         Lit::F32(v) => {
+            // TODO: Can we replace this entire block with Value::from_f32(Some(v.exp2()))?
+
             // approximation - the maximum representable f32
             // is (2 - 2^-23)*2^127. so, conservatively if
             // v > 127 then exp2(v) is not representable as
@@ -180,6 +267,22 @@ fn max(val1: Lit, val2: Lit) -> Option<Value> {
     }
 }
 
+fn select(val1: Lit, val2: Lit, val3: Lit) -> Option<Value> {
+    // val1 = false case, val2 = true case, val3 = condition
+    let cond = match val3 {
+        Lit::Bool(b) => b,
+        _ => return None,
+    };
+
+    match (val1, val2) {
+        (Lit::I32(v1), Lit::I32(v2)) => Some(if cond { v2 } else { v1 }.into()),
+        (Lit::U32(v1), Lit::U32(v2)) => Some(if cond { v2 } else { v1 }.into()),
+        (Lit::F32(v1), Lit::F32(v2)) => Some(if cond { v2 } else { v1 }.into()),
+        // (Lit::Bool(v1), Lit::Bool(v2)) => Some(if cond { v2 } else { v1 }.into()),
+        _ => None,
+    }
+}
+
 fn reverse_bits(val: Lit) -> Option<Value> {
     match val {
         Lit::I32(v) => Some(v.reverse_bits().into()),
@@ -190,29 +293,60 @@ fn reverse_bits(val: Lit) -> Option<Value> {
 
 fn first_leading_bit(val: Lit) -> Option<Value> {
     match val {
-        // signed: returns -1 if value is 0 or -1
-        // otherwise returns the index of the first
-        // bit that differs from the sign bit
+        // signed: returns index of the first bit that differs from the sign bit
+        // if value is 0 or -1, returns -1
         Lit::I32(v) => {
-            if v == 0 || v == 1 {
-                Some((-1_i32).into())
-            } else if v < 0 {
-                // find first unset bit
-                let result: Option<i32> = i32::try_from(v.leading_ones()).ok();
+            // If v is negative, invert it.
+            // This maps -1 (...111) to 0 (...000), making the logic identical to positive numbers.
+            // i.e., finding the highest '1' of `!v` is finding the highest '0' in `v`.
+            let effective_v = if v < 0 { !v } else { v };
 
-                Value::from_i32(result)
-            } else {
-                // find first set bit
-                let result: Option<i32> = i32::try_from(v.leading_zeros()).ok();
-
-                Value::from_i32(result)
+            if effective_v == 0 {
+                return Some((-1_i32).into());
             }
+
+            let leading_zeros = effective_v.leading_zeros();
+            let index = 31 - leading_zeros;
+            Some((index as i32).into())
         }
         // unsigned: returns index of first set bit
-        // this is equal to the number of leading zeros
-        // e.g. 0011 has 2 leading zeros => 2 is index
-        // of first set bit
-        Lit::U32(v) => Some(v.leading_zeros().into()),
+        // if value is 0, returns -1 (u32::MAX)
+        Lit::U32(v) => {
+            if v == 0 {
+                return Some(u32::MAX.into());
+            }
+
+            let index = 31 - v.leading_zeros();
+            Some(index.into())
+        }
+        _ => None,
+    }
+}
+
+fn first_trailing_bit(val: Lit) -> Option<Value> {
+    match val {
+        // signed: returns index of the least significant set bit
+        // if value is 0, returns -1
+        // Note: WGSL treats the bits as raw bits, so sign doesn't change the logic.
+        Lit::I32(v) => {
+            if v == 0 {
+                return Some((-1_i32).into());
+            }
+
+            let index = v.trailing_zeros();
+            Some((index as i32).into())
+        }
+
+        // unsigned: returns index of the least significant set bit
+        // if value is 0, returns -1 (u32::MAX)
+        Lit::U32(v) => {
+            if v == 0 {
+                return Some(u32::MAX.into());
+            }
+
+            let index = v.trailing_zeros();
+            Some(index.into())
+        }
         _ => None,
     }
 }

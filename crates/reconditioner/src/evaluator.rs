@@ -434,6 +434,16 @@ impl Evaluator {
         }
     }
 
+    fn is_zero(&self, val: &Value) -> bool {
+        match val {
+            Value::Lit(Lit::I32(v)) => *v == 0,
+            Value::Lit(Lit::U32(v)) => *v == 0,
+            Value::Lit(Lit::F32(v)) => *v == 0.0,
+            Value::Vector(vec) => vec.iter().any(|v| self.is_zero(v)),
+            _ => false,
+        }
+    }
+
     fn concretize_bin_op(
         &self,
         data_type: DataType,
@@ -444,6 +454,22 @@ impl Evaluator {
         // if either left or right is not a const-expression, then
         // this node is not a const-expression
         if left.value.is_none() || right.value.is_none() {
+            // If only right is a const-expression, validation could still detect div/mod by 0.
+            if let Some(r_val) = &right.value {
+                if self.is_zero(r_val) {
+                    match op {
+                        BinOp::Divide => {
+                            return ConNode {
+                                node: left.node,
+                                value: None,
+                            }
+                        }
+                        BinOp::Mod => return self.default_node(data_type),
+                        _ => {}
+                    }
+                }
+            }
+
             return ConNode {
                 node: ExprNode {
                     data_type,
@@ -581,7 +607,8 @@ impl Evaluator {
         // check condition 2
         match (lv, rv) {
             (Lit::I32(l), Lit::U32(r)) => {
-                if op == &BinOp::LShift && l.leading_zeros() < (r + 1) && l.leading_ones() < (r + 1)
+                if op == &BinOp::LShift
+                    && (l.leading_zeros() < (r + 1) || l.leading_ones() < (r + 1))
                 {
                     return None;
                 }
