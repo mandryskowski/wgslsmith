@@ -1,5 +1,4 @@
 mod clamp;
-mod divide;
 mod dot;
 mod float;
 mod float_divide;
@@ -14,7 +13,6 @@ use ast::{
 };
 
 pub use clamp::clamp;
-pub use divide::divide;
 pub use dot::dot;
 pub use float::float;
 pub use float_divide::float_divide;

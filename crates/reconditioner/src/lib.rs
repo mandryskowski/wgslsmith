@@ -24,7 +24,6 @@ enum Wrapper {
     Plus(DataType),
     Minus(DataType),
     Times(DataType),
-    Divide(DataType),
     Mod(DataType),
     Index(DataType),
 }
@@ -39,9 +38,8 @@ impl Wrapper {
             Wrapper::FloatDivide(ty) => safe_wrappers::float_divide(name, ty),
             Wrapper::Plus(ty) => safe_wrappers::plus(name, ty),
             Wrapper::Minus(ty) => safe_wrappers::minus(name, ty),
-            Wrapper::Times(ty) => safe_wrappers::times(name, ty),
-            Wrapper::Divide(ty) => safe_wrappers::divide(name, ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
+            Wrapper::Times(ty) => safe_wrappers::times(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
         }
     }
@@ -57,7 +55,6 @@ impl Display for Wrapper {
             Wrapper::Plus(ty) => ("add", ty),
             Wrapper::Minus(ty) => ("sub", ty),
             Wrapper::Times(ty) => ("mult", ty),
-            Wrapper::Divide(ty) => ("div", ty),
             Wrapper::Mod(ty) => ("mod", ty),
             Wrapper::Index(ty) => ("index", ty),
         };
@@ -546,7 +543,6 @@ impl Reconditioner {
             BinOp::Plus => self.safe_wrapper(Wrapper::Plus(data_type.clone())),
             BinOp::Minus => self.safe_wrapper(Wrapper::Minus(data_type.clone())),
             BinOp::Times => self.safe_wrapper(Wrapper::Times(data_type.clone())),
-            BinOp::Divide => self.safe_wrapper(Wrapper::Divide(data_type.clone())),
             BinOp::Mod => self.safe_wrapper(Wrapper::Mod(data_type.clone())),
             op => return BinOpExpr::new(op, l, r).into(),
         };
