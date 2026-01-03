@@ -199,7 +199,7 @@ jobs:
              --sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
              --target=aarch64-linux-android
         run: |
-          cargo ndk -t aarch64-linux-android --platform 30 build -p harness --release
+          cargo ndk -t aarch64-linux-android --platform 30 build --features harness --release
           mkdir -p android-staging
           cp target/${{ matrix.rust-target }}/release/wgslsmith-harness android-staging/
           cp target/${{ matrix.rust-target }}/release/wgslsmith android-staging/
