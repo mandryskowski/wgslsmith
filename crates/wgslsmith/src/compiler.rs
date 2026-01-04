@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use clap::{Parser, ValueEnum};
 use eyre::{eyre, Context};
+use rspirv::binary::Disassemble;
 
 #[derive(Parser)]
 pub struct Options {
@@ -83,7 +84,7 @@ fn validate_tint(source: &str) -> eyre::Result<()> {
 }
 
 fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
-    use naga::back::{hlsl, msl};
+    use naga::back::{hlsl, msl, spv};
     use naga::front::wgsl;
     use naga::valid::{Capabilities, ValidationFlags, Validator};
 
@@ -124,7 +125,13 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
                 &msl::PipelineOptions::default(),
             )?;
         }
-        Backend::Spirv => todo!(),
+        Backend::Spirv => {
+            let options = spv::Options::default();
+
+            let binary = spv::write_vec(&module, &validation, &options, None)?;
+
+            out = disassemble_spirv(binary)
+        }
     }
 
     Ok(out)
@@ -135,8 +142,17 @@ fn compile_tint(source: &str, backend: Backend) -> eyre::Result<String> {
         Backend::Hlsl => tint::compile_shader_to_hlsl(source),
         Backend::Msl => tint::compile_shader_to_msl(source),
         Backend::Spirv => {
-            format!("{:?}", tint::compile_shader_to_spirv(source))
+            let binary = tint::compile_shader_to_spirv(source);
+            disassemble_spirv(binary)
         }
     };
     Ok(out)
+}
+
+fn disassemble_spirv(binary: Vec<u32>) -> String {
+    let mut loader = rspirv::dr::Loader::new();
+    rspirv::binary::parse_words(&binary, &mut loader).unwrap();
+    let module = loader.module();
+
+    module.disassemble()
 }

@@ -17,14 +17,12 @@ pub struct ReconditionResult {
 
 #[derive(Hash, PartialEq, Eq)]
 enum Wrapper {
-    Clamp(DataType),
     Dot(DataType),
+    ExtractBits(DataType),
+    InsertBits(DataType),
     FloatOp(DataType),
     FloatDivide(DataType),
-    Plus(DataType),
-    Minus(DataType),
-    Times(DataType),
-    Divide(DataType),
+    Select(DataType, DataType),
     Mod(DataType),
     Index(DataType),
 }
@@ -33,14 +31,18 @@ impl Wrapper {
     fn gen_fn_decl(&self) -> FnDecl {
         let name = self.to_string();
         match self {
-            Wrapper::Clamp(ty) => safe_wrappers::clamp(name, ty),
             Wrapper::Dot(ty) => safe_wrappers::dot(name, ty),
+            Wrapper::ExtractBits(ty) => {
+                if ty.is_signed_int() {
+                    safe_wrappers::extract_bits(name, ty)
+                } else {
+                    safe_wrappers::extract_bits_unsigned(name, ty)
+                }
+            }
+            Wrapper::InsertBits(ty) => safe_wrappers::insert_bits(name, ty),
             Wrapper::FloatOp(ty) => safe_wrappers::float(name, ty),
             Wrapper::FloatDivide(ty) => safe_wrappers::float_divide(name, ty),
-            Wrapper::Plus(ty) => safe_wrappers::plus(name, ty),
-            Wrapper::Minus(ty) => safe_wrappers::minus(name, ty),
-            Wrapper::Times(ty) => safe_wrappers::times(name, ty),
-            Wrapper::Divide(ty) => safe_wrappers::divide(name, ty),
+            Wrapper::Select(ty, cond_ty) => safe_wrappers::select(name, ty, cond_ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
         }
@@ -49,25 +51,37 @@ impl Wrapper {
 
 impl Display for Wrapper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (name, ty) = match self {
-            Wrapper::Clamp(ty) => ("clamp", ty),
-            Wrapper::Dot(ty) => ("dot", ty),
-            Wrapper::FloatOp(ty) => ("f_op", ty),
-            Wrapper::FloatDivide(ty) => ("div", ty),
-            Wrapper::Plus(ty) => ("add", ty),
-            Wrapper::Minus(ty) => ("sub", ty),
-            Wrapper::Times(ty) => ("mult", ty),
-            Wrapper::Divide(ty) => ("div", ty),
-            Wrapper::Mod(ty) => ("mod", ty),
-            Wrapper::Index(ty) => ("index", ty),
+        // helper func
+        let write_type = |f: &mut std::fmt::Formatter<'_>, ty: &DataType| match ty {
+            DataType::Scalar(s) => write!(f, "{s}"),
+            DataType::Vector(n, s) => write!(f, "vec{n}_{s}"),
+            _ => unimplemented!("no wrappers available for expressions of type `{ty}`"),
         };
 
-        write!(f, "_wgslsmith_{name}_")?;
+        write!(f, "_wgslsmith_")?;
 
-        match ty {
-            DataType::Scalar(ty) => write!(f, "{ty}"),
-            DataType::Vector(n, ty) => write!(f, "vec{n}_{ty}"),
-            _ => unimplemented!("no wrappers available for expressions of type `{ty}`"),
+        match self {
+            Wrapper::Select(ty, cond_ty) => {
+                write!(f, "select_")?;
+                write_type(f, ty)?;
+                write!(f, "_")?;
+                write_type(f, cond_ty)
+            }
+            other => {
+                let (name, ty) = match other {
+                    Wrapper::Dot(ty) => ("dot", ty),
+                    Wrapper::ExtractBits(ty) => ("extract_bits", ty),
+                    Wrapper::InsertBits(ty) => ("insert_bits", ty),
+                    Wrapper::FloatOp(ty) => ("f_op", ty),
+                    Wrapper::FloatDivide(ty) => ("div", ty),
+                    Wrapper::Mod(ty) => ("mod", ty),
+                    Wrapper::Index(ty) => ("index", ty),
+                    Wrapper::Select(..) => unreachable!(),
+                };
+
+                write!(f, "{name}_")?;
+                write_type(f, ty)
+            }
         }
     }
 }
@@ -367,7 +381,7 @@ impl Reconditioner {
                 match op {
                     UnOp::Neg => {
                         let data_type = inner.data_type.dereference().clone();
-                        let mut expr = self.recondition_negation(inner);
+                        let mut expr = UnOpExpr::new(UnOp::Neg, inner).into();
                         if data_type.as_scalar().unwrap() == ScalarType::F32 {
                             expr = FnCallExpr::new(
                                 self.safe_wrapper(Wrapper::FloatOp(data_type.clone())),
@@ -393,12 +407,27 @@ impl Reconditioner {
                     .collect();
 
                 let expr = match expr.ident.as_str() {
-                    "clamp" => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::Clamp(args[0].data_type.dereference().clone())),
-                        args,
-                    ),
                     "dot" if args[0].data_type.is_integer() => FnCallExpr::new(
                         self.safe_wrapper(Wrapper::Dot(args[0].data_type.dereference().clone())),
+                        args,
+                    ),
+                    "extractBits" => FnCallExpr::new(
+                        self.safe_wrapper(Wrapper::ExtractBits(
+                            args[0].data_type.dereference().clone(),
+                        )),
+                        args,
+                    ),
+                    "insertBits" if args[0].data_type.is_integer() => FnCallExpr::new(
+                        self.safe_wrapper(Wrapper::InsertBits(
+                            args[0].data_type.dereference().clone(),
+                        )),
+                        args,
+                    ),
+                    "select" => FnCallExpr::new(
+                        self.safe_wrapper(Wrapper::Select(
+                            args[0].data_type.dereference().clone(),
+                            args[2].data_type.dereference().clone(),
+                        )),
                         args,
                     ),
                     _ => FnCallExpr::new(expr.ident, args),
@@ -433,36 +462,6 @@ impl Reconditioner {
             data_type: node.data_type,
             expr: reconditioned,
         }
-    }
-
-    fn recondition_negation(&mut self, inner: ExprNode) -> Expr {
-        // TODO: Workaround for bug in naga which generates incorrect code for double negation
-        // expression: https://github.com/gfx-rs/naga/issues/1564.
-        // We transform a double negation into a single negation which is multiplied by -1.
-
-        fn should_recondition(expr: &Expr) -> bool {
-            // Recondition if inner is a unary negation or a negative literal
-            matches!(expr, Expr::UnOp(UnOpExpr { op: UnOp::Neg, .. }))
-                || matches!(expr, Expr::Lit(Lit::I32(v)) if *v < 0)
-                || matches!(expr, Expr::Lit(Lit::F32(v)) if *v < 0.0)
-        }
-
-        let data_type = inner.data_type.dereference();
-        let scalar_ty = data_type.as_scalar().unwrap();
-
-        if !should_recondition(&inner.expr) {
-            return UnOpExpr::new(UnOp::Neg, inner).into();
-        }
-
-        let scalar_lit = match scalar_ty {
-            ScalarType::I32 => Lit::I32(-1),
-            ScalarType::F32 => Lit::F32(-1.0),
-            _ => unreachable!("negation can only be applied to signed integers and floats"),
-        };
-
-        let neg_multiplier = TypeConsExpr::new(data_type.clone(), vec![scalar_lit.into()]);
-
-        BinOpExpr::new(BinOp::Times, neg_multiplier, inner).into()
     }
 
     fn recondition_array_index(&mut self, array_type: &DataType, index: ExprNode) -> ExprNode {
@@ -543,10 +542,6 @@ impl Reconditioner {
         r: ExprNode,
     ) -> ExprNode {
         let name = match op {
-            BinOp::Plus => self.safe_wrapper(Wrapper::Plus(data_type.clone())),
-            BinOp::Minus => self.safe_wrapper(Wrapper::Minus(data_type.clone())),
-            BinOp::Times => self.safe_wrapper(Wrapper::Times(data_type.clone())),
-            BinOp::Divide => self.safe_wrapper(Wrapper::Divide(data_type.clone())),
             BinOp::Mod => self.safe_wrapper(Wrapper::Mod(data_type.clone())),
             op => return BinOpExpr::new(op, l, r).into(),
         };

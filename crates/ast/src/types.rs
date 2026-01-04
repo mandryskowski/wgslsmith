@@ -122,6 +122,11 @@ impl DataType {
     pub fn is_integer(&self) -> bool {
         matches!(self.as_scalar(), Some(ScalarType::I32 | ScalarType::U32))
     }
+
+    /// Returns `true` if the data type is a scalar or vector of signed integers.
+    pub fn is_signed_int(&self) -> bool {
+        matches!(self.as_scalar(), Some(ScalarType::I32))
+    }
 }
 
 impl fmt::Debug for DataType {

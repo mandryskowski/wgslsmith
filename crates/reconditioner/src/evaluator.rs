@@ -1,5 +1,7 @@
 mod builtin;
+mod helper;
 mod value;
+
 use ast::*;
 use builtin::*;
 use value::*;
@@ -352,6 +354,18 @@ impl Evaluator {
 
         // return node with none if any vals are none
         if self.contains_none(&vals) {
+            if helper::is_invalid_bits_call(&ident, &vals) {
+                return self.default_node(data_type);
+            }
+
+            if ident == "clamp" {
+                if let (Some(Some(low)), Some(Some(high))) = (vals.get(1), vals.get(2)) {
+                    if helper::is_invalid_clamp_bounds(low, high) {
+                        return self.default_node(data_type);
+                    }
+                }
+            }
+
             return ConNode {
                 node: FnCallExpr::new(ident, nodes).into_node(data_type),
                 value: None,
@@ -444,6 +458,22 @@ impl Evaluator {
         // if either left or right is not a const-expression, then
         // this node is not a const-expression
         if left.value.is_none() || right.value.is_none() {
+            // If only right is a const-expression, validation could still detect div/mod by 0.
+            if let Some(r_val) = &right.value {
+                if helper::is_zero(r_val) {
+                    match op {
+                        BinOp::Divide => {
+                            return ConNode {
+                                node: left.node,
+                                value: None,
+                            }
+                        }
+                        BinOp::Mod => return self.default_node(data_type),
+                        _ => {}
+                    }
+                }
+            }
+
             return ConNode {
                 node: ExprNode {
                     data_type,
@@ -581,7 +611,8 @@ impl Evaluator {
         // check condition 2
         match (lv, rv) {
             (Lit::I32(l), Lit::U32(r)) => {
-                if op == &BinOp::LShift && l.leading_zeros() < (r + 1) && l.leading_ones() < (r + 1)
+                if op == &BinOp::LShift
+                    && (l.leading_zeros() < (r + 1) || l.leading_ones() < (r + 1))
                 {
                     return None;
                 }

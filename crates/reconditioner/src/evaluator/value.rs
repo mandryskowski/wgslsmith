@@ -20,6 +20,13 @@ impl From<f32> for Value {
         Value::Lit(Lit::F32(val))
     }
 }
+
+impl From<bool> for Value {
+    fn from(val: bool) -> Self {
+        Value::Lit(Lit::Bool(val))
+    }
+}
+
 impl Value {
     pub fn from_i32(val: Option<i32>) -> Option<Value> {
         val.map(|i| Value::Lit(Lit::I32(i)))
