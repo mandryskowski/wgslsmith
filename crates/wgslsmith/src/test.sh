@@ -18,6 +18,9 @@ fi
 
 if [[ "$WGSLREDUCE_KIND" == "crash" ]]; then
     args+=("--regex" "$WGSLREDUCE_REGEX")
+    if [[ -n "${WGSLREDUCE_INVERSE_REGEX-}" ]]; then
+        args+=("--inverse-regex" "$WGSLREDUCE_INVERSE_REGEX")
+    fi
 
     if [[ -n "${WGSLREDUCE_CONFIG-}" ]]; then
         args+=("--config" "$WGSLREDUCE_CONFIG")
