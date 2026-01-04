@@ -5,10 +5,16 @@ use value::Value;
 #[derive(Debug)]
 pub enum Builtin {
     Abs,
+    Clamp,
     All,
     Any,
+    Exp,
     Exp2,
+    CountLeadingZeros,
+    CountTrailingZeros,
     CountOneBits,
+    ExtractBits,
+    InsertBits,
     ReverseBits,
     FirstLeadingBit,
     FirstTrailingBit,
@@ -20,11 +26,17 @@ pub enum Builtin {
 impl Builtin {
     pub fn convert(ident: String) -> Option<Builtin> {
         match ident.as_str() {
+            "clamp" => Some(Builtin::Clamp),
+            "exp" => Some(Builtin::Exp),
             "exp2" => Some(Builtin::Exp2),
             "all" => Some(Builtin::All),
             "any" => Some(Builtin::Any),
             "abs" => Some(Builtin::Abs),
+            "countLeadingZeros" => Some(Builtin::CountLeadingZeros),
+            "countTrailingZeros" => Some(Builtin::CountTrailingZeros),
             "countOneBits" => Some(Builtin::CountOneBits),
+            "extractBits" => Some(Builtin::ExtractBits),
+            "insertBits" => Some(Builtin::InsertBits),
             "reverseBits" => Some(Builtin::ReverseBits),
             "firstLeadingBit" => Some(Builtin::FirstLeadingBit),
             "firstTrailingBit" => Some(Builtin::FirstTrailingBit),
@@ -39,7 +51,16 @@ impl Builtin {
 pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Value> {
     // evaluate based on number of arguments passed to builtin
     match ident {
-        Builtin::Select => {
+        Builtin::InsertBits => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            let arg3 = args[2].clone().unwrap();
+            let arg4 = args[3].clone().unwrap();
+
+            evaluate_four_arg_builtin(ident, arg1, arg2, arg3, arg4)
+        }
+
+        Builtin::Select | Builtin::ExtractBits | Builtin::Clamp => {
             let arg1 = args[0].clone().unwrap();
             let arg2 = args[1].clone().unwrap();
             let arg3 = args[2].clone().unwrap();
@@ -142,11 +163,47 @@ fn evaluate_three_arg_builtin(
     }
 }
 
+fn evaluate_four_arg_builtin(
+    ident: &Builtin,
+    arg1: Value,
+    arg2: Value,
+    arg3: Value,
+    arg4: Value,
+) -> Option<Value> {
+    match (arg1, arg2, arg3, arg4) {
+        (Value::Lit(val1), Value::Lit(val2), Value::Lit(val3), Value::Lit(val4)) => {
+            evaluate_four_args(ident, val1, val2, val3, val4)
+        }
+        (Value::Vector(val1), Value::Vector(val2), Value::Vector(val3), Value::Vector(val4)) => {
+            let mut result = Vec::new();
+            for (((x, y), z), w) in val1
+                .iter()
+                .zip(val2.iter())
+                .zip(val3.iter())
+                .zip(val4.iter())
+            {
+                let elem =
+                    evaluate_four_arg_builtin(ident, x.clone(), y.clone(), z.clone(), w.clone());
+
+                match elem {
+                    Some(e) => result.push(e),
+                    None => return None,
+                }
+            }
+            Some(Value::Vector(result))
+        }
+        _ => None,
+    }
+}
+
 fn evaluate(ident: &Builtin, val: Lit) -> Option<Value> {
     match ident {
+        Builtin::Exp => exp(val),
         Builtin::Exp2 => exp2(val),
         Builtin::Abs => abs(val),
         Builtin::CountOneBits => count_one_bits(val),
+        Builtin::CountLeadingZeros => count_leading_zeros(val),
+        Builtin::CountTrailingZeros => count_trailing_zeros(val),
         Builtin::ReverseBits => reverse_bits(val),
         Builtin::FirstLeadingBit => first_leading_bit(val),
         Builtin::FirstTrailingBit => first_trailing_bit(val),
@@ -165,6 +222,21 @@ fn evaluate_two_args(ident: &Builtin, val1: Lit, val2: Lit) -> Option<Value> {
 fn evaluate_three_args(ident: &Builtin, val1: Lit, val2: Lit, val3: Lit) -> Option<Value> {
     match ident {
         Builtin::Select => select(val1, val2, val3),
+        Builtin::ExtractBits => extract_bits(val1, val2, val3),
+        Builtin::Clamp => clamp(val1, val2, val3),
+        _ => todo!(),
+    }
+}
+
+fn evaluate_four_args(
+    ident: &Builtin,
+    val1: Lit,
+    val2: Lit,
+    val3: Lit,
+    val4: Lit,
+) -> Option<Value> {
+    match ident {
+        Builtin::InsertBits => insert_bits(val1, val2, val3, val4),
         _ => todo!(),
     }
 }
@@ -203,11 +275,169 @@ fn count_one_bits(val: Lit) -> Option<Value> {
     }
 }
 
+fn count_leading_zeros(val: Lit) -> Option<Value> {
+    match val {
+        Lit::I32(v) => Value::from_i32(Some(v.leading_zeros() as i32)),
+        Lit::U32(v) => Value::from_u32(Some(v.leading_zeros())),
+        _ => None,
+    }
+}
+
+fn count_trailing_zeros(val: Lit) -> Option<Value> {
+    match val {
+        Lit::I32(v) => Value::from_i32(Some(v.trailing_zeros() as i32)),
+        Lit::U32(v) => Value::from_u32(Some(v.trailing_zeros())),
+        _ => None,
+    }
+}
+
+fn extract_bits(val: Lit, offset_arg: Lit, count_arg: Lit) -> Option<Value> {
+    // offset and count must be u32
+    let offset = match offset_arg {
+        Lit::U32(u) => u,
+        _ => return None,
+    };
+    let count = match count_arg {
+        Lit::U32(u) => u,
+        _ => return None,
+    };
+
+    if (offset as u64) + (count as u64) > 32 {
+        return None;
+    }
+
+    // If count is 0, result is 0
+    if count == 0 {
+        match val {
+            Lit::I32(_) => return Some(0.into()),
+            Lit::U32(_) => return Some(0.into()),
+            _ => return None,
+        }
+    }
+
+    match val {
+        Lit::I32(v) => {
+            // Signed extract: Sign-extend from the (count-1)th bit of the result.
+            // Algorithm: Shift left to clear upper bits, arithmetic shift right to restore position and sign-extend.
+            let shift_left = 32 - (offset + count);
+            let shift_right = 32 - count;
+
+            let result = (v << shift_left) >> shift_right;
+            Some(result.into())
+        }
+        Lit::U32(v) => {
+            // Unsigned extract: Zero-extend.
+            // Algorithm: Shift right to move to LSB, mask out upper bits.
+            let shifted = v >> offset;
+            // Handle count=32 carefully to avoid overflow in mask generation (1 << 32)
+            let mask = if count == 32 {
+                u32::MAX
+            } else {
+                (1 << count) - 1
+            };
+
+            Some((shifted & mask).into())
+        }
+        _ => None,
+    }
+}
+
+fn clamp(e: Lit, low: Lit, high: Lit) -> Option<Value> {
+    match (e, low, high) {
+        (Lit::I32(e_val), Lit::I32(low_val), Lit::I32(high_val)) => {
+            if low_val > high_val {
+                return None;
+            }
+            Some(e_val.clamp(low_val, high_val).into())
+        }
+        (Lit::U32(e_val), Lit::U32(low_val), Lit::U32(high_val)) => {
+            if low_val > high_val {
+                return None;
+            }
+            Some(e_val.clamp(low_val, high_val).into())
+        }
+        (Lit::F32(e_val), Lit::F32(low_val), Lit::F32(high_val)) => {
+            if low_val > high_val {
+                return None;
+            }
+            Some(e_val.clamp(low_val, high_val).into())
+        }
+        _ => None,
+    }
+}
+
+fn insert_bits(e_arg: Lit, newbits_arg: Lit, offset_arg: Lit, count_arg: Lit) -> Option<Value> {
+    let offset = match offset_arg {
+        Lit::U32(u) => u,
+        _ => return None,
+    };
+    let count = match count_arg {
+        Lit::U32(u) => u,
+        _ => return None,
+    };
+
+    if (offset as u64) + (count as u64) > 32 {
+        return None;
+    }
+
+    if count == 0 {
+        match e_arg {
+            Lit::I32(v) => return Some(v.into()),
+            Lit::U32(v) => return Some(v.into()),
+            _ => return None,
+        }
+    }
+
+    // Helper to perform the bitwise logic on raw u32 bits
+    let calc_insert = |e_raw: u32, new_raw: u32| -> u32 {
+        let mask_width = if count == 32 {
+            u32::MAX
+        } else {
+            (1 << count) - 1
+        };
+        let mask = mask_width << offset;
+
+        // 1. Clear the bits in e where we want to insert (e & !mask)
+        // 2. Mask the newbits to count size and shift them up ((new & mask_width) << offset)
+        // 3. OR them together
+        (e_raw & !mask) | ((new_raw & mask_width) << offset)
+    };
+
+    match (e_arg, newbits_arg) {
+        (Lit::I32(e), Lit::I32(newbits)) => {
+            let result_raw = calc_insert(e as u32, newbits as u32);
+            Some((result_raw as i32).into())
+        }
+        (Lit::U32(e), Lit::U32(newbits)) => {
+            let result = calc_insert(e, newbits);
+            Some(result.into())
+        }
+        _ => None,
+    }
+}
+
 fn abs(val: Lit) -> Option<Value> {
     match val {
         Lit::I32(v) => Value::from_i32(Some(v.wrapping_abs())),
         Lit::F32(v) => Value::from_f32(Some(v.abs())),
         Lit::U32(v) => Value::from_u32(Some(v)),
+        _ => None,
+    }
+}
+
+fn exp(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            // The maximum representable f32 is approx 3.4028e38.
+            // ln(3.4028e38) approx 88.72.
+            // If v > 88.72, exp(v) overflows f32.
+            if v > 88.72_f32 {
+                return None;
+            }
+
+            let result = in_float_range(v.exp());
+            Value::from_f32(result)
+        }
         _ => None,
     }
 }

@@ -1,5 +1,7 @@
 mod builtin;
+mod helper;
 mod value;
+
 use ast::*;
 use builtin::*;
 use value::*;
@@ -352,6 +354,18 @@ impl Evaluator {
 
         // return node with none if any vals are none
         if self.contains_none(&vals) {
+            if helper::is_invalid_bits_call(&ident, &vals) {
+                return self.default_node(data_type);
+            }
+
+            if ident == "clamp" {
+                if let (Some(Some(low)), Some(Some(high))) = (vals.get(1), vals.get(2)) {
+                    if helper::is_invalid_clamp_bounds(low, high) {
+                        return self.default_node(data_type);
+                    }
+                }
+            }
+
             return ConNode {
                 node: FnCallExpr::new(ident, nodes).into_node(data_type),
                 value: None,
@@ -434,16 +448,6 @@ impl Evaluator {
         }
     }
 
-    fn is_zero(&self, val: &Value) -> bool {
-        match val {
-            Value::Lit(Lit::I32(v)) => *v == 0,
-            Value::Lit(Lit::U32(v)) => *v == 0,
-            Value::Lit(Lit::F32(v)) => *v == 0.0,
-            Value::Vector(vec) => vec.iter().any(|v| self.is_zero(v)),
-            _ => false,
-        }
-    }
-
     fn concretize_bin_op(
         &self,
         data_type: DataType,
@@ -456,7 +460,7 @@ impl Evaluator {
         if left.value.is_none() || right.value.is_none() {
             // If only right is a const-expression, validation could still detect div/mod by 0.
             if let Some(r_val) = &right.value {
-                if self.is_zero(r_val) {
+                if helper::is_zero(r_val) {
                     match op {
                         BinOp::Divide => {
                             return ConNode {
