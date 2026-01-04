@@ -1,26 +1,25 @@
-mod clamp;
 mod dot;
+mod extract_bits;
 mod float;
 mod float_divide;
 mod index;
-mod minus;
+mod insert_bits;
 mod modulo;
-mod plus;
-mod times;
+mod select;
 
 use ast::{
     BinOp, BinOpExpr, DataType, ExprNode, FnCallExpr, Lit, Postfix, PostfixExpr, ScalarType,
 };
 
-pub use clamp::clamp;
 pub use dot::dot;
+pub use extract_bits::extract_bits;
+pub use extract_bits::extract_bits_unsigned;
 pub use float::float;
 pub use float_divide::float_divide;
 pub use index::index;
-pub use minus::minus;
+pub use insert_bits::insert_bits;
 pub use modulo::modulo;
-pub use plus::plus;
-pub use times::times;
+pub use select::select;
 
 /// Wraps the given expression in a call to `any()` if it is a vector.
 ///
