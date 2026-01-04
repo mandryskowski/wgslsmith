@@ -131,9 +131,9 @@ pub struct FnContext {
 }
 
 impl FnContext {
-    pub fn new(options: Rc<Options>) -> Self {
+    pub fn new(_options: Rc<Options>) -> Self {
         FnContext {
-            map: builtins::gen_builtins(&options.enabled_fns),
+            map: builtins::gen_builtins(),
             decls: vec![],
             count: 0,
         }
