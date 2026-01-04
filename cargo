@@ -2,6 +2,7 @@
 
 export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="\
     -C linker=$LLVM_NATIVE_TOOLCHAIN/bin/lld-link \
+    -C link-arg=/STACK:8388608 \
     -Lnative=$XWIN_CACHE/crt/lib/x86_64 \
     -Lnative=$XWIN_CACHE/sdk/lib/ucrt/x86_64 \
     -Lnative=$XWIN_CACHE/sdk/lib/um/x86_64"
