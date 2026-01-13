@@ -158,7 +158,7 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
                         Some(output) => output,
                         None => {
                             let mut lock = on_event.lock().expect("event mutex poisoned");
-                            lock(ExecutionEvent::Timeout)?;
+                            lock(ExecutionEvent::Timeout(config))?;
                             continue;
                         }
                     };

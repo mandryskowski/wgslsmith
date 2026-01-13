@@ -318,7 +318,7 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
         .peeking_take_while(|pair| pair.as_rule() == Rule::param)
         .map(|pair| {
             let mut pairs = pair.into_inner().peekable();
-            
+
             let attrs = pairs
                 .by_ref()
                 .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)

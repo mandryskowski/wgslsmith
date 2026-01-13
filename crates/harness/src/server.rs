@@ -84,7 +84,7 @@ fn handle_run_request<Host: HarnessHost, W: io::Write + Send>(
             ExecutionEvent::Start(config) => RunMessage::ExecStart(config),
             ExecutionEvent::Success(config, buffers) => RunMessage::ExecSuccess(config, buffers),
             ExecutionEvent::Failure(stderr) => RunMessage::ExecFailure(stderr),
-            ExecutionEvent::Timeout => RunMessage::ExecTimeout,
+            ExecutionEvent::Timeout(config) => RunMessage::ExecTimeout(config),
         };
 
         let mut writer = writer.lock().expect("writer mutex poisoned");

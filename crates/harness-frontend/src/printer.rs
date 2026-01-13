@@ -11,7 +11,7 @@ pub enum ExecutionEvent {
     Start(ConfigId),
     Success(ConfigId, Vec<Vec<u8>>),
     Failure(Vec<u8>),
-    Timeout,
+    Timeout(ConfigId),
 }
 
 pub enum ExecutionResult {
@@ -191,12 +191,14 @@ impl Printer {
                 println!();
                 Ok(())
             }
-            ExecutionEvent::Timeout => {
+            ExecutionEvent::Timeout(config) => {
                 let mut stdout = StandardStream::stdout(ColorChoice::Auto);
                 stdout.set_color(&yellow())?;
-                writeln!(stdout, "timeout")?;
+                write!(stdout, "timeout (")?;
                 stdout.reset()?;
-                writeln!(stdout)?;
+
+                self.print_config(&mut stdout, config)?;
+                writeln!(stdout, ")")?;
                 Ok(())
             }
         }
