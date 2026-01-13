@@ -146,12 +146,18 @@ impl<'a> Generator<'a> {
             data_type = DataType::Array(Rc::new(data_type), Some(self.rng.gen_range(1..=32)));
         }
 
-        let mem_view = MemoryViewType::new(data_type.clone(), StorageClass::Private);
+        let storage_class = if self.rng.gen_bool(0.5) {
+            StorageClass::WorkGroup
+        } else {
+            StorageClass::Private
+        };
+
+        let mem_view = MemoryViewType::new(data_type.clone(), storage_class);
         let ref_type = DataType::Ref(mem_view);
 
         self.global_scope.insert_mutable(name.clone(), ref_type);
 
-        let initializer = if self.rng.gen_bool(0.5) {
+        let initializer = if storage_class == StorageClass::Private && self.rng.gen_bool(0.75) {
             Some(self.gen_const_expr(&data_type))
         } else {
             None
@@ -160,7 +166,7 @@ impl<'a> Generator<'a> {
         GlobalVarDecl {
             attrs: vec![],
             qualifier: Some(VarQualifier {
-                storage_class: StorageClass::Private,
+                storage_class,
                 access_mode: None,
             }),
             name,
