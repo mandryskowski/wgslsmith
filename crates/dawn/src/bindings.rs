@@ -1,21 +1,14 @@
 use crate::dawn;
 use crate::webgpu::*;
 use futures::channel::oneshot;
-use std::ffi::{c_void, CString};
+use std::ffi::c_void;
 use std::mem::zeroed;
-use std::os::raw::c_char;
 use std::ptr::{null, null_mut};
 
-fn make_string_view(ptr: *const c_char) -> WGPUStringView {
-    if ptr.is_null() {
-        return WGPUStringView {
-            data: null(),
-            length: 0,
-        };
-    }
+fn make_string_view(value: &str) -> WGPUStringView {
     WGPUStringView {
-        data: ptr,
-        length: unsafe { std::ffi::CStr::from_ptr(ptr).to_bytes().len() },
+        data: value.as_ptr().cast(),
+        length: value.len(),
     }
 }
 
@@ -41,15 +34,15 @@ impl Instance {
     pub fn enumerate_adapters(&self) -> Vec<AdapterInfo> {
         #[allow(non_upper_case_globals)]
         unsafe extern "C" fn cb(info: *const WGPUAdapterInfo, userdata: *mut c_void) {
-            let info_ref = &*info;
+            let info_ref = info.as_ref().unwrap();
             let name_str = if !info_ref.device.data.is_null() {
                 let slice = std::slice::from_raw_parts(
                     info_ref.device.data as *const u8,
                     info_ref.device.length,
                 );
-                String::from_utf8_lossy(slice).to_string()
+                String::from_utf8_lossy(slice).into_owned()
             } else {
-                String::from("Unknown Adapter")
+                "Unknown Adapter".to_owned()
             };
 
             (userdata as *mut Vec<AdapterInfo>)
@@ -71,7 +64,7 @@ impl Instance {
         adapters
     }
 
-    pub fn create_device(&self, backend: WGPUBackendType, device_id: u32) -> Option<Device> {
+    pub fn create_device(&self, backend: WGPUBackendType, device_id: u32) -> Option<Device<'_>> {
         let callback: WGPUUncapturedErrorCallback = Some(default_error_callback);
         let handle =
             unsafe { dawn::create_device(self.0, backend, device_id, callback, null_mut()) };
@@ -80,7 +73,10 @@ impl Instance {
             panic!("failed to create dawn device");
         }
 
-        let device = Device { handle };
+        let device = Device {
+            _instance: self,
+            handle,
+        };
 
         Some(device)
     }
@@ -100,11 +96,13 @@ impl Drop for Instance {
     }
 }
 
-pub struct Device {
+pub struct Device<'a> {
+    // The _instance field ensures that a Device does not outlive its Instance.
+    _instance: &'a Instance,
     handle: *mut crate::webgpu::WGPUDeviceImpl,
 }
 
-impl Device {
+impl Device<'_> {
     pub fn create_queue(&self) -> DeviceQueue {
         DeviceQueue {
             handle: unsafe { wgpuDeviceGetQueue(self.handle).assert_not_null() },
@@ -112,14 +110,13 @@ impl Device {
     }
 
     pub fn create_shader_module(&self, source: &str) -> ShaderModule {
-        let source = CString::new(source).unwrap();
         ErrorScope::new(self, "shader module creation failed").execute(|| unsafe {
             let wgsl_descriptor = WGPUShaderSourceWGSL {
                 chain: WGPUChainedStruct {
                     sType: WGPUSType_WGPUSType_ShaderSourceWGSL,
                     ..zeroed()
                 },
-                code: make_string_view(source.as_ptr()),
+                code: make_string_view(source),
             };
 
             let descriptor = WGPUShaderModuleDescriptor {
@@ -139,20 +136,18 @@ impl Device {
         entrypoint: &str,
     ) -> ComputePipeline {
         ErrorScope::new(self, "compute pipeline creation failed").execute(|| unsafe {
-            let entrypoint_c = CString::new(entrypoint).unwrap();
-            let label_c = CString::new(format!("Pipeline: {}", entrypoint)).unwrap();
             ComputePipeline {
                 handle: wgpuDeviceCreateComputePipeline(
                     self.handle,
                     &WGPUComputePipelineDescriptor {
-                        label: make_string_view(label_c.as_ptr()),
+                        label: make_string_view(format!("Pipeline: {entrypoint}").as_str()),
                         nextInChain: null_mut(),
                         layout: null_mut(),
                         compute: WGPUComputeState {
                             constantCount: 0,
                             constants: null(),
                             module: shader_module.handle,
-                            entryPoint: make_string_view(entrypoint_c.as_ptr()),
+                            entryPoint: make_string_view(entrypoint),
                             nextInChain: null_mut(),
                         },
                     },
@@ -172,7 +167,10 @@ impl Device {
                 handle: wgpuDeviceCreateBuffer(
                     self.handle,
                     &WGPUBufferDescriptor {
-                        label: make_string_view(null()),
+                        label: WGPUStringView {
+                            data: null(),
+                            length: 0,
+                        },
                         nextInChain: null_mut(),
                         mappedAtCreation: mapped,
                         size: size as _,
@@ -195,7 +193,10 @@ impl Device {
                 handle: wgpuDeviceCreateBindGroup(
                     self.handle,
                     &WGPUBindGroupDescriptor {
-                        label: make_string_view(null()),
+                        label: WGPUStringView {
+                            data: null(),
+                            length: 0,
+                        },
                         nextInChain: null_mut(),
                         layout: layout.handle,
                         entries: entries.as_ptr(),
@@ -222,7 +223,7 @@ impl Device {
     }
 }
 
-impl Drop for Device {
+impl Drop for Device<'_> {
     fn drop(&mut self) {
         unsafe {
             wgpuDeviceRelease(self.handle);
@@ -528,7 +529,7 @@ impl<T> PointerExt for *mut T {
 }
 
 struct ErrorScope<'a> {
-    device: &'a Device,
+    device: &'a Device<'a>,
     message: &'a str,
 }
 
@@ -561,7 +562,7 @@ impl<'a> ErrorScope<'a> {
             if !message.data.is_null() {
                 let slice = std::slice::from_raw_parts(message.data as *const u8, message.length);
                 let message_str = String::from_utf8_lossy(slice);
-                eprintln!("WGPU Error: {}", message_str);
+                eprintln!("{message_str}");
             }
 
             eprintln!("Error: {}", scope.message);

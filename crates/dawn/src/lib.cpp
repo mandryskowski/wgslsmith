@@ -30,6 +30,8 @@ extern "C" dawn::native::Instance* new_instance() {
     dawnProcSetProcs(&dawn::native::GetProcs());
 
     auto instance = new dawn::native::Instance;
+
+    // This makes things slow
     // instance->SetBackendValidationLevel(dawn::native::BackendValidationLevel::Full);
 
     WGPURequestAdapterOptions options = {};
@@ -61,7 +63,6 @@ extern "C" void enumerate_adapters(
     for (auto& native_adapter : native_adapters) {
         WGPUAdapter adapterHandle = native_adapter.Get();
         WGPUAdapterInfo info = {};
-        info.nextInChain = nullptr;
 
         wgpuAdapterGetInfo(adapterHandle, &info);
 
