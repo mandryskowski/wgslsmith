@@ -147,7 +147,7 @@ fn reduce_crash(
         let mut any_crash_matched = false;
 
         for target in targets {
-            let result = harness_runner::exec_shader(target, &source, &metadata, |line| {
+            let result = harness_runner::exec_shader(target, &source, &metadata, &[], |line| {
                 if !quiet {
                     println!("{line}");
                 }
@@ -203,7 +203,7 @@ fn reduce_mismatch(
     let mut mismatch_found = false;
 
     for target in targets {
-        let result = harness_runner::exec_shader(target, &reconditioned, &metadata, |line| {
+        let result = harness_runner::exec_shader(target, &reconditioned, &metadata, &[], |line| {
             if !quiet {
                 println!("{line}");
             }

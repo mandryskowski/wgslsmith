@@ -153,15 +153,17 @@ pub fn exec_shader(
     target: &Target,
     shader: &str,
     metadata: &str,
+    params: &[String],
     mut logger: impl FnMut(String),
 ) -> eyre::Result<ExecutionResult> {
-    exec_shader_impl(target, shader, metadata, &mut logger)
+    exec_shader_impl(target, shader, metadata, params, &mut logger)
 }
 
 fn exec_shader_impl(
     target: &Target,
     shader: &str,
     metadata: &str,
+    params: &[String],
     logger: &mut dyn FnMut(String),
 ) -> eyre::Result<ExecutionResult> {
     let harness = target.harness.clone();
@@ -178,6 +180,8 @@ fn exec_shader_impl(
     for config in configs {
         cmd.args(["-c", &config.to_string()]);
     }
+
+    cmd.args(params);
 
     cmd.args(["--print-consensus"]);
 
