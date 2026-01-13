@@ -129,8 +129,17 @@ pub async fn run(
                     label: Some("Storage GPU Buffer"),
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
                     size,
-                    mapped_at_creation: false,
+                    mapped_at_creation: resource.init.is_some(),
                 });
+
+                if let Some(init) = resource.init.as_deref() {
+                    gpu_buffer
+                        .slice(..)
+                        .get_mapped_range_mut()
+                        .copy_from_slice(init);
+
+                    gpu_buffer.unmap();
+                }
 
                 let staging_buffer = device.create_buffer(&BufferDescriptor {
                     label: Some("Storage Staging Buffer"),

@@ -333,6 +333,9 @@ fn worker_iteration(
         }
     };
 
+    // Save in case the system crashes
+    std::fs::write("last.wgsl", &reconditioned)?;
+
     let mut result = ExecutionResult::Success(None);
     let mut buffers_to_configs: HashMap<Vec<u8>, Vec<String>> = HashMap::new();
     for target in targets {
