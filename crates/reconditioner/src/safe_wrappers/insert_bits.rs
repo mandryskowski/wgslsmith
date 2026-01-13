@@ -21,8 +21,8 @@ pub fn insert_bits(name: String, data_type: &DataType) -> FnDecl {
     let offset_var = VarExpr::new("offset").into_node(u32_node_type.clone());
     let count_var = VarExpr::new("count").into_node(u32_node_type.clone());
 
-    let safe_offset =
-        FnCallExpr::new("min", vec![offset_var.clone(), lit_32.into()]).into_node(u32_node_type.clone());
+    let safe_offset = FnCallExpr::new("min", vec![offset_var.clone(), lit_32.into()])
+        .into_node(u32_node_type.clone());
 
     let remaining_space = BinOpExpr::new(BinOp::Minus, lit_32, safe_offset.clone());
 

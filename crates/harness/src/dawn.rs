@@ -63,7 +63,7 @@ pub async fn run(
     let shader_module = device.create_shader_module(shader);
     let pipeline = device.create_compute_pipeline(&shader_module, "main");
 
-    // important: this will catch compilation errors
+    // this will catch compilation errors
     instance.process_events();
 
     let mut buffer_sets = vec![];
