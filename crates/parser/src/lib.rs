@@ -317,11 +317,32 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
         .by_ref()
         .peeking_take_while(|pair| pair.as_rule() == Rule::param)
         .map(|pair| {
-            let mut pairs = pair.into_inner();
+            let mut pairs = pair.into_inner().peekable();
+            
+            let attrs = pairs
+                .by_ref()
+                .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)
+                .flat_map(|pair| {
+                    pair.into_inner().map(|pair| {
+                        let mut pairs = pair.into_inner();
+                        let name = pairs.next().unwrap().as_str();
+
+                        match name {
+                            "builtin" => {
+                                let arg = pairs.next().unwrap().as_str();
+                                FnInputAttr::Builtin(arg.parse().unwrap())
+                            }
+                            _ => panic!("invalid param attribute: {}", name),
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+
             let name = pairs.next().unwrap().as_str().to_owned();
             let data_type = parse_type_decl(pairs.next().unwrap(), env);
+
             FnInput {
-                attrs: vec![],
+                attrs,
                 name,
                 data_type,
             }
