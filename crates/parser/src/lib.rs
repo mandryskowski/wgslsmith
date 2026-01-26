@@ -850,7 +850,18 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
                 _ => unreachable!(),
             };
 
-            DataType::Vector(n, parse_t_scalar(t_vector.into_inner().next().unwrap()))
+            let scalar_type = if let Some(inner) = t_vector.clone().into_inner().next() {
+                parse_t_scalar(inner)
+            } else {
+                match t_vector.as_str().chars().last() {
+                    Some('i') => ScalarType::I32,
+                    Some('u') => ScalarType::U32,
+                    Some('f') => ScalarType::F32,
+                    _ => unreachable!("Invalid vector alias"),
+                }
+            };
+
+            DataType::Vector(n, scalar_type)
         }
         Rule::array_type_decl => {
             let mut pairs = pair.into_inner();
