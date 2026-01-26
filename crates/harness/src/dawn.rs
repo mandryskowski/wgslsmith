@@ -5,8 +5,28 @@ use dawn::webgpu::{
 };
 use dawn::*;
 use reflection::{PipelineDescription, ResourceKind};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::ConfigId;
+
+type DeviceCacheEntry = (Rc<Device<'static>>, Rc<DeviceQueue>);
+pub struct DawnState {
+    instance: &'static Instance,
+    device_cache: HashMap<ConfigId, DeviceCacheEntry>,
+}
+
+impl DawnState {
+    pub(crate) fn new() -> Self {
+        let instance = Box::new(Instance::new());
+        let instance_ref = Box::leak(instance);
+
+        DawnState {
+            instance: instance_ref,
+            device_cache: HashMap::new(),
+        }
+    }
+}
 
 enum BufferSet {
     Storage {
@@ -46,6 +66,7 @@ pub async fn run(
     shader: &str,
     meta: &PipelineDescription,
     config: &ConfigId,
+    dawn_state: Option<&mut DawnState>,
 ) -> color_eyre::Result<Vec<Vec<u8>>> {
     let backend = match config.backend {
         crate::BackendType::Dx12 => WGPUBackendType_WGPUBackendType_D3D12,
@@ -53,18 +74,41 @@ pub async fn run(
         crate::BackendType::Vulkan => WGPUBackendType_WGPUBackendType_Vulkan,
     };
 
-    let instance = Instance::new();
+    let mut _owned_dawn_state;
+    let dawn_state: &mut DawnState = match dawn_state {
+        Some(state) => state,
+        None => {
+            _owned_dawn_state = DawnState::new();
+            &mut _owned_dawn_state
+        }
+    };
 
-    let device = instance
-        .create_device(backend, config.device_id)
-        .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
+    let (device, queue) = {
+        if let Some((cached_device, cached_queue)) = dawn_state.device_cache.get(config) {
+            (cached_device.clone(), cached_queue.clone())
+        } else {
+            let device = dawn_state
+                .instance
+                .create_device(backend, config.device_id)
+                .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
-    let queue = device.create_queue();
-    let shader_module = device.create_shader_module(shader);
-    let pipeline = device.create_compute_pipeline(&shader_module, "main");
+            let queue = device.create_queue();
 
-    // this will catch compilation errors
-    instance.process_events();
+            let device_rc = Rc::new(device);
+            let queue_rc = Rc::new(queue);
+
+            dawn_state
+                .device_cache
+                .insert(config.clone(), (device_rc.clone(), queue_rc.clone()));
+
+            (device_rc, queue_rc)
+        }
+    };
+
+    let instance = dawn_state.instance;
+
+    let shader_module = device.create_shader_module(shader)?;
+    let pipeline = device.create_compute_pipeline(&shader_module, "main")?;
 
     let mut buffer_sets = vec![];
 
@@ -81,7 +125,7 @@ pub async fn run(
                     mapped,
                     size,
                     DeviceBufferUsage::STORAGE | DeviceBufferUsage::COPY_SRC,
-                );
+                )?;
 
                 if let Some(init) = resource.init.as_deref() {
                     storage.get_mapped_range(size).copy_from_slice(init);
@@ -92,7 +136,7 @@ pub async fn run(
                     0,
                     size,
                     DeviceBufferUsage::COPY_DST | DeviceBufferUsage::MAP_READ,
-                );
+                )?;
 
                 buffer_sets.push(BufferSet::Storage {
                     binding: resource.binding,
@@ -102,7 +146,7 @@ pub async fn run(
                 });
             }
             ResourceKind::UniformBuffer => {
-                let mut buffer = device.create_buffer(1, size, DeviceBufferUsage::UNIFORM);
+                let mut buffer = device.create_buffer(1, size, DeviceBufferUsage::UNIFORM)?;
 
                 if let Some(init) = resource.init.as_deref() {
                     buffer.get_mapped_range(size).copy_from_slice(init);
@@ -145,9 +189,9 @@ pub async fn run(
         .collect::<Vec<_>>();
 
     let bind_group =
-        device.create_bind_group(&pipeline.get_bind_group_layout(0), &bind_group_entries);
+        device.create_bind_group(&pipeline.get_bind_group_layout(0), &bind_group_entries)?;
 
-    let encoder = device.create_command_encoder();
+    let encoder = device.create_command_encoder()?;
 
     {
         let compute_pass = encoder.begin_compute_pass();

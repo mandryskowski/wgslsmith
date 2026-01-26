@@ -205,6 +205,9 @@ pub mod cli {
         /// Configs that timed out are ignored.
         #[clap(long, action, default_value = "false")]
         pub print_consensus: bool,
+
+        #[clap(long, action, default_value = "false")]
+        pub use_daemon: bool,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {

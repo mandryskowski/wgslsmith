@@ -654,6 +654,7 @@ dependencies = [
  "bindgen",
  "bitflags 1.3.2",
  "cc",
+ "eyre",
  "futures",
 ]
 

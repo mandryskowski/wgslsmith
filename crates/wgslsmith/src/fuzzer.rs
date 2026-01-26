@@ -90,6 +90,9 @@ pub struct Options {
     /// Use 0 to disable the timeout. Note that the timeout is per-execution rather than a global timeout.
     #[clap(long, action)]
     local_timeout: Option<u64>,
+
+    #[clap(long, action, default_value = "false")]
+    use_daemon: bool,
 }
 
 impl Options {
@@ -104,6 +107,10 @@ impl Options {
         if let Some(parallelism) = self.local_parallelism {
             exec_params.push("-j".to_string());
             exec_params.push(parallelism.to_string());
+        }
+
+        if self.use_daemon {
+            exec_params.push("--use-daemon".to_string());
         }
 
         exec_params

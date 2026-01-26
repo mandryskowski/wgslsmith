@@ -3,16 +3,24 @@ mod server;
 mod wgpu;
 
 pub mod cli;
+mod daemon;
 
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::dawn::DawnState;
+use crate::wgpu::WgpuState;
 use frontend::{ExecutionError, ExecutionEvent};
 use futures::executor::block_on;
 use process_control::{ChildExt, Control};
 use reflection::PipelineDescription;
 use types::{BackendType, Config, ConfigId, Implementation};
+
+pub struct WebGPUState {
+    dawn_state: DawnState,
+    wgpu_state: WgpuState,
+}
 
 pub trait HarnessHost {
     fn exec_command() -> Command;
@@ -65,12 +73,16 @@ pub fn default_configs() -> Vec<ConfigId> {
 struct ExecutionArgs<'a> {
     pub shader: &'a str,
     pub pipeline_desc: &'a PipelineDescription,
+    pub timeout: Option<Duration>,
+    pub tid: usize,
 }
 
-#[derive(bincode::Decode)]
+#[derive(bincode::Decode, bincode::Encode)]
 struct ExecutionInput {
     pub shader: String,
     pub pipeline_desc: PipelineDescription,
+    pub timeout: Option<Duration>,
+    pub tid: usize,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -112,7 +124,7 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
     std::thread::scope(|s| {
         let mut handles = vec![];
 
-        for _ in 0..num_threads {
+        for tid in 0..num_threads {
             let on_event = &on_event;
             let configs_iter = &configs_iter;
 
@@ -144,6 +156,8 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
                         ExecutionArgs {
                             shader,
                             pipeline_desc,
+                            timeout,
+                            tid,
                         },
                         &mut stdin,
                         bincode::config::standard(),
@@ -189,9 +203,20 @@ pub fn execute_config(
     shader: &str,
     pipeline_desc: &PipelineDescription,
     config: &ConfigId,
+    state: Option<&mut WebGPUState>,
 ) -> eyre::Result<Vec<Vec<u8>>> {
     match config.implementation {
-        Implementation::Dawn => block_on(dawn::run(shader, pipeline_desc, config)),
-        Implementation::Wgpu => block_on(wgpu::run(shader, pipeline_desc, config)),
+        Implementation::Dawn => block_on(dawn::run(
+            shader,
+            pipeline_desc,
+            config,
+            state.map(|s| &mut s.dawn_state),
+        )),
+        Implementation::Wgpu => block_on(wgpu::run(
+            shader,
+            pipeline_desc,
+            config,
+            state.map(|s| &mut s.wgpu_state),
+        )),
     }
 }

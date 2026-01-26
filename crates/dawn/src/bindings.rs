@@ -1,5 +1,6 @@
 use crate::dawn;
 use crate::webgpu::*;
+use eyre::{eyre, Result};
 use futures::channel::oneshot;
 use std::ffi::c_void;
 use std::mem::zeroed;
@@ -109,7 +110,7 @@ impl Device<'_> {
         }
     }
 
-    pub fn create_shader_module(&self, source: &str) -> ShaderModule {
+    pub fn create_shader_module(&self, source: &str) -> Result<ShaderModule> {
         ErrorScope::new(self, "shader module creation failed").execute(|| unsafe {
             let wgsl_descriptor = WGPUShaderSourceWGSL {
                 chain: WGPUChainedStruct {
@@ -134,7 +135,7 @@ impl Device<'_> {
         &self,
         shader_module: &ShaderModule,
         entrypoint: &str,
-    ) -> ComputePipeline {
+    ) -> Result<ComputePipeline> {
         ErrorScope::new(self, "compute pipeline creation failed").execute(|| unsafe {
             ComputePipeline {
                 handle: wgpuDeviceCreateComputePipeline(
@@ -161,7 +162,7 @@ impl Device<'_> {
         mapped: crate::webgpu::WGPUBool,
         size: usize,
         usage: DeviceBufferUsage,
-    ) -> DeviceBuffer {
+    ) -> Result<DeviceBuffer> {
         ErrorScope::new(self, "buffer creation failed").execute(|| unsafe {
             DeviceBuffer {
                 handle: wgpuDeviceCreateBuffer(
@@ -186,7 +187,7 @@ impl Device<'_> {
         &self,
         layout: &BindGroupLayout,
         entries: &[BindGroupEntry],
-    ) -> BindGroup {
+    ) -> Result<BindGroup> {
         ErrorScope::new(self, "bind group creation failed").execute(|| unsafe {
             let entries = entries.iter().map(|e| e.into()).collect::<Vec<_>>();
             BindGroup {
@@ -208,7 +209,7 @@ impl Device<'_> {
         })
     }
 
-    pub fn create_command_encoder(&self) -> CommandEncoder {
+    pub fn create_command_encoder(&self) -> Result<CommandEncoder> {
         ErrorScope::new(self, "command encoder creation failed").execute(|| unsafe {
             CommandEncoder {
                 handle: wgpuDeviceCreateCommandEncoder(self.handle, &zeroed()).assert_not_null(),
@@ -538,12 +539,17 @@ impl<'a> ErrorScope<'a> {
         ErrorScope { device, message }
     }
 
-    fn execute<T>(self, block: impl FnOnce() -> T) -> T {
+    fn execute<T>(&self, block: impl FnOnce() -> T) -> Result<T> {
         unsafe {
             wgpuDevicePushErrorScope(
                 self.device.handle,
                 WGPUErrorFilter_WGPUErrorFilter_Validation,
             );
+        }
+
+        struct ErrorCapture {
+            callback_fired: bool,
+            error_message: Option<String>,
         }
 
         unsafe extern "C" fn callback(
@@ -553,7 +559,8 @@ impl<'a> ErrorScope<'a> {
             userdata1: *mut c_void,
             _userdata2: *mut c_void,
         ) {
-            let scope = unsafe { Box::from_raw(userdata1 as *mut ErrorScope) };
+            let capture = unsafe { &mut *(userdata1 as *mut ErrorCapture) };
+            capture.callback_fired = true;
 
             if error_type == WGPUErrorType_WGPUErrorType_NoError {
                 return;
@@ -563,31 +570,37 @@ impl<'a> ErrorScope<'a> {
                 let slice = std::slice::from_raw_parts(message.data as *const u8, message.length);
                 let message_str = String::from_utf8_lossy(slice);
                 eprintln!("{message_str}");
+                capture.error_message = Some(message_str.into_owned());
+            } else {
+                capture.error_message = Some("Unknown error".to_owned());
             }
-
-            eprintln!("Error: {}", scope.message);
-            std::process::abort();
         }
 
         let result = block();
-        let device_handle = self.device.handle;
-
-        let boxed_scope = Box::new(self);
-        let userdata = Box::into_raw(boxed_scope) as *mut c_void;
+        let mut capture = ErrorCapture {
+            callback_fired: false,
+            error_message: None,
+        };
 
         let callback_info = WGPUPopErrorScopeCallbackInfo {
             nextInChain: null_mut(),
             mode: WGPUCallbackMode_WGPUCallbackMode_AllowProcessEvents,
             callback: Some(callback),
-            userdata1: userdata,
+            userdata1: &mut capture as *mut _ as *mut c_void,
             userdata2: null_mut(),
         };
 
         unsafe {
-            wgpuDevicePopErrorScope(device_handle, callback_info);
+            wgpuDevicePopErrorScope(self.device.handle, callback_info);
         }
 
-        result
+        self.device._instance.process_events();
+
+        if let Some(err) = capture.error_message {
+            Err(eyre!(format!("{}\n{err}", self.message)))
+        } else {
+            Ok(result)
+        }
     }
 }
 

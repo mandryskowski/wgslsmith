@@ -1,12 +1,12 @@
-use std::marker::PhantomData;
-use std::time::Duration;
-
 use clap::Parser;
 use frontend::cli::RunOptions;
 use frontend::ExecutionError;
 use reflection::PipelineDescription;
+use std::marker::PhantomData;
+use std::time::Duration;
 use types::ConfigId;
 
+use crate::daemon::{daemon_exec, DaemonOptions, DaemonServer};
 use crate::{ExecutionEvent, ExecutionInput, ExecutionOutput, HarnessHost};
 
 #[derive(Parser)]
@@ -25,6 +25,16 @@ pub enum Command {
 
     /// Runs the harness server for remote execution.
     Serve(crate::server::Options),
+
+    /// Runs as a daemon which persists dawn and wgpu state.
+    /// Initialising WebGPU implementations takes a long time (~5s). We do not want to do this
+    /// for every shader execution.
+    Daemon(DaemonOptions),
+
+    DaemonExec {
+        #[clap(action)]
+        config: ConfigId,
+    },
 }
 
 pub fn run<Host: HarnessHost>(command: Command) -> eyre::Result<()> {
@@ -33,6 +43,8 @@ pub fn run<Host: HarnessHost>(command: Command) -> eyre::Result<()> {
         Command::Run(options) => execute::<Host>(options),
         Command::Exec { config } => internal_run(config),
         Command::Serve(options) => crate::server::run::<Host>(options),
+        Command::Daemon(options) => DaemonServer::new().main_loop(options),
+        Command::DaemonExec { config } => daemon_exec(config),
     }
 }
 
@@ -47,7 +59,7 @@ fn internal_run(config: ConfigId) -> eyre::Result<()> {
         bincode::decode_from_std_read(&mut std::io::stdin(), bincode::config::standard())?;
 
     let output = ExecutionOutput {
-        buffers: crate::execute_config(&input.shader, &input.pipeline_desc, &config)?,
+        buffers: crate::execute_config(&input.shader, &input.pipeline_desc, &config, None)?,
     };
 
     bincode::encode_into_std_write(output, &mut std::io::stdout(), bincode::config::standard())?;

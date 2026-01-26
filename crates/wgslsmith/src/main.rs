@@ -115,7 +115,13 @@ fn main() -> eyre::Result<()> {
         #[cfg(all(target_family = "unix", feature = "reducer"))]
         Cmd::Test(options) => test::run(&config, options),
         #[cfg(feature = "harness")]
-        Cmd::Run(options) => harness::cli::execute::<HarnessHost>(options),
+        Cmd::Run(options) => {
+            if options.use_daemon {
+                harness::cli::execute::<HarnessHostDaemon>(options)
+            } else {
+                harness::cli::execute::<HarnessHost>(options)
+            }
+        }
         #[cfg(feature = "harness")]
         Cmd::Harness { cmd } => harness::cli::run::<HarnessHost>(cmd),
         Cmd::Remote { cmd, server } => {
@@ -174,6 +180,18 @@ impl harness::HarnessHost for HarnessHost {
     fn exec_command() -> std::process::Command {
         let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
         cmd.args(["harness", "exec"]);
+        cmd
+    }
+}
+
+#[cfg(feature = "harness")]
+struct HarnessHostDaemon;
+
+#[cfg(feature = "harness")]
+impl harness::HarnessHost for HarnessHostDaemon {
+    fn exec_command() -> std::process::Command {
+        let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
+        cmd.args(["harness", "daemon-exec"]);
         cmd
     }
 }
