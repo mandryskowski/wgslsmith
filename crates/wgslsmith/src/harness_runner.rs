@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::str::FromStr;
 use std::thread;
+use std::time::Duration;
 use tap::Tap;
 
 #[derive(Debug, Deserialize, PartialEq, Eq, Clone)]
@@ -153,15 +154,17 @@ pub fn exec_shader(
     target: &Target,
     shader: &str,
     metadata: &str,
+    params: &[String],
     mut logger: impl FnMut(String),
 ) -> eyre::Result<ExecutionResult> {
-    exec_shader_impl(target, shader, metadata, &mut logger)
+    exec_shader_impl(target, shader, metadata, params, &mut logger)
 }
 
 fn exec_shader_impl(
     target: &Target,
     shader: &str,
     metadata: &str,
+    params: &[String],
     logger: &mut dyn FnMut(String),
 ) -> eyre::Result<ExecutionResult> {
     let harness = target.harness.clone();
@@ -178,6 +181,8 @@ fn exec_shader_impl(
     for config in configs {
         cmd.args(["-c", &config.to_string()]);
     }
+
+    cmd.args(params);
 
     cmd.args(["--print-consensus"]);
 
@@ -240,11 +245,11 @@ fn wait_for_child_with_line_logger(
         thread::spawn({
             let tx = tx.clone();
             move || {
-                BufReader::new(stdout)
+                // If tx.send fails, discard the Err
+                let _ = BufReader::new(stdout)
                     .lines()
                     .map_while(Result::ok)
-                    .try_for_each(|line| tx.send((StdioKind::Stdout, line)))
-                    .unwrap();
+                    .try_for_each(|line| tx.send((StdioKind::Stdout, line)));
             }
         })
     });
@@ -253,20 +258,37 @@ fn wait_for_child_with_line_logger(
         thread::spawn({
             let tx = tx.clone();
             move || {
-                BufReader::new(stderr)
+                // If tx.send fails, discard the Err
+                let _ = BufReader::new(stderr)
                     .lines()
                     .map_while(Result::ok)
-                    .try_for_each(|line| tx.send((StdioKind::Stderr, line)))
-                    .unwrap();
+                    .try_for_each(|line| tx.send((StdioKind::Stderr, line)));
             }
         })
     });
 
     drop(tx);
 
-    while let Ok((kind, line)) = rx.recv() {
-        logger(kind, line);
+    // If we are running in daemon mode on Windows, and daemon-exec has to spawn the daemon, then
+    // rx.recv() never terminates. For this reason, we check if the child has terminated with try_wait.
+    // This could be caused by grandchild pipe inheritance? Not sure.
+    loop {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok((kind, line)) => {
+                logger(kind, line);
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => match child.try_wait() {
+                Ok(Some(status)) => {
+                    return Ok(status);
+                }
+                Ok(None) => {
+                    continue;
+                }
+                Err(e) => return Err(e),
+            },
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                return child.wait();
+            }
+        }
     }
-
-    child.wait()
 }

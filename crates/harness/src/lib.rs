@@ -3,19 +3,55 @@ mod server;
 mod wgpu;
 
 pub mod cli;
+mod daemon;
 
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::dawn::DawnState;
+use crate::wgpu::WgpuState;
 use frontend::{ExecutionError, ExecutionEvent};
 use futures::executor::block_on;
 use process_control::{ChildExt, Control};
 use reflection::PipelineDescription;
 use types::{BackendType, Config, ConfigId, Implementation};
 
-pub trait HarnessHost {
-    fn exec_command() -> Command;
+pub struct WebGPUState {
+    dawn_state: DawnState,
+    wgpu_state: WgpuState,
+}
+
+#[derive(Clone)]
+pub struct HarnessCommand {
+    pub program: PathBuf,
+    args: Vec<String>,
+}
+
+impl HarnessCommand {
+    pub fn new(program: PathBuf) -> Self {
+        HarnessCommand {
+            program,
+            args: vec![],
+        }
+    }
+    pub fn build(&self) -> Command {
+        let mut cmd = Command::new(&self.program);
+        cmd.args(&self.args);
+        cmd
+    }
+
+    #[must_use]
+    pub fn arg(&self, arg: impl Into<String>) -> HarnessCommand {
+        let mut args = self.args.clone();
+        args.push(arg.into());
+
+        HarnessCommand {
+            program: self.program.clone(),
+            args,
+        }
+    }
 }
 
 pub fn query_configs() -> Vec<Config> {
@@ -65,12 +101,16 @@ pub fn default_configs() -> Vec<ConfigId> {
 struct ExecutionArgs<'a> {
     pub shader: &'a str,
     pub pipeline_desc: &'a PipelineDescription,
+    pub timeout: Option<Duration>,
+    pub tid: usize,
 }
 
-#[derive(bincode::Decode)]
+#[derive(bincode::Decode, bincode::Encode)]
 struct ExecutionInput {
     pub shader: String,
     pub pipeline_desc: PipelineDescription,
+    pub timeout: Option<Duration>,
+    pub tid: usize,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -78,7 +118,8 @@ struct ExecutionOutput {
     pub buffers: Vec<Vec<u8>>,
 }
 
-pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
+pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
+    cmd: &HarnessCommand,
     shader: &str,
     pipeline_desc: &PipelineDescription,
     configs: &[ConfigId],
@@ -112,7 +153,7 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
     std::thread::scope(|s| {
         let mut handles = vec![];
 
-        for _ in 0..num_threads {
+        for tid in 0..num_threads {
             let on_event = &on_event;
             let configs_iter = &configs_iter;
 
@@ -131,7 +172,8 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
                         lock(ExecutionEvent::Start(config.clone()))?;
                     }
 
-                    let mut child = Host::exec_command()
+                    let mut child = cmd
+                        .build()
                         .arg(config.to_string())
                         .stdin(Stdio::piped())
                         .stdout(Stdio::piped())
@@ -144,6 +186,8 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
                         ExecutionArgs {
                             shader,
                             pipeline_desc,
+                            timeout,
+                            tid,
                         },
                         &mut stdin,
                         bincode::config::standard(),
@@ -158,7 +202,7 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
                         Some(output) => output,
                         None => {
                             let mut lock = on_event.lock().expect("event mutex poisoned");
-                            lock(ExecutionEvent::Timeout)?;
+                            lock(ExecutionEvent::Timeout(config))?;
                             continue;
                         }
                     };
@@ -189,9 +233,20 @@ pub fn execute_config(
     shader: &str,
     pipeline_desc: &PipelineDescription,
     config: &ConfigId,
+    state: Option<&mut WebGPUState>,
 ) -> eyre::Result<Vec<Vec<u8>>> {
     match config.implementation {
-        Implementation::Dawn => block_on(dawn::run(shader, pipeline_desc, config)),
-        Implementation::Wgpu => block_on(wgpu::run(shader, pipeline_desc, config)),
+        Implementation::Dawn => block_on(dawn::run(
+            shader,
+            pipeline_desc,
+            config,
+            state.map(|s| &mut s.dawn_state),
+        )),
+        Implementation::Wgpu => block_on(wgpu::run(
+            shader,
+            pipeline_desc,
+            config,
+            state.map(|s| &mut s.wgpu_state),
+        )),
     }
 }

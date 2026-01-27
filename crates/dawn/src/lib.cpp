@@ -34,9 +34,6 @@ extern "C" dawn::native::Instance* new_instance() {
     // This makes things slow
     // instance->SetBackendValidationLevel(dawn::native::BackendValidationLevel::Full);
 
-    WGPURequestAdapterOptions options = {};
-    instance->EnumerateAdapters(&options);
-
     return instance;
 }
 

@@ -78,6 +78,43 @@ pub struct Options {
     /// This is mostly for debugging.
     #[clap(long, action)]
     save_failures: bool,
+
+    /// (Local execution only) Limit the number of parallel configurations executing at once.
+    ///
+    /// If not provided, execution will spawn a thread for every configuration.
+    #[clap(long, short = 'j', action)]
+    local_parallelism: Option<usize>,
+
+    /// (Local execution only) Timeout in seconds.
+    ///
+    /// Use 0 to disable the timeout. Note that the timeout is per-execution rather than a global timeout.
+    #[clap(long, action)]
+    local_timeout: Option<u64>,
+
+    #[clap(long, action, default_value = "false")]
+    use_daemon: bool,
+}
+
+impl Options {
+    fn to_cmd(&self) -> Vec<String> {
+        let mut exec_params = Vec::new();
+
+        if let Some(timeout) = self.local_timeout {
+            exec_params.push("--timeout".to_string());
+            exec_params.push(timeout.to_string());
+        }
+
+        if let Some(parallelism) = self.local_parallelism {
+            exec_params.push("-j".to_string());
+            exec_params.push(parallelism.to_string());
+        }
+
+        if self.use_daemon {
+            exec_params.push("--use-daemon".to_string());
+        }
+
+        exec_params
+    }
 }
 
 fn gen_shader(options: &Options) -> eyre::Result<String> {
@@ -333,11 +370,20 @@ fn worker_iteration(
         }
     };
 
+    // Save in case the system crashes
+    std::fs::write("last.wgsl", &reconditioned)?;
+
     let mut result = ExecutionResult::Success(None);
     let mut buffers_to_configs: HashMap<Vec<u8>, Vec<String>> = HashMap::new();
+
     for target in targets {
-        let exec_result =
-            harness_runner::exec_shader(target, &reconditioned, metadata, &mut *logger);
+        let exec_result = harness_runner::exec_shader(
+            target,
+            &reconditioned,
+            metadata,
+            &options.to_cmd(),
+            &mut *logger,
+        );
 
         result = match exec_result {
             Ok(result) => result,

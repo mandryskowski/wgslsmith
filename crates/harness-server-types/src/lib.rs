@@ -29,7 +29,7 @@ pub enum RunMessage {
     ExecStart(ConfigId),
     ExecSuccess(ConfigId, Vec<Vec<u8>>),
     ExecFailure(Vec<u8>),
-    ExecTimeout,
+    ExecTimeout(ConfigId),
     End(Result<(), RunError>),
 }
 

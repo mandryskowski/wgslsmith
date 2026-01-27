@@ -23,8 +23,19 @@ pub enum FnAttr {
     WorkgroupSize(u32),
 }
 
+#[derive(Debug, Display, PartialEq, Eq, strum::AsRefStr, strum::EnumIter, strum::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum BuiltinValue {
+    LocalInvocationId,
+    LocalInvocationIndex,
+    GlobalInvocationId,
+    WorkgroupId,
+    NumWorkgroups,
+}
 #[derive(Debug, Display, PartialEq, Eq)]
-pub enum FnInputAttr {}
+pub enum FnInputAttr {
+    Builtin(BuiltinValue),
+}
 
 #[derive(Debug, Display, PartialEq, Eq)]
 pub enum FnOutputAttr {}
