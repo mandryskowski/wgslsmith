@@ -19,6 +19,7 @@ use std::time::Duration;
 use clap::Parser;
 use color_eyre::Help;
 use eyre::{eyre, Context};
+use harness::HarnessCommand;
 use harness_frontend::{read_shader_from_path, ExecutionError, ExecutionEvent};
 use harness_types::ConfigId;
 use reflection_types::PipelineDescription;
@@ -92,6 +93,8 @@ fn main() -> eyre::Result<()> {
 
     let config = config::Config::load(&config_file)?;
 
+    let harness_cmd = HarnessCommand::new(std::env::current_exe().unwrap()).arg("harness");
+
     match options.cmd {
         #[cfg(all(target_family = "unix", feature = "reducer"))]
         Cmd::Compile(options) => {
@@ -116,14 +119,15 @@ fn main() -> eyre::Result<()> {
         Cmd::Test(options) => test::run(&config, options),
         #[cfg(feature = "harness")]
         Cmd::Run(options) => {
-            if options.use_daemon {
-                harness::cli::execute::<HarnessHostDaemon>(options)
+            let harness_cmd = harness_cmd.arg(if options.use_daemon {
+                "daemon-exec"
             } else {
-                harness::cli::execute::<HarnessHost>(options)
-            }
+                "exec"
+            });
+            harness::cli::execute(harness_cmd, options)
         }
         #[cfg(feature = "harness")]
-        Cmd::Harness { cmd } => harness::cli::run::<HarnessHost>(cmd),
+        Cmd::Harness { cmd } => harness::cli::run(harness_cmd, cmd),
         Cmd::Remote { cmd, server } => {
             let address = server
                 .as_deref()
@@ -169,29 +173,5 @@ fn main() -> eyre::Result<()> {
                 }
             }
         }
-    }
-}
-
-#[cfg(feature = "harness")]
-struct HarnessHost;
-
-#[cfg(feature = "harness")]
-impl harness::HarnessHost for HarnessHost {
-    fn exec_command() -> std::process::Command {
-        let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
-        cmd.args(["harness", "exec"]);
-        cmd
-    }
-}
-
-#[cfg(feature = "harness")]
-struct HarnessHostDaemon;
-
-#[cfg(feature = "harness")]
-impl harness::HarnessHost for HarnessHostDaemon {
-    fn exec_command() -> std::process::Command {
-        let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
-        cmd.args(["harness", "daemon-exec"]);
-        cmd
     }
 }

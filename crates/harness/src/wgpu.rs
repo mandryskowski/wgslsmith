@@ -9,8 +9,8 @@ use wgpu::wgt::PollType::Wait;
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, Device,
-    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, DxcShaderModel, Instance, Limits, MapMode,
-    Queue, ShaderModuleDescriptor, ShaderSource,
+    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, DxcShaderModel, ErrorFilter,
+    ErrorScopeGuard, Instance, Limits, MapMode, Queue, ShaderModuleDescriptor, ShaderSource,
 };
 
 pub struct WgpuState {
@@ -21,7 +21,7 @@ pub struct WgpuState {
 impl WgpuState {
     pub(crate) fn new() -> Self {
         WgpuState {
-            instance: Instance::new(&wgpu::InstanceDescriptor {
+            instance: Instance::new(wgpu::InstanceDescriptor {
                 backends: Backends::all(),
                 backend_options: wgpu::BackendOptions {
                     gl: Default::default(),
@@ -64,7 +64,7 @@ impl WgpuState {
 }
 
 pub fn get_adapters() -> Vec<types::Adapter> {
-    let instance = Instance::new(&wgpu::InstanceDescriptor {
+    let instance = Instance::new(wgpu::InstanceDescriptor {
         backends: Backends::all(),
         ..Default::default()
     });
@@ -127,6 +127,7 @@ pub async fn run(
 
             let device_descriptor = DeviceDescriptor {
                 required_limits: Limits {
+                    // This is needed to support swiftshader
                     max_storage_textures_per_shader_stage: 4,
                     ..Default::default()
                 },
@@ -149,39 +150,30 @@ pub async fn run(
 
     let preprocessed = preprocessor::preprocess(preprocessor_opts, shader.to_owned());
 
-    let shader_module = {
-        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let shader_module = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+        .execute(|| {
+            device.create_shader_module(ShaderModuleDescriptor {
+                label: None,
+                source: ShaderSource::Wgsl(Cow::Owned(preprocessed)),
+            })
+        })
+        .await?;
 
-        let shader_module = device.create_shader_module(ShaderModuleDescriptor {
-            label: None,
-            source: ShaderSource::Wgsl(Cow::Owned(preprocessed)),
-        });
-
-        if let Some(error) = error_scope.pop().await {
-            return Err(eyre!("Shader compilation failed: {}", error));
-        }
-
-        shader_module
-    };
-
-    let pipeline = {
-        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Internal);
-
-        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+    let pipeline = ErrorScope::new(
+        &device,
+        vec![ErrorFilter::Internal, ErrorFilter::Validation],
+    )
+    .execute(|| {
+        device.create_compute_pipeline(&ComputePipelineDescriptor {
             entry_point: Some("main"),
             label: None,
             module: &shader_module,
             layout: None,
             cache: None,
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-        });
-
-        if let Some(error) = error_scope.pop().await {
-            return Err(eyre!("Pipeline creation failed: {}", error));
-        }
-
-        pipeline
-    };
+        })
+    })
+    .await?;
 
     let mut resource_buffers = vec![];
 
@@ -277,11 +269,19 @@ pub async fn run(
         })
         .collect::<Vec<_>>();
 
-    let bind_group = device.create_bind_group(&BindGroupDescriptor {
-        layout: &pipeline.get_bind_group_layout(0),
-        label: None,
-        entries: &bind_group_entries,
-    });
+    let bind_group_layout = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+        .execute(|| pipeline.get_bind_group_layout(0))
+        .await?;
+
+    let bind_group = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+        .execute(|| {
+            device.create_bind_group(&BindGroupDescriptor {
+                layout: &bind_group_layout,
+                label: None,
+                entries: &bind_group_entries,
+            })
+        })
+        .await?;
 
     let commands = {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
@@ -344,4 +344,42 @@ pub async fn run(
     }
 
     Ok(results)
+}
+
+pub struct ErrorScope<'a> {
+    device: &'a Device,
+    filters: Vec<ErrorFilter>,
+}
+
+impl<'a> ErrorScope<'a> {
+    pub fn new(device: &'a Device, filters: Vec<ErrorFilter>) -> Self {
+        Self { device, filters }
+    }
+
+    pub async fn execute<F, T>(self, func: F) -> Result<T>
+    where
+        F: FnOnce() -> T,
+    {
+        let scopes: Vec<ErrorScopeGuard> = self
+            .filters
+            .into_iter()
+            .map(|filter| self.device.push_error_scope(filter))
+            .collect();
+        let result = func();
+
+        // we capture the first error we see, but we must pop all scopes.
+        let mut caught_error = None;
+        for scope in scopes.into_iter().rev() {
+            if let Some(error) = scope.pop().await {
+                if caught_error.is_none() {
+                    caught_error = Some(error);
+                }
+            }
+        }
+
+        if let Some(error) = caught_error {
+            return Err(eyre!("{}", error));
+        }
+        Ok(result)
+    }
 }

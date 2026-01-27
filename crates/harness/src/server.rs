@@ -7,7 +7,7 @@ use std::net::TcpListener;
 use std::sync::Mutex;
 use threadpool::ThreadPool;
 
-use crate::HarnessHost;
+use crate::HarnessCommand;
 
 #[derive(Parser)]
 pub struct Options {
@@ -26,9 +26,12 @@ pub struct Options {
     /// If not provided, execution will spawn a thread for every configuration.
     #[clap(long, short = 'j', action)]
     config_parallelism: Option<usize>,
+
+    #[clap(long, action, default_value = "false")]
+    pub use_daemon: bool,
 }
 
-pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
+pub fn run(cmd: HarnessCommand, options: Options) -> eyre::Result<()> {
     let parallelism = options
         .parallelism
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
@@ -41,6 +44,7 @@ pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
     println!("Server listening at {address}");
 
     for stream in listener.incoming() {
+        let cmd = cmd.clone();
         pool.execute(move || {
             let stream = stream.unwrap();
 
@@ -53,7 +57,7 @@ pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
             match req {
                 Request::List => handle_list_request(writer).unwrap(),
                 Request::Run(req) => {
-                    handle_run_request::<Host, _>(req, writer, options.config_parallelism).unwrap()
+                    handle_run_request(&cmd, req, writer, options.config_parallelism).unwrap()
                 }
             }
         });
@@ -69,7 +73,8 @@ fn handle_list_request(mut writer: impl io::Write) -> eyre::Result<()> {
     Ok(())
 }
 
-fn handle_run_request<Host: HarnessHost, W: io::Write + Send>(
+fn handle_run_request<W: io::Write + Send>(
+    cmd: &HarnessCommand,
     req: RunRequest,
     writer: W,
     config_parallelism: Option<usize>,
@@ -93,7 +98,8 @@ fn handle_run_request<Host: HarnessHost, W: io::Write + Send>(
         Ok(())
     };
 
-    let result = crate::execute::<Host, _>(
+    let result = crate::execute::<_>(
+        cmd,
         &req.shader,
         &req.pipeline_desc,
         &req.configs,

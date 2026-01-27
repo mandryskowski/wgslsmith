@@ -2,12 +2,11 @@ use clap::Parser;
 use frontend::cli::RunOptions;
 use frontend::ExecutionError;
 use reflection::PipelineDescription;
-use std::marker::PhantomData;
 use std::time::Duration;
 use types::ConfigId;
 
 use crate::daemon::{daemon_exec, DaemonOptions, DaemonServer};
-use crate::{ExecutionEvent, ExecutionInput, ExecutionOutput, HarnessHost};
+use crate::{ExecutionEvent, ExecutionInput, ExecutionOutput, HarnessCommand};
 
 #[derive(Parser)]
 pub enum Command {
@@ -37,12 +36,26 @@ pub enum Command {
     },
 }
 
-pub fn run<Host: HarnessHost>(command: Command) -> eyre::Result<()> {
+pub fn run(harness_cmd: HarnessCommand, command: Command) -> eyre::Result<()> {
     match command {
         Command::List => list(),
-        Command::Run(options) => execute::<Host>(options),
+        Command::Run(options) => {
+            let harness_cmd = harness_cmd.arg(if options.use_daemon {
+                "daemon-exec"
+            } else {
+                "exec"
+            });
+            execute(harness_cmd, options)
+        }
         Command::Exec { config } => internal_run(config),
-        Command::Serve(options) => crate::server::run::<Host>(options),
+        Command::Serve(options) => {
+            let harness_cmd = harness_cmd.arg(if options.use_daemon {
+                "daemon-exec"
+            } else {
+                "exec"
+            });
+            crate::server::run(harness_cmd, options)
+        }
         Command::Daemon(options) => DaemonServer::new().main_loop(options),
         Command::DaemonExec { config } => daemon_exec(config),
     }
@@ -67,16 +80,12 @@ fn internal_run(config: ConfigId) -> eyre::Result<()> {
     Ok(())
 }
 
-pub fn execute<Host: HarnessHost>(options: RunOptions) -> eyre::Result<()> {
-    struct Executor<Host>(PhantomData<Host>);
-
-    impl<Host> Executor<Host> {
-        fn new() -> Executor<Host> {
-            Executor(PhantomData)
-        }
+pub fn execute(cmd: HarnessCommand, options: RunOptions) -> eyre::Result<()> {
+    struct Executor {
+        cmd: HarnessCommand,
     }
 
-    impl<Host: HarnessHost> frontend::Executor for Executor<Host> {
+    impl frontend::Executor for Executor {
         fn execute(
             &self,
             shader: &str,
@@ -86,7 +95,8 @@ pub fn execute<Host: HarnessHost>(options: RunOptions) -> eyre::Result<()> {
             parallelism: Option<usize>,
             on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
         ) -> Result<(), ExecutionError> {
-            crate::execute::<Host, _>(
+            crate::execute::<_>(
+                &self.cmd,
                 shader,
                 pipeline_desc,
                 configs,
@@ -97,5 +107,5 @@ pub fn execute<Host: HarnessHost>(options: RunOptions) -> eyre::Result<()> {
         }
     }
 
-    frontend::cli::run(options, &Executor::<Host>::new())
+    frontend::cli::run(options, &Executor { cmd })
 }

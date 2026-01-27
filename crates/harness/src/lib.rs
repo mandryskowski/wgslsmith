@@ -5,6 +5,7 @@ mod wgpu;
 pub mod cli;
 mod daemon;
 
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -22,8 +23,35 @@ pub struct WebGPUState {
     wgpu_state: WgpuState,
 }
 
-pub trait HarnessHost {
-    fn exec_command() -> Command;
+#[derive(Clone)]
+pub struct HarnessCommand {
+    pub program: PathBuf,
+    args: Vec<String>,
+}
+
+impl HarnessCommand {
+    pub fn new(program: PathBuf) -> Self {
+        HarnessCommand {
+            program,
+            args: vec![],
+        }
+    }
+    pub fn build(&self) -> Command {
+        let mut cmd = Command::new(&self.program);
+        cmd.args(&self.args);
+        cmd
+    }
+
+    #[must_use]
+    pub fn arg(&self, arg: impl Into<String>) -> HarnessCommand {
+        let mut args = self.args.clone();
+        args.push(arg.into());
+
+        HarnessCommand {
+            program: self.program.clone(),
+            args,
+        }
+    }
 }
 
 pub fn query_configs() -> Vec<Config> {
@@ -90,7 +118,8 @@ struct ExecutionOutput {
     pub buffers: Vec<Vec<u8>>,
 }
 
-pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
+pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
+    cmd: &HarnessCommand,
     shader: &str,
     pipeline_desc: &PipelineDescription,
     configs: &[ConfigId],
@@ -143,7 +172,8 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
                         lock(ExecutionEvent::Start(config.clone()))?;
                     }
 
-                    let mut child = Host::exec_command()
+                    let mut child = cmd
+                        .build()
                         .arg(config.to_string())
                         .stdin(Stdio::piped())
                         .stdout(Stdio::piped())
