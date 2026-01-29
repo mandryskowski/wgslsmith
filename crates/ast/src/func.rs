@@ -23,7 +23,7 @@ pub enum FnAttr {
     WorkgroupSize(u32),
 }
 
-#[derive(Debug, Display, PartialEq, Eq, strum::AsRefStr, strum::EnumIter, strum::EnumString)]
+#[derive(Debug, PartialEq, Eq, strum::AsRefStr, strum::Display, strum::EnumIter, strum::EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum BuiltinValue {
     LocalInvocationId,
@@ -34,6 +34,7 @@ pub enum BuiltinValue {
 }
 #[derive(Debug, Display, PartialEq, Eq)]
 pub enum FnInputAttr {
+    #[display("builtin({_0})")]
     Builtin(BuiltinValue),
 }
 

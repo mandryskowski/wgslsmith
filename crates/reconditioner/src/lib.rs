@@ -430,7 +430,11 @@ impl Reconditioner {
                         )),
                         args,
                     ),
-                    _ => FnCallExpr::new(expr.ident, args),
+                    _ => {
+                        let mut new_call = FnCallExpr::new(expr.ident, args);
+                        new_call.template_args = expr.template_args;
+                        new_call
+                    }
                 };
 
                 if matches!(node.data_type.as_scalar(), Some(ScalarType::F32)) {

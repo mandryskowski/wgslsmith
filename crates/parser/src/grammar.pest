@@ -95,9 +95,10 @@ binary_operator = _{
 
 // EXPRESSIONS
 
-literal_expression   = { bool_literal | float_literal | uint_literal | int_literal }
+literal_expression   = { bool_literal | float_literal   | uint_literal | int_literal }
 type_cons_expression = { built_in_type_decl ~ argument_list }
 call_expression      = { ident ~ argument_list }
+bitcast_expression   = { "bitcast" ~ "<" ~ type_decl ~ ">" ~ argument_list }
 var_expression       = { ident }
 paren_expression     = { "(" ~ expression ~ ")" }
 
@@ -109,6 +110,7 @@ primary_expression  = {
     literal_expression |
     type_cons_expression |
     call_expression |
+    bitcast_expression |
     var_expression |
     paren_expression
 }

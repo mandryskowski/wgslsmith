@@ -370,10 +370,10 @@ impl Display for BinOpExpr {
     }
 }
 
-#[derive(Clone, Debug, Display, PartialEq)]
-#[display("{ident}({})", crate::FmtArgs(args))]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FnCallExpr {
     pub ident: String,
+    pub template_args: Vec<DataType>, // for bitcast
     pub args: Vec<ExprNode>,
 }
 
@@ -381,6 +381,7 @@ impl FnCallExpr {
     pub fn new(ident: impl Into<String>, args: Vec<ExprNode>) -> Self {
         Self {
             ident: ident.into(),
+            template_args: vec![],
             args,
         }
     }
@@ -390,6 +391,25 @@ impl FnCallExpr {
             data_type: return_type.into(),
             expr: self.into(),
         }
+    }
+}
+
+impl Display for FnCallExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.ident)?;
+
+        if !self.template_args.is_empty() {
+            write!(f, "<")?;
+            for (i, t) in self.template_args.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}", t)?;
+            }
+            write!(f, ">")?;
+        }
+
+        write!(f, "({})", crate::FmtArgs(&self.args))
     }
 }
 

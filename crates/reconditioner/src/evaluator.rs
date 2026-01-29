@@ -15,11 +15,26 @@ use value::*;
 macro_rules! binop_int_arith {
     ($op:expr, $l:expr, $r:expr) => {
         match $op {
-            BinOp::Plus => ($l).checked_add($r),
-            BinOp::Minus => ($l).checked_sub($r),
-            BinOp::Times => ($l).checked_mul($r),
-            BinOp::Divide => ($l).checked_div($r),
-            BinOp::Mod => ($l).checked_rem($r),
+            BinOp::Plus => Some(($l).wrapping_add($r)),
+            BinOp::Minus => Some(($l).wrapping_sub($r)),
+            BinOp::Times => Some(($l).wrapping_mul($r)),
+
+            // For Div and Mod, check for zero first, then use wrapping for overflow cases
+            // (e.g., i32::MIN / -1)
+            BinOp::Divide => {
+                if $r == 0 {
+                    None
+                } else {
+                    Some(($l).wrapping_div($r))
+                }
+            }
+            BinOp::Mod => {
+                if $r == 0 {
+                    None
+                } else {
+                    Some(($l).wrapping_rem($r))
+                }
+            }
             _ => None,
         }
     };
@@ -319,7 +334,7 @@ impl Evaluator {
                     .map(|e| self.concretize_expr(e))
                     .collect();
 
-                self.concretize_fncall(node.data_type, expr.ident, concrete_args)
+                self.concretize_fncall(node.data_type, expr.ident, concrete_args, expr.template_args)
             }
             Expr::Postfix(expr) => {
                 let concrete_inner = self.concretize_expr(*expr.inner);
@@ -348,7 +363,7 @@ impl Evaluator {
         }
     }
 
-    fn concretize_fncall(&self, data_type: DataType, ident: String, args: Vec<ConNode>) -> ConNode {
+    fn concretize_fncall(&self, data_type: DataType, ident: String, args: Vec<ConNode>, template_args: Vec<DataType>) -> ConNode {
         // nodes : Vec<ExprNode>, vals : Option<Value>
         let (nodes, vals) = self.decompose_vec_con(args);
 
@@ -367,7 +382,11 @@ impl Evaluator {
             }
 
             return ConNode {
-                node: FnCallExpr::new(ident, nodes).into_node(data_type),
+                node: FnCallExpr {
+                    ident,
+                    template_args,
+                    args: nodes
+                }.into_node(data_type),
                 value: None,
             };
         }

@@ -750,6 +750,7 @@ fn parse_primary_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
         Rule::literal_expression => parse_literal_expression(pair),
         Rule::type_cons_expression => parse_type_cons_expression(pair, env),
         Rule::call_expression => parse_call_expression(pair, env),
+        Rule::bitcast_expression => parse_bitcast_expression(pair, env),
         Rule::var_expression => parse_var_expression(pair, env),
         Rule::paren_expression => parse_paren_expression(pair, env),
         Rule::unary_expression => parse_unary_expression(pair, env),
@@ -830,6 +831,23 @@ fn parse_call_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
         .unwrap_or_else(|| panic!("`{}` not found", FunSig(ident.as_str(), &args)));
 
     FnCallExpr::new(ident.as_str().to_owned(), args).into_node(return_type)
+}
+
+fn parse_bitcast_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
+    let mut pairs = pair.into_inner();
+
+    let type_decl = pairs.next().unwrap();
+    let target_type = parse_type_decl(type_decl, env);
+
+    let args: Vec<_> = pairs.map(|pair| parse_expression(pair, env)).collect();
+
+    let call_expr = FnCallExpr {
+        ident: "bitcast".to_owned(),
+        template_args: vec![target_type.clone()],
+        args,
+    };
+
+    call_expr.into_node(target_type)
 }
 
 fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
