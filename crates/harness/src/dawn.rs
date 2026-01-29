@@ -221,9 +221,18 @@ pub async fn run(
         if let BufferSet::Storage { read, size, .. } = buffers {
             let mut rx = read.map_async(DeviceBufferMapMode::READ, *size);
 
-            while rx.try_recv().unwrap().is_none() {
-                instance.process_events();
-                std::thread::sleep(std::time::Duration::from_millis(16));
+            loop {
+                match rx.try_recv() {
+                    Ok(Some(_)) => break,
+                    Ok(None) => {
+                        instance.process_events();
+                        std::thread::sleep(std::time::Duration::from_millis(16));
+                    }
+                    Err(_) => {
+                        unmap_device(dawn_state, config);
+                        return Err(eyre!("Buffer mapping failed"));
+                    }
+                }
             }
 
             let bytes = read.get_const_mapped_range(*size);
@@ -233,4 +242,9 @@ pub async fn run(
     }
 
     Ok(results)
+}
+
+fn unmap_device(dawn_state: &mut DawnState, config: &ConfigId) {
+    eprintln!("Removing device {config}");
+    dawn_state.device_cache.remove(config);
 }

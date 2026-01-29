@@ -227,7 +227,9 @@ impl Device<'_> {
 impl Drop for Device<'_> {
     fn drop(&mut self) {
         unsafe {
-            wgpuDeviceRelease(self.handle);
+            eprintln!("Dropping device");
+            wgpuDeviceDestroy(self.handle);
+            self._instance.process_events()
         }
     }
 }
@@ -311,13 +313,26 @@ impl DeviceBuffer {
         unsafe {
             unsafe extern "C" fn map_callback(
                 res: WGPUMapAsyncStatus,
-                _message: WGPUStringView,
+                message: WGPUStringView,
                 userdata1: *mut c_void,
                 _userdata2: *mut c_void,
             ) {
-                assert_eq!(res, WGPUMapAsyncStatus_WGPUMapAsyncStatus_Success);
                 let mut tx = Box::from_raw(userdata1 as *mut Option<oneshot::Sender<()>>);
-                (*tx).take().unwrap().send(()).unwrap();
+
+                if res == WGPUMapAsyncStatus_WGPUMapAsyncStatus_Success {
+                    if let Some(sender) = (*tx).take() {
+                        let _ = sender.send(());
+                    }
+                } else {
+                    let msg_str = if !message.data.is_null() {
+                        let slice = std::slice::from_raw_parts(message.data as *const u8, message.length);
+                        String::from_utf8_lossy(slice)
+                    } else {
+                        "Unknown error".into()
+                    };
+
+                    eprintln!("wgpuBufferMapAsync failed status: {} message: {}", res, msg_str);
+                }
             }
 
             let (tx, rx) = oneshot::channel::<()>();
