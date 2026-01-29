@@ -6,7 +6,7 @@ use ast::{
     BinOp, BinOpExpr, Expr, ExprNode, FnCallExpr, FnInput, Lit, Postfix, PostfixExpr, StructDecl,
     TypeConsExpr, UnOp, UnOpExpr, VarDeclStatement, VarExpr,
 };
-
+use crate::gen::divergence::Divergence;
 use super::cx::Func;
 
 #[derive(Clone, Copy, Debug)]
@@ -20,16 +20,15 @@ enum ExprType {
 }
 
 impl super::Generator<'_> {
-    pub fn gen_expr(&mut self, ty: &DataType) -> ExprNode {
+    pub fn gen_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
         let mut allowed = vec![];
 
         match ty {
             DataType::Scalar(_) => allowed.push(ExprType::Lit),
-            DataType::Vector(_, _) => allowed.push(ExprType::TypeCons),
-            DataType::Array(_, _) => allowed.push(ExprType::TypeCons),
-            DataType::Struct(_) => allowed.push(ExprType::TypeCons),
+            DataType::Vector(_, _) | DataType::Array(_, _) | DataType::Struct(_) => allowed.push(ExprType::TypeCons),
             DataType::Ptr(view) => return self.gen_pointer_expr(view),
             DataType::Ref(_) => panic!("explicit request to generate ref expression: `{ty}`"),
+            _ => {}
         }
 
         if self.fn_state.expression_depth < 5 {
@@ -47,32 +46,35 @@ impl super::Generator<'_> {
                 allowed.push(ExprType::BinOp);
             }
 
-            // Function calls are available if we have a function that returns the target type,
-            // or we are able to generate a new function.
-            // TODO: naga currently has issues with functions that return arrays:
-            // https://github.com/gfx-rs/naga/issues/1930
-            // https://github.com/gfx-rs/naga/issues/1910
-            if !matches!(ty, DataType::Array(_, _))
-                && (self.cx.fns.contains_type(ty) || self.can_gen_fn(ty))
-            {
-                allowed.push(ExprType::FnCall);
-            }
+            // // Function calls are available if we have a function that returns the target type,
+            // // or we are able to generate a new function.
+            // if self.cx.fns.contains_type(ty) || self.can_gen_fn(ty) {
+            //     allowed.push(ExprType::FnCall);
+            // }
         }
-
-        if !self.scope.of_type(ty).is_empty() {
+        
+        if self.scope.of_type(ty).iter().filter(|(n, _)| {
+            div == None || self.scope.get_divergence(n) == div.unwrap()
+        }).peekable().peek().is_some() {
             allowed.push(ExprType::Var);
         }
 
         tracing::info!("allowed constructions: {:?}", allowed);
 
-        match *allowed.choose(&mut self.rng).unwrap() {
-            ExprType::Lit => self.gen_lit_expr(ty),
-            ExprType::TypeCons => self.gen_type_cons_expr(ty),
-            ExprType::UnOp => self.gen_un_op_expr(ty),
-            ExprType::BinOp => self.gen_bin_op_expr(ty),
-            ExprType::Var => self.gen_var_expr(ty),
-            ExprType::FnCall => self.gen_fn_call_expr(ty),
-        }
+        //eprintln!("allowed {:?}; ty {:?} div {:?}", allowed, ty, div);
+
+        let chosen = *allowed.choose(&mut self.rng).unwrap();
+        let expr = match chosen {
+            ExprType::Lit => self.gen_lit_expr(ty, div),
+            ExprType::TypeCons => self.gen_type_cons_expr(ty, div),
+            ExprType::UnOp => self.gen_un_op_expr(ty, div),
+            ExprType::BinOp => self.gen_bin_op_expr(ty, div),
+            ExprType::Var => self.gen_var_expr(ty, div),
+            ExprType::FnCall => self.gen_fn_call_expr(ty, div),
+        };
+
+//        eprintln!("allowed {:?}; ty {:?} div {:?} chosen {:?} | {}", allowed, ty, div, chosen, expr);
+        expr
     }
 
     fn can_gen_fn(&self, _return_type: &DataType) -> bool {
@@ -95,7 +97,7 @@ impl super::Generator<'_> {
             UnOpExpr::new(UnOp::AddressOf, var_expr).into()
         } else {
             let ident = self.scope.next_name();
-            let initializer = self.gen_expr(mem_view.inner.as_ref());
+            let initializer = self.gen_expr(mem_view.inner.as_ref(), Some(Divergence::Uniform));
             self.current_block
                 .push(VarDeclStatement::new(ident.clone(), None, Some(initializer)).into());
             UnOpExpr::new(UnOp::AddressOf, VarExpr::new(ident).into_node(ref_type)).into()
@@ -104,12 +106,27 @@ impl super::Generator<'_> {
 
     pub fn gen_const_expr(&mut self, ty: &DataType) -> ExprNode {
         match ty {
-            DataType::Scalar(_) => self.gen_lit_expr(ty),
+            DataType::Scalar(_) => self.gen_lit_expr(ty, Some(Divergence::Uniform)),
             ty => self.gen_const_type_cons_expr(ty),
         }
     }
 
-    fn gen_lit_expr(&mut self, ty: &DataType) -> ExprNode {
+    fn gen_lit_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
+        if div == Some(Divergence::Divergent) {
+            let scalar_ty = match ty {
+                DataType::Scalar(s) => s,
+                _ => panic!("DivergentLit only supports scalars"),
+            };
+
+            let local_id_expr = VarExpr::new("local_id".to_owned()).into_node(DataType::Scalar(ScalarType::U32));
+
+            if matches!(scalar_ty, ScalarType::U32) {
+                return local_id_expr;
+            }
+
+            return TypeConsExpr::new(ty.clone(), vec![local_id_expr]).into()
+        }
+
         let lit = self.gen_lit(ty);
         ExprNode {
             data_type: ty.clone(),
@@ -117,21 +134,37 @@ impl super::Generator<'_> {
         }
     }
 
-    fn gen_type_cons_expr(&mut self, ty: &DataType) -> ExprNode {
+    fn gen_divergent_lit_expr(&mut self, ty: &DataType) -> ExprNode {
+        let scalar_ty = match ty {
+            DataType::Scalar(s) => s,
+            _ => panic!("DivergentLit only supports scalars"),
+        };
+
+        let local_id_expr = VarExpr::new("local_id".to_owned()).into_node(DataType::Scalar(ScalarType::U32));
+
+        if matches!(scalar_ty, ScalarType::U32) {
+            return local_id_expr;
+        }
+
+        TypeConsExpr::new(ty.clone(), vec![local_id_expr]).into()
+    }
+
+
+    fn gen_type_cons_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
         tracing::info!("generating type_cons with {:?}", ty);
 
         self.fn_state.expression_depth += 1;
 
         let args = match ty {
-            DataType::Scalar(t) => vec![self.gen_expr(&DataType::Scalar(*t))],
+            DataType::Scalar(t) => vec![self.gen_expr(&DataType::Scalar(*t), div)],
             DataType::Vector(n, t) => (0..*n)
-                .map(|_| self.gen_expr(&DataType::Scalar(*t)))
+                .map(|_| self.gen_expr(&DataType::Scalar(*t), div))
                 .collect(),
             DataType::Array(_, _) => vec![],
             DataType::Struct(decl) => decl
                 .members
                 .iter()
-                .map(|it| self.gen_expr(&it.data_type))
+                .map(|it| self.gen_expr(&it.data_type, div))
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
         };
@@ -143,7 +176,7 @@ impl super::Generator<'_> {
 
     fn gen_const_type_cons_expr(&mut self, ty: &DataType) -> ExprNode {
         let args = match ty {
-            DataType::Scalar(t) => vec![self.gen_expr(&DataType::Scalar(*t))],
+            DataType::Scalar(t) => vec![self.gen_expr(&DataType::Scalar(*t), Some(Divergence::Uniform))],
             DataType::Vector(n, t) => (0..*n)
                 .map(|_| self.gen_const_expr(&DataType::Scalar(*t)))
                 .collect(),
@@ -160,18 +193,18 @@ impl super::Generator<'_> {
         TypeConsExpr::new(ty.clone(), args).into()
     }
 
-    fn gen_un_op_expr(&mut self, ty: &DataType) -> ExprNode {
+    fn gen_un_op_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
         self.fn_state.expression_depth += 1;
 
         let op = self.gen_un_op(ty);
-        let expr = self.gen_expr(ty);
+        let expr = self.gen_expr(ty, div);
 
         self.fn_state.expression_depth -= 1;
 
         UnOpExpr::new(op, expr).into()
     }
 
-    fn gen_bin_op_expr(&mut self, ty: &DataType) -> ExprNode {
+    fn gen_bin_op_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
         self.fn_state.expression_depth += 1;
 
         let op = self.gen_bin_op(ty);
@@ -220,7 +253,22 @@ impl super::Generator<'_> {
             ),
         };
 
-        let l = self.gen_expr(&l_ty);
+        let (l_div, r_div) = if let Some(div) = div {
+            let allowed_divs = if div == Divergence::Uniform {
+                vec![(Divergence::Uniform, Divergence::Uniform)]
+            } else {
+                vec![(Divergence::Divergent, Divergence::Uniform),
+                     (Divergence::Uniform, Divergence::Divergent),
+                     (Divergence::Divergent, Divergence::Divergent),
+                ]
+            };
+            let choice = allowed_divs.choose(self.rng).unwrap().clone();
+            (Some(choice.0), Some(choice.1))
+        } else {
+            (None, None)
+        };
+
+        let l = self.gen_expr(&l_ty, l_div);
         let r_ty = match op {
             // For shifts, right operand must be u32
             BinOp::LShift | BinOp::RShift => l_ty.map(ScalarType::U32),
@@ -228,17 +276,23 @@ impl super::Generator<'_> {
             _ => l_ty.clone(),
         };
 
-        let r = self.gen_expr(&r_ty);
+        let r = self.gen_expr(&r_ty, r_div);
 
         self.fn_state.expression_depth -= 1;
 
         BinOpExpr::new(op, l, r).into()
     }
 
-    fn gen_var_expr(&mut self, ty: &DataType) -> ExprNode {
+    fn gen_var_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
         tracing::info!("generating var with {:?}, scope={:?}", ty, self.scope);
 
-        let (name, data_type) = self.scope.of_type(ty).choose(&mut self.rng).unwrap();
+        let candidates = self.scope.of_type(ty);
+
+        let filtered: Vec<_> = candidates.iter().filter(|(n, _)| {
+            div == None || self.scope.get_divergence(n) == div.unwrap()
+        }).collect();
+
+        let (name, data_type) = filtered.choose(&mut self.rng).expect("No vars available").clone();
         let expr = VarExpr::new(name).into_node(data_type.clone());
 
         if expr.data_type.dereference() == ty {
@@ -250,8 +304,8 @@ impl super::Generator<'_> {
         self.gen_accessor(ty, expr)
     }
 
-    fn gen_fn_call_expr(&mut self, ty: &DataType) -> ExprNode {
-        let expr = self.gen_raw_fn_call_expr(ty);
+    fn gen_fn_call_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
+        let expr = self.gen_raw_fn_call_expr(ty, div);
 
         if expr.data_type == *ty {
             return expr;
@@ -262,7 +316,7 @@ impl super::Generator<'_> {
         self.gen_accessor(ty, expr)
     }
 
-    fn gen_raw_fn_call_expr(&mut self, ty: &DataType) -> ExprNode {
+    fn gen_raw_fn_call_expr(&mut self, ty: &DataType, div: Option<Divergence>) -> ExprNode {
         // Produce a function call with p=0.8 or p=1 if max functions reached
         if self.cx.fns.len() > self.options.max_fns || self.rng.gen_bool(0.8) {
             if let Some(func) = self.cx.fns.select(self.rng, ty) {
@@ -280,7 +334,7 @@ impl super::Generator<'_> {
                 };
 
                 self.fn_state.expression_depth += 1;
-                let args = params.iter().map(|ty| self.gen_expr(ty)).collect();
+                let args = params.iter().map(|ty| self.gen_expr(ty, div)).collect();
                 self.fn_state.expression_depth -= 1;
 
                 return FnCallExpr::new(name, args).into_node(return_type.unwrap().clone());
@@ -305,7 +359,7 @@ impl super::Generator<'_> {
             } else {
                 self.fn_state.expression_depth += 1;
                 let data_type = self.cx.types.select(self.rng);
-                let expr = self.gen_expr(&data_type);
+                let expr = self.gen_expr(&data_type, div);
                 self.fn_state.expression_depth -= 1;
                 expr
             };
@@ -344,7 +398,7 @@ impl super::Generator<'_> {
     }
 
     fn gen_array_accessor(&mut self, target: &DataType, expr: ExprNode) -> ExprNode {
-        let index = self.gen_expr(&ScalarType::U32.into());
+        let index = self.gen_expr(&ScalarType::U32.into(), Some(Divergence::Uniform));
         let expr: ExprNode = PostfixExpr::new(expr, Postfix::index(index)).into();
 
         if expr.data_type.dereference() == target {

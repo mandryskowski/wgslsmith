@@ -1,7 +1,7 @@
 use clap::StructOpt;
-use generator::Options;
+use generator_div::Options;
 
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
-    generator::run(Options::parse())
+    generator_div::run(Options::parse())
 }

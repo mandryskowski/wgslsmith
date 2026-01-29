@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use rand::Rng;
 use ast::{Expr, ExprNode, Postfix};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -7,33 +8,18 @@ pub enum Divergence {
     Divergent,
 }
 
-pub struct DivergenceState {
-    divergence_env: HashMap<String, Divergence>,
-    divergence_stack: Vec<Divergence>,
+impl Default for Divergence {
+    fn default() -> Self {
+        Self::Uniform
+    }
 }
 
-impl DivergenceState {
-    pub fn new() -> Self {
-        DivergenceState {
-            divergence_env: HashMap::new(),
-            divergence_stack: vec![],
+impl Divergence {
+    pub fn join(self, other: Divergence) -> Self {
+        match (self, other) {
+            (Self::Uniform, Self::Uniform) => Self::Uniform,
+            _ => Self::Divergent,
         }
-    }
-
-    pub fn flow_is_divergent(&self) -> bool {
-        self.divergence_stack.contains(&Divergence::Divergent)
-    }
-
-    pub fn get_var_divergence(&self, name: &str) -> Divergence {
-        if let Some(d) = self.divergence_env.get(name) {
-            *d
-        } else {
-            Divergence::Uniform
-        }
-    }
-
-    pub fn update_var_divergence(&mut self, name: String, div: Divergence) {
-        self.divergence_env.insert(name, div);
     }
 }
 
@@ -59,49 +45,89 @@ impl super::Generator<'_> {
         result
     }
 
-    fn infer_expr_divergence(&self, expr: &ExprNode) -> Divergence {
-        let reduce_divergences = | divergences: Vec<Divergence> | {
-          divergences.into_iter().fold(Divergence::Uniform, |acc, x| {
-              if acc == Divergence::Uniform {
-                  x
-              } else {
-                  Divergence::Divergent
-              }
-          })
-        };
-
-        let reduce_exprs = | exprs: Vec<Box<ExprNode>> | -> Divergence {
-            reduce_divergences(exprs.iter().map(| x | self.infer_expr_divergence(x)).collect())
-        };
-
-        Divergence::Uniform
-        // match expr.expr {
-        //     Expr::Lit(_) => Divergence::Uniform,
-        //     Expr::TypeCons(expr) => reduce_exprs(expr.args),
-        //     Expr::Var(expr) => self.divergence_state.get_var_divergence(expr.ident.as_str()),
-        //     Expr::Postfix(expr) => {
-        //         match expr.postfix {
-        //             Postfix::Index(expr) => {}
-        //             Postfix::Member(ident) => {}
-        //         }
-        //     }
-        //     Expr::UnOp(expr) => self.infer_expr_divergence(expr.inner.as_ref()),
-        //     Expr::BinOp(expr) => reduce_exprs(vec![expr.left, expr.right]),
-        //     Expr::FnCall(_) => todo!()
-        // }
+    pub(crate) fn sample_divergence(&mut self) -> Option<Divergence> {
+        if self.scope.flow_divergence == Divergence::Divergent {
+            None
+        } else {
+            Some(if self.rng.gen_bool(0.2) {
+                Divergence::Divergent
+            } else {
+                Divergence::Uniform
+            })
+        }
     }
 
-    fn update_symbol_divergence(&mut self, ident: &String, rhs: &ExprNode) {
-        let rhs_div = self.infer_expr_divergence(&rhs);
-        let flow_div = if self.divergence_state.flow_is_divergent() { Divergence::Divergent } else { Divergence::Uniform };
+    pub fn infer_expr_divergence(&self, expr: &ExprNode) -> Divergence {
+        // Helper to combine divergence of children: Uniform + Uniform = Uniform, else Divergent
+        let reduce = |divs: Vec<Divergence>| {
+            if divs.into_iter().any(|d| d == Divergence::Divergent) {
+                Divergence::Divergent
+            } else {
+                Divergence::Uniform
+            }
+        };
 
-        // A variable becomes divergent if assigned a divergent value OR assigned under divergent flow
-        let new_div = if rhs_div == Divergence::Divergent || flow_div == Divergence::Divergent {
+        match &expr.expr {
+            Expr::Lit(_) => Divergence::Uniform,
+
+            Expr::Var(v) => self.scope.get_divergence(&v.ident),
+
+            Expr::TypeCons(c) => {
+                reduce(c.args.iter().map(|arg| self.infer_expr_divergence(arg)).collect())
+            },
+
+            Expr::UnOp(u) => self.infer_expr_divergence(&u.inner),
+
+            Expr::BinOp(b) => {
+                reduce(vec![
+                    self.infer_expr_divergence(&b.left),
+                    self.infer_expr_divergence(&b.right)
+                ])
+            },
+
+            Expr::FnCall(f) => {
+                // Assume that result is divergent if any arg is divergent.
+                reduce(f.args.iter().map(|arg| self.infer_expr_divergence(arg)).collect())
+            },
+
+            Expr::Postfix(p) => {
+                // If the base (struct/array) is divergent, the member is divergent.
+                // If the base is uniform, the member is uniform.
+                // Note: Array indexing with a divergent index makes the result divergent,
+                // but for Postfix member access, it depends on the base.
+                let base_div = self.infer_expr_divergence(&p.inner);
+                match &p.postfix {
+                    Postfix::Index(idx) => {
+                        let idx_div = self.infer_expr_divergence(idx);
+                        if base_div == Divergence::Divergent || idx_div == Divergence::Divergent {
+                            Divergence::Divergent
+                        } else {
+                            Divergence::Uniform
+                        }
+                    },
+                    Postfix::Member(_) => base_div,
+                }
+            }
+        }
+    }
+
+    pub fn update_symbol_divergence(&mut self, ident: &String, rhs: &ExprNode) {
+        let data_div = self.infer_expr_divergence(rhs);
+        let flow_div = if self.scope.flow_divergence == Divergence::Divergent {
             Divergence::Divergent
         } else {
             Divergence::Uniform
         };
 
-        self.divergence_state.update_var_divergence(ident.clone(), new_div);
+        let final_div = if data_div == Divergence::Divergent || flow_div == Divergence::Divergent {
+            Divergence::Divergent
+        } else {
+            Divergence::Uniform
+        };
+
+        self.scope.set_divergence(ident.clone(), Some(final_div));
+
+        tracing::debug!("Updated divergence for {}: {:?} (Data: {:?}, Flow: {:?})",
+                ident, final_div, data_div, flow_div);
     }
 }

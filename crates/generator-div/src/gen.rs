@@ -5,21 +5,20 @@ mod scope;
 mod stmt;
 mod structs;
 mod utils;
+mod divergence;
 
 pub mod builtins;
+mod hash;
 
 use std::rc::Rc;
 
 use ast::types::{DataType, MemoryViewType};
-use ast::{
-    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, FnAttr, FnDecl, GlobalVarAttr,
-    GlobalVarDecl, LetDeclStatement, Module, Postfix, PostfixExpr, ShaderStage, Statement,
-    StorageClass, VarExpr, VarQualifier,
-};
+use ast::{AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, ExprNode, FnAttr, FnDecl, FnInput, FnInputAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement, Module, Postfix, PostfixExpr, ScalarType, ShaderStage, Statement, StorageClass, VarExpr, VarQualifier};
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
 use rand_distr::{Binomial, Distribution, StandardNormal};
-
+use ast::Expr::Var;
+use crate::gen::divergence::{Divergence};
 use crate::gen::scope::Scope;
 use crate::Options;
 
@@ -31,6 +30,7 @@ struct FnState {
     is_loop: bool,
     block_depth: u32,
     expression_depth: u32,
+    divergence_limit: Divergence,
 }
 
 pub struct Generator<'a> {
@@ -85,6 +85,9 @@ impl<'a> Generator<'a> {
 
         self.global_scope
             .insert_readonly("u_input".to_owned(), DataType::Struct(ub_type_decl.clone()));
+        self.global_scope.set_divergence("u_input".to_owned(), Some(Divergence::Uniform));
+
+        let invocations = 32;
 
         let mut global_vars = vec![
             GlobalVarDecl {
@@ -104,9 +107,19 @@ impl<'a> Generator<'a> {
                     access_mode: Some(AccessMode::ReadWrite),
                 }),
                 name: "s_output".to_owned(),
-                data_type: DataType::Struct(sb_type_decl.clone()),
+                data_type: DataType::Array(Rc::new(DataType::Struct(sb_type_decl.clone())), Some(invocations)),
                 initializer: None,
             },
+            GlobalVarDecl {
+                attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(2)],
+                qualifier: Some(VarQualifier {
+                    storage_class: StorageClass::Storage,
+                    access_mode: Some(AccessMode::ReadWrite),
+                }),
+                name: "hash_output".to_owned(),
+                data_type: DataType::Array(Rc::new(DataType::Scalar(ScalarType::U32)), Some(invocations)),
+                initializer: None,
+            }
         ];
 
         for i in 0..self.rng.gen_range(0..=5) {
@@ -117,6 +130,7 @@ impl<'a> Generator<'a> {
         let entrypoint = self.gen_entrypoint_function(
             DataType::Struct(ub_type_decl.clone()),
             DataType::Struct(sb_type_decl.clone()),
+            invocations,
         );
 
         let Context { types, fns } =
@@ -146,18 +160,15 @@ impl<'a> Generator<'a> {
             data_type = DataType::Array(Rc::new(data_type), Some(self.rng.gen_range(1..=32)));
         }
 
-        let storage_class = if self.rng.gen_bool(0.5) {
-            StorageClass::WorkGroup
-        } else {
-            StorageClass::Private
-        };
+        let storage_class = StorageClass::Private;
 
         let mem_view = MemoryViewType::new(data_type.clone(), storage_class);
         let ref_type = DataType::Ref(mem_view);
 
         self.global_scope.insert_mutable(name.clone(), ref_type);
+        self.global_scope.set_divergence(name.clone(), Some(Divergence::Uniform));
 
-        let initializer = if storage_class == StorageClass::Private && self.rng.gen_bool(0.75) {
+        let initializer = if self.rng.gen_bool(0.5) {
             Some(self.gen_const_expr(&data_type))
         } else {
             None
@@ -176,10 +187,13 @@ impl<'a> Generator<'a> {
     }
 
     #[tracing::instrument(skip(self))]
-    fn gen_entrypoint_function(&mut self, in_buf_type: DataType, out_buf_type: DataType) -> FnDecl {
+    fn gen_entrypoint_function(&mut self, in_buf_type: DataType, out_buf_type: DataType, invocations: u32) -> FnDecl {
         let stmt_count = self.rng.gen_range(5..10);
         let (_, block) = self.with_scope(self.global_scope.clone(), |this| {
-            let (scope, mut block) = this.gen_stmt_block(stmt_count);
+            this.scope.insert_readonly("local_id".to_owned(), ScalarType::U32.into());
+            this.scope.set_divergence("local_id".to_owned(), Some(Divergence::Divergent));
+            this.scope.set_divergence("u_input".to_owned(), Some(Divergence::Uniform));
+            let (scope, mut block) = this.gen_stmt_block(Divergence::Uniform, stmt_count);
 
             if let Some(Statement::Return(_)) = block.last() {
                 block.pop();
@@ -199,10 +213,34 @@ impl<'a> Generator<'a> {
                     .into(),
                 );
 
-                let out_lhs = AssignmentLhs::name("s_output", out_buf_type.clone());
-                let out_rhs = this.gen_expr(&out_buf_type);
+                let out_lhs = AssignmentLhs::array_index("s_output", DataType::Ref(MemoryViewType::new(
+                    DataType::Array(Rc::new(out_buf_type.clone()), Some(32)),
+                    StorageClass::Storage,
+                )), ExprNode {
+                    expr: VarExpr::new("local_id").into(),
+                    data_type: ScalarType::U32.into()
+                });
+                let out_rhs = this.gen_expr(&out_buf_type, Some(Divergence::Uniform));
                 this.current_block
                     .push(AssignmentStatement::new(out_lhs, AssignmentOp::Simple, out_rhs).into());
+
+                let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
+
+                let hash_lhs = AssignmentLhs::array_index(
+                    "hash_output",
+                    DataType::Ref(MemoryViewType::new(
+                        DataType::Array(Rc::new(ScalarType::U32.into()), Some(invocations)),
+                        StorageClass::Storage,
+                    )),
+                    ExprNode {
+                        expr: VarExpr::new("local_id").into(),
+                        data_type: ScalarType::U32.into()
+                    }
+                );
+
+                this.current_block.push(
+                    AssignmentStatement::new(hash_lhs, AssignmentOp::Simple, hash_val).into()
+                );
             });
 
             std::mem::replace(&mut this.current_block, prev_block)
@@ -211,10 +249,18 @@ impl<'a> Generator<'a> {
         FnDecl {
             attrs: vec![
                 FnAttr::Stage(ShaderStage::Compute),
-                FnAttr::WorkgroupSize(1),
+                FnAttr::WorkgroupSize(invocations),
             ],
             name: "main".to_owned(),
-            inputs: vec![],
+            inputs: vec![
+                FnInput {
+                    attrs: vec![
+                        FnInputAttr::Builtin(BuiltinValue::LocalInvocationIndex),
+                    ],
+                    name: "local_id".to_owned(),
+                    data_type: ScalarType::U32.into()
+                }
+            ],
             output: None,
             body: block,
         }
@@ -223,7 +269,9 @@ impl<'a> Generator<'a> {
     fn with_scope<T>(&mut self, scope: Scope, block: impl FnOnce(&mut Self) -> T) -> (Scope, T) {
         let old_scope = std::mem::replace(&mut self.scope, scope);
         let res = block(self);
-        (std::mem::replace(&mut self.scope, old_scope), res)
+        let child_scope = std::mem::replace(&mut self.scope, old_scope);
+        self.scope.update_divergence_from(&child_scope);
+        (child_scope, res)
     }
 
     fn gen_i32(&mut self) -> i32 {

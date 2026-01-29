@@ -8,7 +8,7 @@ use super::cx::SelectionFilter;
 
 const FIELD_NAMES: &[&str] = &["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StructKind {
     Default,
     HostShareable,

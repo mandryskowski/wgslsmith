@@ -10,7 +10,7 @@ use ast::{
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
-
+use crate::gen::divergence::Divergence;
 use super::scope::Scope;
 use super::utils::is_terminal_stmt;
 
@@ -59,18 +59,17 @@ impl super::Generator<'_> {
         let weights = |t: &StatementType| match t {
             StatementType::LetDecl => 10,
             StatementType::VarDecl => 10,
-            StatementType::Assignment => 10,
-            // StatementType::Compound => 1,
-            StatementType::If => 5,
-            StatementType::Return => 1,
+            StatementType::Assignment => 15,
+            StatementType::If => 10,
+            StatementType::Return => 0,//1,
             StatementType::Loop => 5,
-            StatementType::Switch => 5,
-            StatementType::ForLoop => 5,
-            StatementType::Break => 5,
-            StatementType::Continue => 5,
+            StatementType::Switch => 0,//5,
+            StatementType::ForLoop => 0,//5,
+            StatementType::Break => 0,//5,
+            StatementType::Continue => 0,//5,
         };
 
-        match allowed.choose_weighted(self.rng, weights).unwrap() {
+        let stmt = match allowed.choose_weighted(self.rng, weights).unwrap() {
             StatementType::LetDecl => self.gen_let_stmt(),
             StatementType::VarDecl => self.gen_var_stmt(),
             StatementType::Assignment => self.gen_assignment_stmt().into(),
@@ -82,28 +81,54 @@ impl super::Generator<'_> {
             StatementType::ForLoop => self.gen_for_stmt(),
             StatementType::Break => Statement::Break,
             StatementType::Continue => Statement::Continue,
-        }
+        };
+
+        //eprintln!("Generated {}", stmt);
+        stmt
     }
 
     fn gen_let_stmt(&mut self) -> Statement {
-        if self.options.enable_pointers && self.scope.has_mutables() && self.rng.gen_bool(0.2) {
+        let div = self.sample_divergence();
+        let stmt: LetDeclStatement = if self.options.enable_pointers && self.scope.has_mutables() && self.rng.gen_bool(0.2) {
             let (ident, ty) = self.scope.choose_mutable(self.rng);
             let initializer =
                 UnOpExpr::new(UnOp::AddressOf, VarExpr::new(ident).into_node(ty.clone()));
             LetDeclStatement::new(self.scope.next_name(), initializer).into()
         } else {
             let ty = self.cx.types.select(self.rng);
-            LetDeclStatement::new(self.scope.next_name(), self.gen_expr(&ty)).into()
-        }
+            LetDeclStatement::new(self.scope.next_name_custom(if div == Some(Divergence::Divergent) {"div"} else {"var"}), self.gen_expr(&ty, div)).into()
+        };
+
+        self.scope
+            .insert_readonly(stmt.ident.clone(), stmt.initializer.data_type.clone());
+        self.scope.set_divergence(stmt.ident.clone(), div);
+
+        stmt.into()
     }
 
     fn gen_var_stmt(&mut self) -> Statement {
         let ty = self.cx.types.select(self.rng);
-        VarDeclStatement::new(self.scope.next_name(), None, Some(self.gen_expr(&ty))).into()
+        let div = self.sample_divergence();
+        let stmt = VarDeclStatement::new(self.scope.next_name_custom(if div == Some(Divergence::Divergent) {"div"} else {"var"}), None, Some(self.gen_expr(&ty, div)));
+
+        let mem_view = MemoryViewType::new(
+            stmt.inferred_type().clone(),
+            StorageClass::Function
+        );
+        let data_type = DataType::Ref(mem_view);
+
+        self.scope.insert_mutable(stmt.ident.clone(), data_type);
+        self.scope.set_divergence(stmt.ident.clone(), div);
+        //eprintln!("var {} became {:?}", stmt.ident, div.clone().unwrap_or(Divergence::Divergent));
+
+        stmt.into()
     }
 
     fn gen_assignment_stmt(&mut self) -> AssignmentStatement {
-        let (name, data_type) = self.scope.choose_mutable(self.rng);
+        let (name, data_type) = {
+            let (n, t) = self.scope.choose_mutable(self.rng);
+            (n.clone(), t.clone())
+        };
 
         let data_type = data_type.clone();
         let lhs = match &data_type {
@@ -115,14 +140,21 @@ impl super::Generator<'_> {
             DataType::Array(_, _) => LhsExprNode::array_index(
                 name.clone(),
                 data_type,
-                self.gen_expr(&ScalarType::U32.into()),
+                self.gen_expr(&ScalarType::U32.into(), Some(Divergence::Uniform)),
             ),
             _ => LhsExprNode::name(name.clone(), data_type),
         };
 
-        let rhs = self.gen_expr(lhs.data_type.dereference());
+        let div = self.sample_divergence();
+        let rhs = self.gen_expr(lhs.data_type.dereference(), div);
 
-        AssignmentStatement::new(lhs.into(), AssignmentOp::Simple, rhs)
+        self.scope.set_divergence(name.clone(), div);
+
+        AssignmentStatement {lhs: lhs.into(), op: AssignmentOp::Simple, rhs, comment: (match div {
+            Some(Divergence::Divergent) => "divergent",
+            Some(Divergence::Uniform) => "uniform",
+            None => "divergentf"
+        }).to_owned()}
     }
 
     // fn gen_compound_stmt(&mut self) -> Statement {
@@ -137,9 +169,10 @@ impl super::Generator<'_> {
             .rng
             .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
 
+        let div = self.sample_divergence();
         IfStatement::new(
-            self.gen_expr(&DataType::Scalar(ScalarType::Bool)),
-            self.gen_stmt_block(max_count).1,
+            self.gen_expr(&DataType::Scalar(ScalarType::Bool), div),
+            self.gen_stmt_block(div.unwrap_or(Divergence::Divergent), max_count).1,
         )
         .into()
     }
@@ -149,7 +182,7 @@ impl super::Generator<'_> {
             self.return_type
                 .clone()
                 .as_ref()
-                .map(|ty| self.gen_expr(ty)),
+                .map(|ty| self.gen_expr(ty, Some(Divergence::Uniform))),
         )
         .into()
     }
@@ -160,14 +193,14 @@ impl super::Generator<'_> {
             .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
 
         let is_loop = mem::replace(&mut self.fn_state.is_loop, true);
-        let body = self.gen_stmt_block(max_count).1;
+        let body = self.gen_stmt_block(Divergence::Uniform, max_count).1;
         self.fn_state.is_loop = is_loop;
 
         LoopStatement::new(body).into()
     }
 
     fn gen_switch_stmt(&mut self) -> Statement {
-        let selector = self.gen_expr(&DataType::Scalar(ScalarType::I32));
+        let selector = self.gen_expr(&DataType::Scalar(ScalarType::I32), Some(Divergence::Uniform));
         let case_count: u32 = self.rng.gen_range(0..=4);
         let mut existing_cases = HashSet::new();
         let cases = (0..case_count)
@@ -184,7 +217,7 @@ impl super::Generator<'_> {
                     }
                 };
 
-                let body = self.gen_stmt_block(block_size).1;
+                let body = self.gen_stmt_block(Divergence::Uniform, block_size).1;
 
                 // Fallthrough is broken on naga's HLSL backend: https://github.com/gfx-rs/naga/issues/1972
                 // if self.rng.gen_bool(0.2) && !is_terminal_stmt(body.last()) {
@@ -205,7 +238,7 @@ impl super::Generator<'_> {
             .rng
             .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
 
-        SwitchStatement::new(selector, cases, self.gen_stmt_block(default_block_size).1).into()
+        SwitchStatement::new(selector, cases, self.gen_stmt_block(Divergence::Uniform, default_block_size).1).into()
     }
 
     fn gen_for_stmt(&mut self) -> Statement {
@@ -217,7 +250,7 @@ impl super::Generator<'_> {
                 let init_value = if this.rng.gen_bool(0.7) {
                     Some(Lit::I32(this.gen_i32()).into())
                 } else if this.rng.gen_bool(0.5) {
-                    Some(this.gen_expr(&loop_var_type))
+                    Some(this.gen_expr(&loop_var_type, Some(Divergence::Uniform)))
                 } else {
                     None
                 };
@@ -255,7 +288,7 @@ impl super::Generator<'_> {
 
                 let condition = match this.rng.gen_range(0..=9) {
                     0..=1 => None,
-                    2..=5 => Some(this.gen_expr(&DataType::Scalar(ScalarType::Bool))),
+                    2..=5 => Some(this.gen_expr(&DataType::Scalar(ScalarType::Bool), Some(Divergence::Uniform))),
                     6..=9 => Some(
                         BinOpExpr::new(
                             *COMPARISON_OPS.choose(this.rng).unwrap(),
@@ -289,7 +322,7 @@ impl super::Generator<'_> {
                 (Some(init), condition, update)
             } else {
                 let condition = if this.rng.gen_bool(0.5) {
-                    Some(this.gen_expr(&DataType::Scalar(ScalarType::Bool)))
+                    Some(this.gen_expr(&DataType::Scalar(ScalarType::Bool), Some(Divergence::Uniform)))
                 } else {
                     None
                 };
@@ -308,7 +341,7 @@ impl super::Generator<'_> {
             };
 
             let is_loop = mem::replace(&mut this.fn_state.is_loop, true);
-            let body = this.gen_stmt_block(body_size).1;
+            let body = this.gen_stmt_block(Divergence::Uniform, body_size).1;
             this.fn_state.is_loop = is_loop;
 
             ForLoopStatement::new(header, body)
@@ -317,8 +350,9 @@ impl super::Generator<'_> {
         stmt.into()
     }
 
-    pub fn gen_stmt_block(&mut self, max_count: u32) -> (Scope, Vec<Statement>) {
+    pub fn gen_stmt_block(&mut self, div: Divergence, max_count: u32) -> (Scope, Vec<Statement>) {
         self.with_scope(self.scope.clone(), |this| {
+            this.scope.flow_divergence = div;
             this.fn_state.block_depth += 1;
 
             let prev_block = std::mem::take(&mut this.current_block);
@@ -326,16 +360,7 @@ impl super::Generator<'_> {
             for _ in 0..max_count {
                 let stmt = this.gen_stmt();
 
-                // If we generated a variable declaration, track it in the environment
-                if let Statement::LetDecl(stmt) = &stmt {
-                    this.scope
-                        .insert_readonly(stmt.ident.clone(), stmt.initializer.data_type.clone());
-                } else if let Statement::VarDecl(stmt) = &stmt {
-                    let mem_view =
-                        MemoryViewType::new(stmt.inferred_type().clone(), StorageClass::Function);
-                    let data_type = DataType::Ref(mem_view);
-                    this.scope.insert_mutable(stmt.ident.clone(), data_type);
-                } else if is_terminal_stmt(&stmt) {
+                if is_terminal_stmt(&stmt) {
                     // Return/break/continue/fallthrough must be the last statement in the block
                     this.current_block.push(stmt);
                     break;
@@ -356,13 +381,13 @@ impl super::Generator<'_> {
         return_type: Option<DataType>,
     ) -> Vec<Statement> {
         let saved_return_type = std::mem::replace(&mut self.return_type, return_type.clone());
-        let (scope, mut block) = self.gen_stmt_block(max_count);
+        let (scope, mut block) = self.gen_stmt_block(Divergence::Uniform, max_count);
         self.return_type = saved_return_type;
 
         if let Some(return_type) = return_type {
             if !matches!(block.last(), Some(Statement::Return(_))) {
                 self.with_scope(scope, |this| {
-                    block.push(ReturnStatement::new(this.gen_expr(&return_type)).into())
+                    block.push(ReturnStatement::new(this.gen_expr(&return_type, Some(Divergence::Uniform))).into())
                 });
             }
         }

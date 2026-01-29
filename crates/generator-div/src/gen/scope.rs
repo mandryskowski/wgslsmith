@@ -4,7 +4,8 @@ use ast::types::{DataType, MemoryViewType};
 use rand::prelude::IteratorRandom;
 use rand::Rng;
 use rpds::{HashTrieMap, Vector};
-
+use crate::gen::divergence::Divergence;
+use crate::gen::structs::StructKind::Default;
 use super::utils;
 
 #[derive(Clone, Debug)]
@@ -13,6 +14,8 @@ pub struct Scope {
     symbols: HashTrieMap<DataType, Vec<(String, DataType)>>,
     mutables: Vector<(String, DataType)>,
     references: Vector<(String, MemoryViewType)>,
+    symbols_divergence: HashTrieMap<String, Divergence>,
+    pub flow_divergence: Divergence,
 }
 
 impl Scope {
@@ -22,6 +25,8 @@ impl Scope {
             symbols: HashTrieMap::new(),
             mutables: Vector::new(),
             references: Vector::new(),
+            symbols_divergence: HashTrieMap::new(),
+            flow_divergence: Divergence::default(),
         }
     }
 
@@ -35,6 +40,12 @@ impl Scope {
 
     pub fn of_type(&self, ty: &DataType) -> &[(String, DataType)] {
         self.symbols.get(ty).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn of_div(&self, div: Divergence) -> Vec<(String, DataType)> {
+        self.symbols.values().flatten().filter(|(n, ty)| {
+            self.get_divergence(n) == div
+        }).cloned().collect()
     }
 
     pub fn choose_mutable(&self, rng: &mut impl Rng) -> (&String, &DataType) {
@@ -81,9 +92,43 @@ impl Scope {
         }
     }
 
+    pub fn get_divergence(&self, name: &str) -> Divergence {
+        self.symbols_divergence.get(name).cloned().expect("{name} does not have divergence info")
+    }
+
+    pub fn set_divergence(&mut self, name: String, div: Option<Divergence>) {
+        eprintln!("var {} became {:?}", name.clone(), div.clone().unwrap_or(Divergence::Divergent));
+        self.symbols_divergence.insert_mut(name, div.unwrap_or(Divergence::Divergent));
+    }
+
+    pub fn update_divergence_from(&mut self, child: &Scope) {
+        for (name, _) in self.mutables.iter() {
+            if let child_div= child.symbols_divergence.get(name).unwrap() {
+                if self.symbols_divergence.get(name).unwrap() != child_div {
+                    //eprintln!("Propagated divergence to parent: {} is now {:?}", name, child_div);
+                    self.symbols_divergence.insert_mut(name.clone(), child_div.clone());
+                }
+            }
+        }
+    }
+
+    pub fn all_symbols(&self) -> Vec<(String, DataType)> {
+        self.symbols
+            .values()
+            .flatten()
+            .cloned()
+            .collect()
+    }
+
     pub fn next_name(&mut self) -> String {
         let next = self.next_name;
         self.next_name += 1;
-        format!("var_{}", next)
+        format!("var_{next}")
+    }
+
+    pub fn next_name_custom(&mut self, custom: &str) -> String {
+        let next = self.next_name;
+        self.next_name += 1;
+        format!("{custom}_{next}")
     }
 }
