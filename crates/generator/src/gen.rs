@@ -191,6 +191,7 @@ impl<'a> Generator<'a> {
                 this.current_block.push(
                     LetDeclStatement::new(
                         "x",
+                        None,
                         PostfixExpr::new(
                             VarExpr::new("u_input").into_node(in_buf_type),
                             Postfix::member("a"),

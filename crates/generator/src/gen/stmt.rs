@@ -90,10 +90,10 @@ impl super::Generator<'_> {
             let (ident, ty) = self.scope.choose_mutable(self.rng);
             let initializer =
                 UnOpExpr::new(UnOp::AddressOf, VarExpr::new(ident).into_node(ty.clone()));
-            LetDeclStatement::new(self.scope.next_name(), initializer).into()
+            LetDeclStatement::new(self.scope.next_name(), None, initializer).into()
         } else {
             let ty = self.cx.types.select(self.rng);
-            LetDeclStatement::new(self.scope.next_name(), self.gen_expr(&ty)).into()
+            LetDeclStatement::new(self.scope.next_name(), None, self.gen_expr(&ty)).into()
         }
     }
 

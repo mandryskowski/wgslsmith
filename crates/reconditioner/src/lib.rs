@@ -176,8 +176,12 @@ impl Reconditioner {
 
     fn recondition_stmt(&mut self, stmt: Statement) -> Statement {
         match stmt {
-            Statement::LetDecl(LetDeclStatement { ident, initializer }) => {
-                LetDeclStatement::new(ident, self.recondition_expr(initializer)).into()
+            Statement::LetDecl(LetDeclStatement {
+                ident,
+                initializer,
+                data_type,
+            }) => {
+                LetDeclStatement::new(ident, data_type, self.recondition_expr(initializer)).into()
             }
             Statement::VarDecl(VarDeclStatement {
                 ident,

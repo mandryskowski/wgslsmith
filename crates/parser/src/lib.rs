@@ -15,14 +15,21 @@ struct WGSLParser;
 
 enum Func {
     Builtin(BuiltinFn),
-    User(DataType),
+    User(Vec<DataType>, Option<DataType>),
 }
 
 impl Func {
     pub fn return_type<'a>(&self, params: impl Iterator<Item = &'a DataType>) -> Option<DataType> {
         match self {
             Func::Builtin(ty) => ty.return_type(params),
-            Func::User(return_type) => Some(return_type.clone()),
+            Func::User(_, return_type) => return_type.clone(),
+        }
+    }
+
+    pub fn params(&self) -> Option<&[DataType]> {
+        match self {
+            Func::Builtin(_) => None, // TODO
+            Func::User(params, _) => Some(params),
         }
     }
 }
@@ -69,12 +76,16 @@ impl Environment {
         &self,
         name: &str,
         params: impl Iterator<Item = &'a DataType>,
-    ) -> Option<DataType> {
-        self.fns.get(name).and_then(|it| it.return_type(params))
+    ) -> Option<Option<DataType>> {
+        self.fns.get(name).map(|it| it.return_type(params))
     }
 
-    pub fn insert_func(&mut self, name: String, ret_ty: DataType) {
-        self.fns.insert_mut(name, Func::User(ret_ty));
+    pub fn func_params(&self, name: &str) -> Option<&[DataType]> {
+        self.fns.get(name).and_then(|it| it.params())
+    }
+
+    pub fn insert_func(&mut self, name: String, params: Vec<DataType>, ret_ty: Option<DataType>) {
+        self.fns.insert_mut(name, Func::User(params, ret_ty));
     }
 }
 
@@ -144,7 +155,7 @@ fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalCon
         }
     }
 
-    let expr = parse_expression(pairs.next().unwrap(), env);
+    let expr = parse_expression(pairs.next().unwrap(), env, data_type.as_ref());
     let data_type = data_type.unwrap_or_else(|| expr.data_type.clone());
 
     env.insert_var(name.clone(), data_type.clone());
@@ -216,7 +227,7 @@ fn parse_global_variable_decl(pair: Pair<Rule>, env: &mut Environment) -> Global
 
     if pairs.peek().is_some() {
         let pair = pairs.next().unwrap();
-        expr = Some(parse_expression(pair, env))
+        expr = Some(parse_expression(pair, env, data_type.as_ref()))
     }
 
     let data_type = data_type.unwrap_or_else(|| {
@@ -272,9 +283,14 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
         .collect();
 
     let decl = StructDecl::new(name.clone(), members);
+    let params = decl.members.iter().map(|m| m.data_type.clone()).collect();
 
     env.insert_struct(name, decl.clone());
-    env.insert_func(decl.name.clone(), DataType::Struct(decl.clone()));
+    env.insert_func(
+        decl.name.clone(),
+        params,
+        Some(DataType::Struct(decl.clone())),
+    );
 
     decl
 }
@@ -300,7 +316,7 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
                         _ => panic!("invalid argument for stage attr"),
                     }),
                     "workgroup_size" => FnAttr::WorkgroupSize(
-                        match parse_literal_expression(pairs.next().unwrap()).expr {
+                        match parse_literal_expression(pairs.next().unwrap(), None).expr {
                             Expr::Lit(Lit::I32(v)) => v.try_into().unwrap(),
                             Expr::Lit(Lit::U32(v)) => v,
                             _ => panic!("invalid argument for workgroup_size attr"),
@@ -358,9 +374,12 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
         })
         .next();
 
-    if let Some(output) = &output {
-        env.insert_func(name.clone(), output.data_type.clone());
-    }
+    let param_types = inputs.iter().map(|i| i.data_type.clone()).collect();
+    env.insert_func(
+        name.clone(),
+        param_types,
+        output.as_ref().map(|o| o.data_type.clone()),
+    );
 
     let mut env = env.clone();
     for param in &inputs {
@@ -406,8 +425,17 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
 fn parse_let_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
     let mut pairs = pair.into_inner();
     let ident = pairs.next().unwrap().as_str().to_owned();
-    let initializer = parse_expression(pairs.next().unwrap(), env);
-    let stmt = LetDeclStatement::new(ident.clone(), initializer);
+
+    let mut pair = pairs.next().unwrap();
+    let mut specified_type = None;
+
+    if pair.as_rule() == Rule::type_decl {
+        specified_type = Some(parse_type_decl(pair, env));
+        pair = pairs.next().unwrap();
+    }
+
+    let initializer = parse_expression(pair, env, specified_type.as_ref());
+    let stmt = LetDeclStatement::new(ident.clone(), specified_type, initializer);
     env.insert_var(ident, stmt.inferred_type().clone());
     stmt.into()
 }
@@ -427,7 +455,11 @@ fn parse_var_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
     };
 
     let initializer = if let Some(Rule::expression) = pair.as_ref().map(|it| it.as_rule()) {
-        Some(parse_expression(pair.unwrap(), env))
+        Some(parse_expression(
+            pair.unwrap(),
+            env,
+            specified_type.as_ref(),
+        ))
     } else {
         None
     };
@@ -445,7 +477,11 @@ fn parse_assignment_statement(pair: Pair<Rule>, env: &Environment) -> Statement 
 
     let lhs = parse_assignment_lhs(pairs.next().unwrap(), env);
     let op = pairs.next().unwrap();
-    let rhs = parse_expression(pairs.next().unwrap(), env);
+    let expected_type = match &lhs {
+        AssignmentLhs::Expr(node) => Some(&node.data_type),
+        AssignmentLhs::Phony => None,
+    };
+    let rhs = parse_expression(pairs.next().unwrap(), env, expected_type);
 
     let op = op.into_inner().next().unwrap();
     let op = match op.as_rule() {
@@ -486,7 +522,8 @@ fn parse_compound_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
 
 fn parse_if_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let mut pairs = pair.into_inner();
-    let condition = parse_paren_expression(pairs.next().unwrap(), env);
+    let condition =
+        parse_paren_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
     let block = parse_compound_statement(pairs.next().unwrap(), env).into_compount_statement();
 
     let els = pairs
@@ -509,7 +546,7 @@ fn parse_return_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let expression = pair
         .into_inner()
         .next()
-        .map(|pair| parse_expression(pair, env));
+        .map(|pair| parse_expression(pair, env, None));
 
     if let Some(value) = expression {
         ReturnStatement::new(value).into()
@@ -527,7 +564,7 @@ fn parse_loop_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
 fn parse_switch_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let mut pairs = pair.into_inner();
 
-    let expr = parse_expression(pairs.next().unwrap(), env);
+    let expr = parse_expression(pairs.next().unwrap(), env, None);
 
     let mut cases = vec![];
     let mut default = None;
@@ -537,7 +574,7 @@ fn parse_switch_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
         let pair = pairs.next().unwrap();
 
         if pair.as_rule() == Rule::expression {
-            let selector = parse_expression(pair, env);
+            let selector = parse_expression(pair, env, None);
             let body =
                 parse_compound_statement(pairs.next().unwrap(), env).into_compount_statement();
             cases.push(SwitchCase { selector, body });
@@ -569,7 +606,7 @@ fn parse_for_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
 
     let mut condition = None;
     if pair.as_rule() == Rule::expression {
-        condition = Some(parse_expression(pair, env));
+        condition = Some(parse_expression(pair, env, Some(&ScalarType::Bool.into())));
         pair = pairs.next().unwrap();
     }
 
@@ -599,8 +636,17 @@ fn parse_call_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let pair = pair.into_inner().next().unwrap();
     let mut pairs = pair.into_inner();
 
-    let ident = pairs.next().unwrap().as_str().to_owned();
-    let args = pairs.map(|it| parse_expression(it, env)).collect();
+    let ident_pair = pairs.next().unwrap();
+    let ident = ident_pair.as_str().to_owned();
+
+    let params = env.func_params(&ident);
+    let args = pairs
+        .enumerate()
+        .map(|(i, it)| {
+            let hint = params.and_then(|p| p.get(i));
+            parse_expression(it, env, hint)
+        })
+        .collect();
 
     FnCallStatement::new(ident, args).into()
 }
@@ -635,7 +681,7 @@ fn parse_lhs_expression(pair: Pair<Rule>, env: &Environment) -> LhsExprNode {
     let node = pairs.fold(node, |node, pair| {
         let pair = pair.into_inner().next().unwrap();
         let postfix = match pair.as_rule() {
-            Rule::expression => Postfix::Index(Box::new(parse_expression(pair, env))),
+            Rule::expression => Postfix::Index(Box::new(parse_expression(pair, env, None))),
             Rule::ident => Postfix::Member(pair.as_str().to_owned()),
             _ => unreachable!(),
         };
@@ -691,10 +737,14 @@ fn precedence_table() -> PrecClimber<Rule> {
     ])
 }
 
-fn parse_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
+fn parse_expression(
+    pair: Pair<Rule>,
+    env: &Environment,
+    expected_type: Option<&DataType>,
+) -> ExprNode {
     let pairs = pair.into_inner();
 
-    let primary = |pair| parse_unary_expression(pair, env);
+    let primary = |pair| parse_unary_expression(pair, env, expected_type);
 
     let infix = |l: ExprNode, op: Pair<Rule>, r: ExprNode| -> ExprNode {
         BinOpExpr::new(op.as_rule().into(), l, r).into()
@@ -703,12 +753,18 @@ fn parse_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     precedence_table().climb(pairs, primary, infix)
 }
 
-fn parse_unary_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
+fn parse_unary_expression(
+    pair: Pair<Rule>,
+    env: &Environment,
+    expected_type: Option<&DataType>,
+) -> ExprNode {
     let mut pairs = pair.into_inner();
 
     let first_pair = pairs.next().unwrap();
     let op = match first_pair.as_rule() {
-        Rule::singular_expression => return parse_singular_expression(first_pair, env),
+        Rule::singular_expression => {
+            return parse_singular_expression(first_pair, env, expected_type)
+        }
         _ => first_pair,
     };
 
@@ -721,19 +777,23 @@ fn parse_unary_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
         _ => unreachable!(),
     };
 
-    let expr = parse_unary_expression(pairs.next().unwrap(), env);
+    let expr = parse_unary_expression(pairs.next().unwrap(), env, expected_type);
 
     UnOpExpr::new(op, expr).into()
 }
 
-fn parse_singular_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
+fn parse_singular_expression(
+    pair: Pair<Rule>,
+    env: &Environment,
+    expected_type: Option<&DataType>,
+) -> ExprNode {
     let mut pairs = pair.into_inner();
-    let mut expr = parse_primary_expression(pairs.next().unwrap(), env);
+    let mut expr = parse_primary_expression(pairs.next().unwrap(), env, expected_type);
 
     for pf in pairs {
         let pair = pf.into_inner().next().unwrap();
         let pf = match pair.as_rule() {
-            Rule::expression => Postfix::Index(Box::new(parse_expression(pair, env))),
+            Rule::expression => Postfix::Index(Box::new(parse_expression(pair, env, None))),
             Rule::ident => Postfix::Member(pair.as_str().to_owned()),
             _ => unreachable!(),
         };
@@ -744,21 +804,25 @@ fn parse_singular_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     expr
 }
 
-fn parse_primary_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
+fn parse_primary_expression(
+    pair: Pair<Rule>,
+    env: &Environment,
+    expected_type: Option<&DataType>,
+) -> ExprNode {
     let pair = pair.into_inner().next().unwrap();
     match pair.as_rule() {
-        Rule::literal_expression => parse_literal_expression(pair),
+        Rule::literal_expression => parse_literal_expression(pair, expected_type),
         Rule::type_cons_expression => parse_type_cons_expression(pair, env),
         Rule::call_expression => parse_call_expression(pair, env),
         Rule::bitcast_expression => parse_bitcast_expression(pair, env),
         Rule::var_expression => parse_var_expression(pair, env),
-        Rule::paren_expression => parse_paren_expression(pair, env),
-        Rule::unary_expression => parse_unary_expression(pair, env),
+        Rule::paren_expression => parse_paren_expression(pair, env, expected_type),
+        Rule::unary_expression => parse_unary_expression(pair, env, expected_type),
         _ => unreachable!(),
     }
 }
 
-fn parse_literal_expression(pair: Pair<Rule>) -> ExprNode {
+fn parse_literal_expression(pair: Pair<Rule>, expected_type: Option<&DataType>) -> ExprNode {
     let pair = pair.into_inner().next().unwrap();
     let (t, lit) = match pair.as_rule() {
         Rule::bool_literal => (ScalarType::Bool, Lit::Bool(pair.as_str().parse().unwrap())),
@@ -766,18 +830,32 @@ fn parse_literal_expression(pair: Pair<Rule>) -> ExprNode {
             ScalarType::U32,
             Lit::U32(pair.as_str().trim_end_matches('u').parse().unwrap()),
         ),
-        Rule::int_literal => (
-            ScalarType::I32,
-            Lit::I32(if !pair.as_str().ends_with(')') {
-                pair.as_str().trim_end_matches('i').parse().unwrap()
+        Rule::int_literal => {
+            let s = pair.as_str();
+            if s.ends_with('i') {
+                (
+                    ScalarType::I32,
+                    Lit::I32(s.trim_end_matches('i').parse().unwrap()),
+                )
+            } else if s.starts_with("i32(") {
+                (
+                    ScalarType::I32,
+                    Lit::I32(
+                        s.trim_start_matches("i32(")
+                            .trim_end_matches(')')
+                            .parse()
+                            .unwrap(),
+                    ),
+                )
             } else {
-                pair.as_str()
-                    .trim_start_matches("i32(")
-                    .trim_end_matches(')')
-                    .parse()
-                    .unwrap()
-            }),
-        ),
+                // No suffix
+                match expected_type.and_then(|t| t.as_scalar()) {
+                    Some(ScalarType::U32) => (ScalarType::U32, Lit::U32(s.parse().unwrap())),
+                    Some(ScalarType::F32) => (ScalarType::F32, Lit::F32(s.parse().unwrap())),
+                    _ => (ScalarType::I32, Lit::I32(s.parse().unwrap())),
+                }
+            }
+        }
         Rule::float_literal => (
             ScalarType::F32,
             Lit::F32(pair.as_str().trim_end_matches('f').parse().unwrap()),
@@ -796,7 +874,26 @@ fn parse_type_cons_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     let t_decl = pairs.next().unwrap();
 
     let t = parse_type_decl(t_decl, env);
-    let args = pairs.map(|pair| parse_expression(pair, env)).collect();
+
+    let component_type; // Lifetime extension
+    let args = match &t {
+        DataType::Array(inner, _) => pairs
+            .map(|pair| parse_expression(pair, env, Some(inner)))
+            .collect(),
+        DataType::Matrix(_, _, scalar) => {
+            let ty = DataType::Scalar(*scalar);
+            component_type = Some(ty);
+            pairs
+                .map(|pair| parse_expression(pair, env, component_type.as_ref()))
+                .collect()
+        }
+        _ => {
+            component_type = t.as_scalar().map(DataType::Scalar);
+            pairs
+                .map(|pair| parse_expression(pair, env, component_type.as_ref()))
+                .collect()
+        }
+    };
 
     TypeConsExpr::new(t, args).into()
 }
@@ -804,12 +901,21 @@ fn parse_type_cons_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
 fn parse_call_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     let mut pairs = pair.into_inner();
 
-    let ident = pairs.next().unwrap();
-    let args = pairs
-        .map(|pair| parse_expression(pair, env))
-        .collect::<Vec<_>>();
+    let ident_pair = pairs.next().unwrap();
+    let ident_str = ident_pair.as_str();
 
-    struct FunSig<'a>(&'a str, &'a [ExprNode]);
+    // get parameter types for hinting
+    let params = env.func_params(ident_str);
+
+    let args: Vec<ExprNode> = pairs
+        .enumerate()
+        .map(|(i, pair)| {
+            let hint = params.and_then(|p| p.get(i));
+            parse_expression(pair, env, hint)
+        })
+        .collect();
+
+    struct FunSig<'a>(String, &'a [ExprNode]);
 
     impl std::fmt::Display for FunSig<'_> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -826,11 +932,21 @@ fn parse_call_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
         }
     }
 
-    let return_type = env
-        .func(ident.as_str(), args.iter().map(|arg| &arg.data_type))
-        .unwrap_or_else(|| panic!("`{}` not found", FunSig(ident.as_str(), &args)));
+    let ident_str = ident_str.to_owned();
+    let func_result = env.func(&ident_str, args.iter().map(|arg| &arg.data_type));
 
-    FnCallExpr::new(ident.as_str().to_owned(), args).into_node(return_type)
+    if func_result.is_none() {
+        panic!("`{}` not found", FunSig(ident_str.clone(), &args));
+    }
+
+    let return_type = func_result.unwrap().unwrap_or_else(|| {
+        panic!(
+            "function `{}` does not return a value and cannot be used in an expression",
+            ident_str
+        )
+    });
+
+    FnCallExpr::new(ident_str, args).into_node(return_type)
 }
 
 fn parse_bitcast_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
@@ -839,7 +955,9 @@ fn parse_bitcast_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     let type_decl = pairs.next().unwrap();
     let target_type = parse_type_decl(type_decl, env);
 
-    let args: Vec<_> = pairs.map(|pair| parse_expression(pair, env)).collect();
+    let args: Vec<_> = pairs
+        .map(|pair| parse_expression(pair, env, None))
+        .collect();
 
     let call_expr = FnCallExpr {
         ident: "bitcast".to_owned(),
@@ -927,9 +1045,13 @@ fn parse_var_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     )
 }
 
-fn parse_paren_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
+fn parse_paren_expression(
+    pair: Pair<Rule>,
+    env: &Environment,
+    expected_type: Option<&DataType>,
+) -> ExprNode {
     let pair = pair.into_inner().next().unwrap();
-    parse_expression(pair, env)
+    parse_expression(pair, env, expected_type)
 }
 
 fn parse_storage_class(pair: Pair<Rule>) -> StorageClass {

@@ -7,21 +7,31 @@ use crate::types::DataType;
 use crate::{ExprNode, Postfix};
 
 #[derive(Debug, Display, PartialEq)]
-#[display("let {ident} = {initializer}")]
+#[display("let {ident}{0} = {initializer}", data_type.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())]
 pub struct LetDeclStatement {
     pub ident: String,
+    pub data_type: Option<DataType>,
     pub initializer: ExprNode,
 }
 
 impl LetDeclStatement {
-    pub fn new(ident: impl Into<String>, initializer: impl Into<ExprNode>) -> Self {
+    pub fn new(
+        ident: impl Into<String>,
+        data_type: Option<DataType>,
+        initializer: impl Into<ExprNode>,
+    ) -> Self {
         Self {
             ident: ident.into(),
+            data_type,
             initializer: initializer.into(),
         }
     }
 
     pub fn inferred_type(&self) -> &DataType {
+        if let Some(ty) = &self.data_type {
+            return ty;
+        }
+
         // If the type of the initializer expression is a reference, then we infer the declaration
         // type to be the target type of the reference. Otherwise it is simply the type of the initializer.
         if let DataType::Ref(view) = &self.initializer.data_type {

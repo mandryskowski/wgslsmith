@@ -163,9 +163,11 @@ impl Evaluator {
         //TODO: if stmt contains var, return (since not concretizable)
 
         match stmt {
-            Statement::LetDecl(LetDeclStatement { ident, initializer }) => {
-                LetDeclStatement::new(ident, self.concretize_expr(initializer)).into()
-            }
+            Statement::LetDecl(LetDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => LetDeclStatement::new(ident, data_type, self.concretize_expr(initializer)).into(),
             Statement::VarDecl(VarDeclStatement {
                 ident,
                 data_type,
@@ -334,7 +336,12 @@ impl Evaluator {
                     .map(|e| self.concretize_expr(e))
                     .collect();
 
-                self.concretize_fncall(node.data_type, expr.ident, concrete_args, expr.template_args)
+                self.concretize_fncall(
+                    node.data_type,
+                    expr.ident,
+                    concrete_args,
+                    expr.template_args,
+                )
             }
             Expr::Postfix(expr) => {
                 let concrete_inner = self.concretize_expr(*expr.inner);
@@ -363,7 +370,13 @@ impl Evaluator {
         }
     }
 
-    fn concretize_fncall(&self, data_type: DataType, ident: String, args: Vec<ConNode>, template_args: Vec<DataType>) -> ConNode {
+    fn concretize_fncall(
+        &self,
+        data_type: DataType,
+        ident: String,
+        args: Vec<ConNode>,
+        template_args: Vec<DataType>,
+    ) -> ConNode {
         // nodes : Vec<ExprNode>, vals : Option<Value>
         let (nodes, vals) = self.decompose_vec_con(args);
 
@@ -385,8 +398,9 @@ impl Evaluator {
                 node: FnCallExpr {
                     ident,
                     template_args,
-                    args: nodes
-                }.into_node(data_type),
+                    args: nodes,
+                }
+                .into_node(data_type),
                 value: None,
             };
         }
