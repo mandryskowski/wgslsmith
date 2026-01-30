@@ -812,7 +812,7 @@ fn parse_primary_expression(
     let pair = pair.into_inner().next().unwrap();
     match pair.as_rule() {
         Rule::literal_expression => parse_literal_expression(pair, expected_type),
-        Rule::type_cons_expression => parse_type_cons_expression(pair, env),
+        Rule::type_cons_expression => parse_type_cons_expression(pair, env, expected_type),
         Rule::call_expression => parse_call_expression(pair, env),
         Rule::bitcast_expression => parse_bitcast_expression(pair, env),
         Rule::var_expression => parse_var_expression(pair, env),
@@ -869,33 +869,166 @@ fn parse_literal_expression(pair: Pair<Rule>, expected_type: Option<&DataType>) 
     }
 }
 
-fn parse_type_cons_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
-    let mut pairs = pair.into_inner();
-    let t_decl = pairs.next().unwrap();
+#[derive(PartialEq, Debug)]
+enum ImplicitTypeKind {
+    None,
+    Vector(u8),
+    Array,
+}
 
-    let t = parse_type_decl(t_decl, env);
+fn parse_type_cons_expression(
+    pair: Pair<Rule>,
+    env: &Environment,
+    expected_type: Option<&DataType>,
+) -> ExprNode {
+    let mut pairs = pair.into_inner().peekable();
 
-    let component_type; // Lifetime extension
-    let args = match &t {
-        DataType::Array(inner, _) => pairs
-            .map(|pair| parse_expression(pair, env, Some(inner)))
-            .collect(),
-        DataType::Matrix(_, _, scalar) => {
-            let ty = DataType::Scalar(*scalar);
-            component_type = Some(ty);
-            pairs
-                .map(|pair| parse_expression(pair, env, component_type.as_ref()))
-                .collect()
+    let type_decl_pair = pairs.next().unwrap();
+
+    let implicit_type_kind = detect_implicit_type(&type_decl_pair);
+
+    if implicit_type_kind != ImplicitTypeKind::None {
+        return parse_implicit_type_cons(implicit_type_kind, &mut pairs, env, expected_type);
+    }
+
+    let data_type = parse_type_decl(type_decl_pair, env);
+
+    // Collect args to check count for hinting
+    let arg_pairs: Vec<_> = pairs.collect();
+    let arg_count = arg_pairs.len();
+
+    let args = arg_pairs
+        .into_iter()
+        .map(|pair| {
+            let expected_arg_type = match &data_type {
+                DataType::Vector(n, scalar) => {
+                    Some(DataType::Scalar(*scalar))
+                }
+                DataType::Matrix(cols, rows, scalar) => {
+                    if arg_count == *cols as usize {
+                        Some(DataType::Vector(*rows, *scalar))
+                    } else {
+                        Some(DataType::Scalar(*scalar))
+                    }
+                }
+                DataType::Array(inner_type, _) => Some((**inner_type).clone()),
+                _ => None, // For other types, no specific hint for arguments
+            };
+            parse_expression(pair, env, expected_arg_type.as_ref())
+        })
+        .collect();
+
+    TypeConsExpr::new(data_type, args).into()
+}
+
+fn parse_implicit_type_cons(
+    kind: ImplicitTypeKind,
+    pairs: &mut std::iter::Peekable<pest::iterators::Pairs<'_, Rule>>,
+    env: &Environment,
+    expected_type: Option<&DataType>,
+) -> ExprNode {
+    let mut args = Vec::new();
+
+    let mut inferred_element_type = None;
+
+    if let Some(expected) = expected_type {
+        match kind {
+            ImplicitTypeKind::Vector(n) => {
+                if let DataType::Vector(expected_n, scalar) = expected {
+                    if *expected_n == n {
+                        inferred_element_type = Some(DataType::Scalar(*scalar));
+                    }
+                }
+            }
+            ImplicitTypeKind::Array => {
+                if let DataType::Array(inner, _) = expected {
+                    inferred_element_type = Some((**inner).clone());
+                }
+            }
+            ImplicitTypeKind::None => unreachable!(),
         }
-        _ => {
-            component_type = t.as_scalar().map(DataType::Scalar);
-            pairs
-                .map(|pair| parse_expression(pair, env, component_type.as_ref()))
-                .collect()
-        }
-    };
+    }
 
-    TypeConsExpr::new(t, args).into()
+    if let Some(first_pair) = pairs.next() {
+        let first_arg = parse_expression(first_pair, env, inferred_element_type.as_ref());
+        let first_arg_type = first_arg.data_type.clone();
+        args.push(first_arg);
+
+        let container_type = match kind {
+            ImplicitTypeKind::Vector(n) => {
+                let scalar = if let Some(DataType::Scalar(s)) = inferred_element_type {
+                    s
+                } else {
+                    first_arg_type
+                        .as_scalar()
+                        .expect("constructor argument must be scalar")
+                };
+                DataType::Vector(n, scalar)
+            }
+            ImplicitTypeKind::Array => {
+                let elem = inferred_element_type.unwrap_or(first_arg_type);
+                DataType::Array(Rc::new(elem), None)
+            }
+            ImplicitTypeKind::None => unreachable!(),
+        };
+
+        let element_type = if let DataType::Vector(_, s) = &container_type {
+            DataType::Scalar(*s)
+        } else if let DataType::Array(inner, _) = &container_type {
+            (**inner).clone()
+        } else {
+            unreachable!()
+        };
+
+        for pair in pairs {
+            args.push(parse_expression(pair, env, Some(&element_type)));
+        }
+        let final_type = if let DataType::Array(inner, _) = container_type {
+            DataType::Array(inner, Some(args.len() as u32))
+        } else {
+            container_type
+        };
+
+        TypeConsExpr::new(final_type, args).into()
+    } else { // No arguments
+        if let ImplicitTypeKind::Vector(n) = kind {
+            TypeConsExpr::new(DataType::Vector(n, ScalarType::I32), vec![]).into()
+        } else {
+        panic!("cannot infer type from constructor {:?}", kind)
+        }
+    }
+}
+
+fn detect_implicit_type(pair: &Pair<Rule>) -> ImplicitTypeKind {
+    if pair.as_rule() != Rule::built_in_type_decl {
+        return ImplicitTypeKind::None;
+    }
+
+    let inner = pair.clone().into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::t_vector => {
+            let t_vector = inner.into_inner().next().unwrap();
+            // Check if it's vecN without type suffix or <T>
+            if !t_vector.as_str().contains('<') && !t_vector.as_str().ends_with(['i', 'u', 'f']) {
+                match t_vector.as_rule() {
+                    Rule::t_vec2 => ImplicitTypeKind::Vector(2),
+                    Rule::t_vec3 => ImplicitTypeKind::Vector(3),
+                    Rule::t_vec4 => ImplicitTypeKind::Vector(4),
+                    _ => unreachable!(),
+                }
+            } else {
+                ImplicitTypeKind::None
+            }
+        }
+        Rule::array_type_decl => {
+            if inner.clone().into_inner().next().is_none() {
+                ImplicitTypeKind::Array
+            } else {
+                ImplicitTypeKind::None
+            }
+        }
+        _ => ImplicitTypeKind::None,
+    }
 }
 
 fn parse_call_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
@@ -993,7 +1126,7 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
                     Some('i') => ScalarType::I32,
                     Some('u') => ScalarType::U32,
                     Some('f') => ScalarType::F32,
-                    _ => unreachable!("Invalid vector alias"),
+                    _ => panic!("Explicit type required for vector"),
                 }
             };
 
@@ -1016,11 +1149,14 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
         }
         Rule::array_type_decl => {
             let mut pairs = pair.into_inner();
-            let pair = pairs.next().unwrap();
-            DataType::Array(
-                Rc::new(parse_type_decl(pair, env)),
-                pairs.next().map(|it| it.as_str().parse().unwrap()),
-            )
+            if let Some(pair) = pairs.next() {
+                DataType::Array(
+                    Rc::new(parse_type_decl(pair, env)),
+                    pairs.next().map(|it| it.as_str().parse().unwrap()),
+                )
+            } else {
+                panic!("Explicit type required for array");
+            }
         }
         Rule::ptr_type_decl => {
             let mut pairs = pair.into_inner();
