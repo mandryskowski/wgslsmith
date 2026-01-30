@@ -1,6 +1,7 @@
 mod cx;
 mod expr;
 mod fns;
+mod hash;
 mod scope;
 mod stmt;
 mod structs;
@@ -13,8 +14,8 @@ use std::rc::Rc;
 use ast::types::{DataType, MemoryViewType};
 use ast::{
     AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, FnAttr, FnDecl, GlobalVarAttr,
-    GlobalVarDecl, LetDeclStatement, Module, Postfix, PostfixExpr, ShaderStage, Statement,
-    StorageClass, VarExpr, VarQualifier,
+    GlobalVarDecl, LetDeclStatement, Module, Postfix, PostfixExpr, ScalarType, ShaderStage,
+    Statement, StorageClass, VarExpr, VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
@@ -105,6 +106,16 @@ impl<'a> Generator<'a> {
                 }),
                 name: "s_output".to_owned(),
                 data_type: DataType::Struct(sb_type_decl.clone()),
+                initializer: None,
+            },
+            GlobalVarDecl {
+                attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(2)],
+                qualifier: Some(VarQualifier {
+                    storage_class: StorageClass::Storage,
+                    access_mode: Some(AccessMode::ReadWrite),
+                }),
+                name: "hash_output".to_owned(),
+                data_type: DataType::Scalar(ScalarType::U32),
                 initializer: None,
             },
         ];
@@ -204,6 +215,14 @@ impl<'a> Generator<'a> {
                 let out_rhs = this.gen_expr(&out_buf_type);
                 this.current_block
                     .push(AssignmentStatement::new(out_lhs, AssignmentOp::Simple, out_rhs).into());
+
+                let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
+
+                let hash_lhs = AssignmentLhs::name("hash_output", ScalarType::U32);
+
+                this.current_block.push(
+                    AssignmentStatement::new(hash_lhs, AssignmentOp::Simple, hash_val).into(),
+                );
             });
 
             std::mem::replace(&mut this.current_block, prev_block)

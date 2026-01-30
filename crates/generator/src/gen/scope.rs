@@ -81,6 +81,10 @@ impl Scope {
         }
     }
 
+    pub fn all_symbols(&self) -> Vec<(String, DataType)> {
+        self.symbols.values().flatten().cloned().collect()
+    }
+
     pub fn next_name(&mut self) -> String {
         let next = self.next_name;
         self.next_name += 1;
