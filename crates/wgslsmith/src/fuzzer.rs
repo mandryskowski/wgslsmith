@@ -342,8 +342,20 @@ fn worker(
 ) -> eyre::Result<()> {
     loop {
         let mut logger = |line| on_message(WorkerMessage::Log(line));
-        let result = worker_iteration(&config, &options, targets, &mut logger)?;
-        on_message(WorkerMessage::Result(result))
+
+        match worker_iteration(&config, &options, targets, &mut logger) {
+            Ok(result) => on_message(WorkerMessage::Result(result)),
+            Err(e) => {
+                on_message(WorkerMessage::Log(format!("Iteration failed: {:#}", e)));
+
+                on_message(WorkerMessage::Result(WorkerResult {
+                    kind: WorkerResultKind::ExecutionFailure,
+                    saved: false,
+                }));
+
+                continue;
+            }
+        }
     }
 }
 
