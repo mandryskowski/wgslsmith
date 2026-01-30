@@ -23,7 +23,9 @@ pub enum FnAttr {
     WorkgroupSize(u32),
 }
 
-#[derive(Debug, PartialEq, Eq, strum::AsRefStr, strum::Display, strum::EnumIter, strum::EnumString)]
+#[derive(
+    Debug, PartialEq, Eq, strum::AsRefStr, strum::Display, strum::EnumIter, strum::EnumString,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum BuiltinValue {
     LocalInvocationId,

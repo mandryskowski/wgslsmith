@@ -325,13 +325,17 @@ impl DeviceBuffer {
                     }
                 } else {
                     let msg_str = if !message.data.is_null() {
-                        let slice = std::slice::from_raw_parts(message.data as *const u8, message.length);
+                        let slice =
+                            std::slice::from_raw_parts(message.data as *const u8, message.length);
                         String::from_utf8_lossy(slice)
                     } else {
                         "Unknown error".into()
                     };
 
-                    eprintln!("wgpuBufferMapAsync failed status: {} message: {}", res, msg_str);
+                    eprintln!(
+                        "wgpuBufferMapAsync failed status: {} message: {}",
+                        res, msg_str
+                    );
                 }
             }
 
