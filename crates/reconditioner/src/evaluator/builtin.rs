@@ -1,4 +1,4 @@
-use crate::evaluator::value;
+use crate::evaluator::{in_float16_range, in_float_range, value};
 use ast::*;
 use value::Value;
 
@@ -362,6 +362,12 @@ fn clamp(e: Lit, low: Lit, high: Lit) -> Option<Value> {
             }
             Some(e_val.clamp(low_val, high_val).into())
         }
+        (Lit::F16(e_val), Lit::F16(low_val), Lit::F16(high_val)) => {
+            if low_val > high_val {
+                return None;
+            }
+            Some(e_val.clamp(low_val, high_val).into())
+        }
         _ => None,
     }
 }
@@ -420,6 +426,7 @@ fn abs(val: Lit) -> Option<Value> {
     match val {
         Lit::I32(v) => Value::from_i32(Some(v.wrapping_abs())),
         Lit::F32(v) => Value::from_f32(Some(v.abs())),
+        Lit::F16(v) => Value::from_f16(Some(half::f16::from_f32(v.to_f32().abs()))),
         Lit::U32(v) => Value::from_u32(Some(v)),
         _ => None,
     }
@@ -437,6 +444,14 @@ fn exp(val: Lit) -> Option<Value> {
 
             let result = in_float_range(v.exp());
             Value::from_f32(result)
+        }
+        Lit::F16(v) => {
+            // max f16 is 65504. ln(65504) approx 11.09
+            if v.to_f32() > 11.09_f32 {
+                return None;
+            }
+            let result = in_float16_range(half::f16::from_f32(v.to_f32().exp()));
+            Value::from_f16(result)
         }
         _ => None,
     }
@@ -466,24 +481,25 @@ fn exp2(val: Lit) -> Option<Value> {
 
             Value::from_f32(result)
         }
+        Lit::F16(v) => {
+            // max f16 is 65504. log2(65504) approx 15.99
+            if v.to_f32() > 15.99_f32 {
+                return None;
+            }
+            let result = in_float16_range(half::f16::from_f32(2.0_f32.powf(v.to_f32())));
+            Value::from_f16(result)
+        }
         _ => None,
     }
 }
-
-//TODO: remove duplication of float range check
-fn in_float_range(f: f32) -> Option<f32> {
-    if f.abs() <= 0.1_f32 || f.abs() >= (16777216_f32) {
-        None
-    } else {
-        Some(f)
-    }
-}
+// TODO: move min/max/select etc to evaluator.rs or elsewhere?
 
 fn min(val1: Lit, val2: Lit) -> Option<Value> {
     match (val1, val2) {
         (Lit::I32(v1), Lit::I32(v2)) => Some(v1.min(v2).into()),
         (Lit::U32(v1), Lit::U32(v2)) => Some(v1.min(v2).into()),
         (Lit::F32(v1), Lit::F32(v2)) => Some(v1.min(v2).into()),
+        (Lit::F16(v1), Lit::F16(v2)) => Some(v1.min(v2).into()),
         _ => None,
     }
 }
@@ -493,6 +509,7 @@ fn max(val1: Lit, val2: Lit) -> Option<Value> {
         (Lit::I32(v1), Lit::I32(v2)) => Some(v1.max(v2).into()),
         (Lit::U32(v1), Lit::U32(v2)) => Some(v1.max(v2).into()),
         (Lit::F32(v1), Lit::F32(v2)) => Some(v1.max(v2).into()),
+        (Lit::F16(v1), Lit::F16(v2)) => Some(v1.max(v2).into()),
         _ => None,
     }
 }
@@ -508,6 +525,7 @@ fn select(val1: Lit, val2: Lit, val3: Lit) -> Option<Value> {
         (Lit::I32(v1), Lit::I32(v2)) => Some(if cond { v2 } else { v1 }.into()),
         (Lit::U32(v1), Lit::U32(v2)) => Some(if cond { v2 } else { v1 }.into()),
         (Lit::F32(v1), Lit::F32(v2)) => Some(if cond { v2 } else { v1 }.into()),
+        (Lit::F16(v1), Lit::F16(v2)) => Some(if cond { v2 } else { v1 }.into()),
         // (Lit::Bool(v1), Lit::Bool(v2)) => Some(if cond { v2 } else { v1 }.into()),
         _ => None,
     }

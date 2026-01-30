@@ -80,8 +80,32 @@ fn binop_float(op: &BinOp, l: f32, r: f32) -> Option<f32> {
     // TODO: add float division and mod check
 }
 
-fn in_float_range(f: f32) -> Option<f32> {
+fn binop_float16(op: &BinOp, l: half::f16, r: half::f16) -> Option<half::f16> {
+    let l_f = l.to_f32();
+    let r_f = r.to_f32();
+    let result = match op {
+        BinOp::Plus => l_f + r_f,
+        BinOp::Minus => l_f - r_f,
+        BinOp::Times => l_f * r_f,
+        BinOp::Divide => l_f / r_f,
+        BinOp::Mod => l_f % r_f,
+        _ => todo!(),
+    };
+
+    in_float16_range(half::f16::from_f32(result))
+}
+
+pub(super) fn in_float_range(f: f32) -> Option<f32> {
     if f.abs() <= 0.1_f32 || f.abs() >= (16777216_f32) {
+        None
+    } else {
+        Some(f)
+    }
+}
+
+pub(super) fn in_float16_range(f: half::f16) -> Option<half::f16> {
+    let abs_f = f.to_f32().abs();
+    if f.is_nan() || f.is_infinite() || abs_f < 0.001_f32 || abs_f > 65000.0_f32 {
         None
     } else {
         Some(f)
@@ -552,7 +576,7 @@ impl Evaluator {
                 },
                 ScalarType::F16 => ConNode {
                     node: Lit::F16(half::f16::from_f32(1.0)).into(),
-                    value: Value::from_f32(Some(1.0)), // We track F16 as F32 in values for now
+                    value: Value::from_f16(Some(half::f16::from_f32(1.0))),
                 },
                 ScalarType::Bool => ConNode {
                     node: Lit::Bool(true).into(),
@@ -581,7 +605,9 @@ impl Evaluator {
                         vec![Lit::F16(half::f16::from_f32(1.0)).into(); size.into()],
                     )
                     .into(),
-                    value: Some(Value::Vector(vec![1_f32.into(); size.into()])),
+                    value: Some(Value::Vector(
+                        vec![Value::from_f16(Some(half::f16::from_f32(1.0))).unwrap(); size.into()],
+                    )),
                 },
                 ScalarType::Bool => ConNode {
                     node: TypeConsExpr::new(data_type, vec![Lit::Bool(true).into(); size.into()])
@@ -641,8 +667,8 @@ impl Evaluator {
                         Value::from_f32(result)
                     }
                     (Lit::F16(l_lit), Lit::F16(r_lit)) => {
-                        let result = binop_float(op, l_lit.to_f32(), r_lit.to_f32());
-                        Value::from_f32(result)
+                        let result = binop_float16(op, l_lit, r_lit);
+                        Value::from_f16(result)
                     }
                     _ => None,
                 }
@@ -756,7 +782,7 @@ impl Evaluator {
                         }
                     }
                     Lit::F32(f) => Value::from_f32(Some(-f)),
-                    Lit::F16(f) => Value::from_f32(Some((-f).to_f32())),
+                    Lit::F16(f) => Value::from_f16(Some(-f)),
                     _ => {
                         panic!(); // can't negate other types
                     }
