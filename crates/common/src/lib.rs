@@ -152,6 +152,7 @@ impl TryFrom<&ast::DataType> for Type {
                 },
                 scalar_type: scalar.try_into()?,
             }),
+            ast::DataType::Matrix(n, m, scalar) => todo!(),
             ast::DataType::Array(inner, size) => Ok(Type::Array {
                 size: size.ok_or("runtime sized arrays are not supported")?,
                 element_type: Box::new(inner.as_ref().try_into()?),

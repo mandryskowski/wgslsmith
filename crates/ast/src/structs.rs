@@ -117,6 +117,10 @@ fn collect_struct_accessors(
                     insert(&mut accessors, &DataType::Vector(i, *ty), member);
                 }
             }
+            DataType::Matrix(n, m, ty) => {
+                // TODO
+            }
+
             DataType::Array(_, _) => {
                 // TODO
             }

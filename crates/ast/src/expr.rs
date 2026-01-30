@@ -220,6 +220,7 @@ impl Postfix {
         match self {
             Postfix::Index(_) => match ty {
                 DataType::Vector(_, t) => DataType::Scalar(*t),
+                DataType::Matrix(_, r, t) => DataType::Vector(*r, *t),
                 DataType::Array(t, _) => (**t).clone(),
                 ty => panic!("index operator cannot be applied to type `{ty}`"),
             },

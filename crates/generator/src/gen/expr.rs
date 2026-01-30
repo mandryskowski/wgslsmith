@@ -26,6 +26,7 @@ impl super::Generator<'_> {
         match ty {
             DataType::Scalar(_) => allowed.push(ExprType::Lit),
             DataType::Vector(_, _) => allowed.push(ExprType::TypeCons),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => allowed.push(ExprType::TypeCons),
             DataType::Struct(_) => allowed.push(ExprType::TypeCons),
             DataType::Ptr(view) => return self.gen_pointer_expr(view),
@@ -122,6 +123,7 @@ impl super::Generator<'_> {
             DataType::Vector(n, t) => (0..*n)
                 .map(|_| self.gen_expr(&DataType::Scalar(*t)))
                 .collect(),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => vec![],
             DataType::Struct(decl) => decl
                 .members
@@ -142,6 +144,7 @@ impl super::Generator<'_> {
             DataType::Vector(n, t) => (0..*n)
                 .map(|_| self.gen_const_expr(&DataType::Scalar(*t)))
                 .collect(),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(ty, Some(n)) => (0..*n).map(|_| self.gen_const_expr(ty)).collect(),
             DataType::Array(_, None) => panic!("runtime sized array is not constructable"),
             DataType::Struct(decl) => decl
@@ -326,6 +329,7 @@ impl super::Generator<'_> {
         match expr.data_type.dereference() {
             DataType::Scalar(_) => unreachable!(),
             DataType::Vector(n, _) => self.gen_vector_accessor(*n, target, expr),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => self.gen_array_accessor(target, expr),
             DataType::Struct(decl) => self.gen_struct_accessor(&decl.clone(), target, expr),
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
@@ -397,6 +401,7 @@ impl super::Generator<'_> {
         let scalar_ty = match ty {
             DataType::Scalar(ty) => ty,
             DataType::Vector(_, ty) => ty,
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => unreachable!(),
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),
@@ -419,6 +424,7 @@ impl super::Generator<'_> {
         let scalar_ty = match ty {
             DataType::Scalar(ty) => ty,
             DataType::Vector(_, ty) => ty,
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => unreachable!(),
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),
