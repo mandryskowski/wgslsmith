@@ -10,6 +10,7 @@ pub enum Lit {
     I32(i32),
     U32(u32),
     F32(f32),
+    F16(half::f16),
 }
 
 impl Lit {
@@ -19,6 +20,7 @@ impl Lit {
             Lit::I32(_) => ScalarType::I32.into(),
             Lit::U32(_) => ScalarType::U32.into(),
             Lit::F32(_) => ScalarType::F32.into(),
+            Lit::F16(_) => ScalarType::F16.into(),
         }
     }
 }
@@ -38,6 +40,7 @@ impl Display for Lit {
             }
             Lit::U32(v) => write!(f, "{v}u"),
             Lit::F32(v) => write!(f, "{v}f"),
+            Lit::F16(v) => write!(f, "{v}h"),
         }
     }
 }

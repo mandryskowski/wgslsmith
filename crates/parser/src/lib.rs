@@ -102,6 +102,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
         .map(|pair| parse_global_decl(pair, env))
         .collect::<Vec<_>>();
 
+    let mut enables = vec![];
     let mut functions = vec![];
     let mut structs = vec![];
     let mut consts = vec![];
@@ -109,6 +110,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
 
     for decl in decls {
         match decl {
+            GlobalDecl::Enable(decl) => enables.push(decl),
             GlobalDecl::Const(decl) => consts.push(decl),
             GlobalDecl::Var(decl) => vars.push(decl),
             GlobalDecl::Struct(decl) => structs.push(decl),
@@ -117,6 +119,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
     }
 
     Module {
+        enables,
         functions,
         structs,
         consts,
@@ -125,6 +128,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
 }
 
 enum GlobalDecl {
+    Enable(ast::EnableExtension),
     Const(GlobalConstDecl),
     Var(GlobalVarDecl),
     Struct(Rc<StructDecl>),
@@ -134,11 +138,19 @@ enum GlobalDecl {
 fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
     let pair = pair.into_inner().next().unwrap();
     match pair.as_rule() {
+        Rule::enable_directive => GlobalDecl::Enable(parse_enable_directive(pair)),
         Rule::global_constant_decl => GlobalDecl::Const(parse_global_const_decl(pair, env)),
         Rule::global_variable_decl => GlobalDecl::Var(parse_global_variable_decl(pair, env)),
         Rule::struct_decl => GlobalDecl::Struct(parse_struct_decl(pair, env)),
         Rule::function_decl => GlobalDecl::Fn(parse_function_decl(pair, env)),
         _ => unreachable!(),
+    }
+}
+
+fn parse_enable_directive(pair: Pair<Rule>) -> ast::EnableExtension {
+    match pair.into_inner().next().unwrap().as_str() {
+        "f16" => ast::EnableExtension::F16,
+        ext => panic!("unsupported enable extension: {}", ext),
     }
 }
 
@@ -270,6 +282,7 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
                         let arg = pairs.next().unwrap().as_str();
                         match name {
                             "align" => StructMemberAttr::Align(arg.parse().unwrap()),
+                            "size" => StructMemberAttr::Size(arg.parse().unwrap()),
                             _ => panic!("invalid struct member attribute: {}", name),
                         }
                     })
@@ -852,14 +865,33 @@ fn parse_literal_expression(pair: Pair<Rule>, expected_type: Option<&DataType>) 
                 match expected_type.and_then(|t| t.as_scalar()) {
                     Some(ScalarType::U32) => (ScalarType::U32, Lit::U32(s.parse().unwrap())),
                     Some(ScalarType::F32) => (ScalarType::F32, Lit::F32(s.parse().unwrap())),
+                    Some(ScalarType::F16) => (
+                        ScalarType::F16,
+                        Lit::F16(s.parse::<f32>().map(half::f16::from_f32).unwrap()),
+                    ),
                     _ => (ScalarType::I32, Lit::I32(s.parse().unwrap())),
                 }
             }
         }
-        Rule::float_literal => (
-            ScalarType::F32,
-            Lit::F32(pair.as_str().trim_end_matches('f').parse().unwrap()),
-        ),
+        Rule::float_literal => {
+            let s = pair.as_str();
+            if s.ends_with('h') {
+                (
+                    ScalarType::F16,
+                    Lit::F16(
+                        s.trim_end_matches('h')
+                            .parse::<f32>()
+                            .map(half::f16::from_f32)
+                            .unwrap(),
+                    ),
+                )
+            } else {
+                (
+                    ScalarType::F32,
+                    Lit::F32(s.trim_end_matches('f').parse().unwrap()),
+                )
+            }
+        }
         _ => unreachable!(),
     };
 
@@ -893,7 +925,6 @@ fn parse_type_cons_expression(
 
     let data_type = parse_type_decl(type_decl_pair, env);
 
-    // Collect args to check count for hinting
     let arg_pairs: Vec<_> = pairs.collect();
     let arg_count = arg_pairs.len();
 
@@ -901,9 +932,7 @@ fn parse_type_cons_expression(
         .into_iter()
         .map(|pair| {
             let expected_arg_type = match &data_type {
-                DataType::Vector(n, scalar) => {
-                    Some(DataType::Scalar(*scalar))
-                }
+                DataType::Vector(_, scalar) => Some(DataType::Scalar(*scalar)),
                 DataType::Matrix(cols, rows, scalar) => {
                     if arg_count == *cols as usize {
                         Some(DataType::Vector(*rows, *scalar))
@@ -912,7 +941,7 @@ fn parse_type_cons_expression(
                     }
                 }
                 DataType::Array(inner_type, _) => Some((**inner_type).clone()),
-                _ => None, // For other types, no specific hint for arguments
+                _ => None,
             };
             parse_expression(pair, env, expected_arg_type.as_ref())
         })
@@ -990,11 +1019,12 @@ fn parse_implicit_type_cons(
         };
 
         TypeConsExpr::new(final_type, args).into()
-    } else { // No arguments
+    } else {
+        // No arguments
         if let ImplicitTypeKind::Vector(n) = kind {
             TypeConsExpr::new(DataType::Vector(n, ScalarType::I32), vec![]).into()
         } else {
-        panic!("cannot infer type from constructor {:?}", kind)
+            panic!("cannot infer type from constructor {:?}", kind)
         }
     }
 }
@@ -1008,8 +1038,9 @@ fn detect_implicit_type(pair: &Pair<Rule>) -> ImplicitTypeKind {
     match inner.as_rule() {
         Rule::t_vector => {
             let t_vector = inner.into_inner().next().unwrap();
-            // Check if it's vecN without type suffix or <T>
-            if !t_vector.as_str().contains('<') && !t_vector.as_str().ends_with(['i', 'u', 'f']) {
+            if !t_vector.as_str().contains('<')
+                && !t_vector.as_str().ends_with(['i', 'u', 'f', 'h'])
+            {
                 match t_vector.as_rule() {
                     Rule::t_vec2 => ImplicitTypeKind::Vector(2),
                     Rule::t_vec3 => ImplicitTypeKind::Vector(3),
@@ -1126,6 +1157,7 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
                     Some('i') => ScalarType::I32,
                     Some('u') => ScalarType::U32,
                     Some('f') => ScalarType::F32,
+                    Some('h') => ScalarType::F16,
                     _ => panic!("Explicit type required for vector"),
                 }
             };
@@ -1234,6 +1266,7 @@ impl From<Rule> for ScalarType {
             Rule::t_i32 => ScalarType::I32,
             Rule::t_u32 => ScalarType::U32,
             Rule::t_f32 => ScalarType::F32,
+            Rule::t_f16 => ScalarType::F16,
             _ => unreachable!(),
         }
     }

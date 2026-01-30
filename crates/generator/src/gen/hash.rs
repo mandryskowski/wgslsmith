@@ -67,6 +67,12 @@ impl<'a> Generator<'a> {
             DataType::Scalar(ScalarType::I32) | DataType::Scalar(ScalarType::F32) => {
                 self.gen_bitcast_expr(expr, DataType::Scalar(ScalarType::U32))
             }
+            DataType::Scalar(ScalarType::F16) => {
+                // f16 -> f32 -> u32 (bitcast)
+                let f32_expr =
+                    TypeConsExpr::new(DataType::Scalar(ScalarType::F32), vec![expr]).into();
+                self.gen_bitcast_expr(f32_expr, DataType::Scalar(ScalarType::U32))
+            }
 
             // Bitcast is often invalid for bools due to size ambiguity, so we use constructor.
             DataType::Scalar(ScalarType::Bool) => {
@@ -81,6 +87,11 @@ impl<'a> Generator<'a> {
                 } else if matches!(sub_ty, ScalarType::Bool) {
                     // vecN<bool> -> vecN<u32> constructor
                     TypeConsExpr::new(vec_u32_ty.clone(), vec![expr]).into()
+                } else if matches!(sub_ty, ScalarType::F16) {
+                    // vecN<f16> -> vecN<f32> -> bitcast<vecN<u32>>
+                    let vec_f32_ty = DataType::Vector(*n, ScalarType::F32);
+                    let f32_expr = TypeConsExpr::new(vec_f32_ty, vec![expr]).into();
+                    self.gen_bitcast_expr(f32_expr, vec_u32_ty.clone())
                 } else {
                     // vecN<i32|f32> -> bitcast<vecN<u32>>
                     self.gen_bitcast_expr(expr, vec_u32_ty.clone())

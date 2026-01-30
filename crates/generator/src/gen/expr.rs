@@ -43,7 +43,10 @@ impl super::Generator<'_> {
             if matches!(
                 ty,
                 DataType::Scalar(_)
-                    | DataType::Vector(_, ScalarType::I32 | ScalarType::U32 | ScalarType::F32)
+                    | DataType::Vector(
+                        _,
+                        ScalarType::I32 | ScalarType::U32 | ScalarType::F32 | ScalarType::F16,
+                    )
             ) {
                 allowed.push(ExprType::BinOp);
             }
@@ -196,10 +199,15 @@ impl super::Generator<'_> {
             // The number of components in the result type depends on the operands, but the
             // actual type does not.
             BinOp::Less | BinOp::LessEqual | BinOp::Greater | BinOp::GreaterEqual => ty.map(
-                [ScalarType::I32, ScalarType::U32, ScalarType::F32]
-                    .choose(&mut self.rng)
-                    .copied()
-                    .unwrap(),
+                [
+                    ScalarType::I32,
+                    ScalarType::U32,
+                    ScalarType::F32,
+                    ScalarType::F16,
+                ]
+                .choose(&mut self.rng)
+                .copied()
+                .unwrap(),
             ),
 
             // These operators work on scalar/vector integers and bools.
@@ -210,6 +218,7 @@ impl super::Generator<'_> {
                     ScalarType::I32,
                     ScalarType::U32,
                     ScalarType::F32,
+                    ScalarType::F16,
                     ScalarType::Bool,
                 ]
                 .choose(&mut self.rng)
@@ -389,6 +398,7 @@ impl super::Generator<'_> {
                 ScalarType::I32 => Lit::I32(self.gen_i32()),
                 ScalarType::U32 => Lit::U32(self.gen_u32()),
                 ScalarType::F32 => Lit::F32(self.gen_f32()),
+                ScalarType::F16 => Lit::F16(half::f16::from_f32(self.gen_f32())),
             },
             _ => unreachable!(),
         }
@@ -415,7 +425,7 @@ impl super::Generator<'_> {
                 .choose(&mut self.rng)
                 .copied()
                 .unwrap(),
-            ScalarType::F32 => UnOp::Neg,
+            ScalarType::F32 | ScalarType::F16 => UnOp::Neg,
         }
     }
 
@@ -454,7 +464,9 @@ impl super::Generator<'_> {
                 BinOp::LShift,
                 BinOp::RShift,
             ],
-            ScalarType::F32 => &[BinOp::Plus, BinOp::Minus, BinOp::Times, BinOp::Divide],
+            ScalarType::F32 | ScalarType::F16 => {
+                &[BinOp::Plus, BinOp::Minus, BinOp::Times, BinOp::Divide]
+            }
         };
 
         let mut allowed = allowed.to_vec();

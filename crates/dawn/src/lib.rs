@@ -39,6 +39,8 @@ mod dawn {
             device_id: u32,
             callback: webgpu::WGPUUncapturedErrorCallback,
             userdata: *mut c_void,
+            required_features: *const webgpu::WGPUFeatureName,
+            required_feature_count: usize,
         ) -> webgpu::WGPUDevice;
     }
 }

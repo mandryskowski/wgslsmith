@@ -125,12 +125,22 @@ pub async fn run(
                 })
                 .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
+            let mut required_features = wgpu::Features::empty();
+            for enable in &meta.enables {
+                match enable {
+                    reflection::EnableExtension::F16 => {
+                        required_features |= wgpu::Features::SHADER_F16;
+                    }
+                }
+            }
+
             let device_descriptor = DeviceDescriptor {
                 required_limits: Limits {
                     // This is needed to support swiftshader
                     max_storage_textures_per_shader_stage: 4,
                     ..Default::default()
                 },
+                required_features,
                 ..Default::default()
             };
 

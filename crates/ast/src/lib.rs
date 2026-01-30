@@ -19,8 +19,28 @@ use std::rc::Rc;
 
 pub use types::{DataType, ScalarType};
 
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    bincode::Encode,
+    bincode::Decode,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum EnableExtension {
+    F16,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Module {
+    pub enables: Vec<EnableExtension>,
     pub structs: Vec<Rc<StructDecl>>,
     pub consts: Vec<GlobalConstDecl>,
     pub vars: Vec<GlobalVarDecl>,

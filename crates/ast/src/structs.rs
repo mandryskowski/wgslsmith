@@ -9,7 +9,9 @@ use crate::types::DataType;
 #[derive(Clone, Debug, Display, Hash, PartialEq, Eq)]
 pub enum StructMemberAttr {
     #[display("align({_0})")]
-    Align(u8),
+    Align(u32),
+    #[display("size({_0})")]
+    Size(u32),
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

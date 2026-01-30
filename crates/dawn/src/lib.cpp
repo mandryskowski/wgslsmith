@@ -72,7 +72,9 @@ extern "C" WGPUDevice create_device(
     WGPUBackendType backendType,
     uint32_t deviceID,
     WGPUUncapturedErrorCallback errorCallback,
-    void* errorUserdata
+    void* errorUserdata,
+    const WGPUFeatureName* requiredFeatures,
+    size_t requiredFeatureCount
 ) {
     WGPURequestAdapterOptions options = {};
     auto native_adapters = instance->EnumerateAdapters(&options);
@@ -104,6 +106,9 @@ extern "C" WGPUDevice create_device(
             WGPUUncapturedErrorCallbackInfo errorCallbackInfo = {};
             errorCallbackInfo.callback = errorCallback;
             errorCallbackInfo.userdata1 = errorUserdata;
+
+            descriptor.requiredFeatures = requiredFeatures;
+            descriptor.requiredFeatureCount = requiredFeatureCount;
 
             descriptor.uncapturedErrorCallbackInfo = errorCallbackInfo;
 

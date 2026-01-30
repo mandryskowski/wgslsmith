@@ -550,6 +550,10 @@ impl Evaluator {
                     node: Lit::F32(1_f32).into(),
                     value: Value::from_f32(Some(1_f32)),
                 },
+                ScalarType::F16 => ConNode {
+                    node: Lit::F16(half::f16::from_f32(1.0)).into(),
+                    value: Value::from_f32(Some(1.0)), // We track F16 as F32 in values for now
+                },
                 ScalarType::Bool => ConNode {
                     node: Lit::Bool(true).into(),
                     value: Value::from_bool(Some(true)),
@@ -569,6 +573,14 @@ impl Evaluator {
                 ScalarType::F32 => ConNode {
                     node: TypeConsExpr::new(data_type, vec![Lit::F32(1_f32).into(); size.into()])
                         .into(),
+                    value: Some(Value::Vector(vec![1_f32.into(); size.into()])),
+                },
+                ScalarType::F16 => ConNode {
+                    node: TypeConsExpr::new(
+                        data_type,
+                        vec![Lit::F16(half::f16::from_f32(1.0)).into(); size.into()],
+                    )
+                    .into(),
                     value: Some(Value::Vector(vec![1_f32.into(); size.into()])),
                 },
                 ScalarType::Bool => ConNode {
@@ -626,6 +638,10 @@ impl Evaluator {
                     }
                     (Lit::F32(l_lit), Lit::F32(r_lit)) => {
                         let result = binop_float(op, l_lit, r_lit);
+                        Value::from_f32(result)
+                    }
+                    (Lit::F16(l_lit), Lit::F16(r_lit)) => {
+                        let result = binop_float(op, l_lit.to_f32(), r_lit.to_f32());
                         Value::from_f32(result)
                     }
                     _ => None,
@@ -740,6 +756,7 @@ impl Evaluator {
                         }
                     }
                     Lit::F32(f) => Value::from_f32(Some(-f)),
+                    Lit::F16(f) => Value::from_f32(Some((-f).to_f32())),
                     _ => {
                         panic!(); // can't negate other types
                     }

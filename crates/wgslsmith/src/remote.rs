@@ -62,6 +62,8 @@ fn req(server: &str, req: Request) -> eyre::Result<TcpStream> {
     Ok(stream)
 }
 
-fn decode_from_stream<T: Decode>(stream: &mut TcpStream) -> Result<T, bincode::error::DecodeError> {
+fn decode_from_stream<T: Decode<()>>(
+    stream: &mut TcpStream,
+) -> Result<T, bincode::error::DecodeError> {
     bincode::decode_from_std_read(stream, bincode::config::standard())
 }

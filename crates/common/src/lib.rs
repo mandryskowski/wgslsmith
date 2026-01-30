@@ -3,6 +3,7 @@ pub enum ScalarType {
     I32,
     U32,
     F32,
+    F16,
 }
 
 #[derive(Debug)]
@@ -16,6 +17,8 @@ pub enum VectorSize {
 pub struct StructMember {
     pub name: String,
     pub type_desc: Type,
+    pub size: Option<u32>,
+    pub alignment: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -47,12 +50,21 @@ impl Type {
 
     pub fn size(&self) -> u32 {
         match self {
-            Type::Scalar { .. } => 4,
-            Type::Vector { size, .. } => match size {
-                VectorSize::N2 => 8,
-                VectorSize::N3 => 12,
-                VectorSize::N4 => 16,
+            Type::Scalar { scalar_type } => match scalar_type {
+                ScalarType::F16 => 2,
+                _ => 4,
             },
+            Type::Vector { size, scalar_type } => {
+                let scalar_size = match scalar_type {
+                    ScalarType::F16 => 2,
+                    _ => 4,
+                };
+                match size {
+                    VectorSize::N2 => scalar_size * 2,
+                    VectorSize::N3 => scalar_size * 3,
+                    VectorSize::N4 => scalar_size * 4,
+                }
+            }
             Type::Array { size, element_type } => {
                 size * aligned(element_type.size(), element_type.alignment())
             }
@@ -61,9 +73,12 @@ impl Type {
                 let mut alignment = 0;
 
                 for member in members {
-                    let member_alignment = member.type_desc.alignment();
-                    let member_size = member.type_desc.size();
-                    alignment = u32::max(alignment, member.type_desc.alignment());
+                    let member_alignment = member
+                        .alignment
+                        .unwrap_or_else(|| member.type_desc.alignment());
+                    let member_size = member.size.unwrap_or_else(|| member.type_desc.size());
+
+                    alignment = u32::max(alignment, member_alignment);
                     size = aligned(size, member_alignment) + member_size;
                 }
 
@@ -74,16 +89,25 @@ impl Type {
 
     pub fn alignment(&self) -> u32 {
         match self {
-            Type::Scalar { .. } => 4,
-            Type::Vector { size, .. } => match size {
-                VectorSize::N2 => 8,
-                VectorSize::N3 => 16,
-                VectorSize::N4 => 16,
+            Type::Scalar { scalar_type } => match scalar_type {
+                ScalarType::F16 => 2,
+                _ => 4,
             },
+            Type::Vector { size, scalar_type } => {
+                let scalar_align = match scalar_type {
+                    ScalarType::F16 => 2,
+                    _ => 4,
+                };
+                match size {
+                    VectorSize::N2 => scalar_align * 2,
+                    VectorSize::N3 => scalar_align * 4,
+                    VectorSize::N4 => scalar_align * 4,
+                }
+            }
             Type::Array { element_type, .. } => element_type.alignment(),
             Type::Struct { members } => members
                 .iter()
-                .map(|it| it.type_desc.alignment())
+                .map(|it| it.alignment.unwrap_or_else(|| it.type_desc.alignment()))
                 .max()
                 .expect("struct must have at least one member"),
         }
@@ -106,10 +130,12 @@ impl Type {
                 }
                 Type::Struct { members } => {
                     for member in members {
-                        let alignment = member.type_desc.alignment();
+                        let alignment = member
+                            .alignment
+                            .unwrap_or_else(|| member.type_desc.alignment());
                         offset = aligned(offset, alignment);
                         collect_ranges(acc, offset, &member.type_desc);
-                        let size = member.type_desc.size();
+                        let size = member.size.unwrap_or_else(|| member.type_desc.size());
                         offset += size;
                     }
                 }
@@ -131,6 +157,7 @@ impl TryFrom<&ast::ScalarType> for ScalarType {
             ast::ScalarType::I32 => Ok(ScalarType::I32),
             ast::ScalarType::U32 => Ok(ScalarType::U32),
             ast::ScalarType::F32 => Ok(ScalarType::F32),
+            ast::ScalarType::F16 => Ok(ScalarType::F16),
         }
     }
 }
@@ -173,10 +200,21 @@ impl TryFrom<&ast::DataType> for Type {
 
                 for member in &decl.members {
                     let type_desc = Type::try_from(&member.data_type)?;
+                    let mut size = None;
+                    let mut alignment = None;
+
+                    for attr in &member.attrs {
+                        match attr {
+                            ast::StructMemberAttr::Align(n) => alignment = Some(*n),
+                            ast::StructMemberAttr::Size(n) => size = Some(*n),
+                        }
+                    }
 
                     members.push(StructMember {
                         name: member.name.clone(),
                         type_desc,
+                        size,
+                        alignment,
                     });
                 }
 

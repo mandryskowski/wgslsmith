@@ -87,9 +87,19 @@ pub async fn run(
         if let Some((cached_device, cached_queue)) = dawn_state.device_cache.get(config) {
             (cached_device.clone(), cached_queue.clone())
         } else {
+            let mut required_features = vec![];
+            for enable in &meta.enables {
+                match enable {
+                    reflection::EnableExtension::F16 => {
+                        required_features
+                            .push(dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16);
+                    }
+                }
+            }
+
             let device = dawn_state
                 .instance
-                .create_device(backend, config.device_id)
+                .create_device(backend, config.device_id, &required_features)
                 .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
             let queue = device.create_queue();

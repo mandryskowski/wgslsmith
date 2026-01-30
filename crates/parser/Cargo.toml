@@ -13,6 +13,7 @@ pest_derive = "2.1"
 rpds = "0.11.0"
 
 ast = { path = "../ast" }
+half = { version = "2.7.1", features = ["std"] }
 
 [dependencies.strum]
 version = "0.24.0"

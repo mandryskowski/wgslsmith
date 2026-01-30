@@ -21,6 +21,13 @@ impl Writer {
     }
 
     pub fn write_module(&self, f: &mut dyn Write, module: &Module) -> Result {
+        for enable in &module.enables {
+            writeln!(f, "enable {enable};")?;
+        }
+        if !module.enables.is_empty() {
+            writeln!(f)?;
+        }
+
         for decl in &module.structs {
             self.write_struct(f, decl)?;
             writeln!(f)?;
