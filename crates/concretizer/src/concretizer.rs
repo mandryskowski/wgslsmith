@@ -555,7 +555,7 @@ impl Concretizer {
 
                 match evaluated_val {
                     Some(_) => ConNode {
-                        node: FnCallExpr::new(ident, nodes).into_node(data_type),
+                        node: FnCallExpr {ident, args: nodes, template_args }.into_node(data_type),
                         value: evaluated_val,
                     },
                     None => self.default_node(data_type),
@@ -564,7 +564,7 @@ impl Concretizer {
             // If the function ident is not implemented in eval_builtin, then
             // simply return the same node with a None value
             None => ConNode {
-                node: FnCallExpr::new(ident, nodes).into_node(data_type),
+                node: FnCallExpr {ident, args: nodes, template_args }.into_node(data_type),
                 value: None,
             },
         }

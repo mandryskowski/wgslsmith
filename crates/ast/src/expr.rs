@@ -313,6 +313,7 @@ impl Display for UnOpExpr {
         if matches!(inner.expr, Expr::UnOp(_) | Expr::BinOp(_))
             || matches!(inner.expr, Expr::Lit(Lit::I32(v)) if v < 0)
             || matches!(inner.expr, Expr::Lit(Lit::F32(v)) if v < 0.0)
+            || matches!(inner.expr, Expr::Lit(Lit::F16(v)) if v < half::f16::from_f32(0.0))
         {
             write!(f, "{op}({inner})")
         } else {
