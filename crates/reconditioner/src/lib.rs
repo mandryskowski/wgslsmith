@@ -270,7 +270,14 @@ impl Reconditioner {
                 ))
             }
             Statement::Continue => Statement::Continue,
+
             Statement::Fallthrough => Statement::Fallthrough,
+            Statement::Increment(IncrementStatement { lhs }) => {
+                IncrementStatement::new(self.recondition_assignment_lhs(lhs)).into()
+            }
+            Statement::Decrement(DecrementStatement { lhs }) => {
+                DecrementStatement::new(self.recondition_assignment_lhs(lhs)).into()
+            }
         }
     }
 
@@ -297,6 +304,12 @@ impl Reconditioner {
                     self.recondition_expr(rhs),
                 ))
             }
+            ForLoopUpdate::Increment(IncrementStatement { lhs }) => ForLoopUpdate::Increment(
+                IncrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
+            ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
+                DecrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
         }
     }
 

@@ -375,7 +375,14 @@ impl Concretizer {
             }
             Statement::Break => Statement::Break,
             Statement::Continue => Statement::Continue,
+
             Statement::Fallthrough => Statement::Fallthrough,
+            Statement::Increment(IncrementStatement { lhs }) => {
+                Statement::Increment(IncrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
+            Statement::Decrement(DecrementStatement { lhs }) => {
+                Statement::Decrement(DecrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
         }
     }
 
@@ -402,6 +409,12 @@ impl Concretizer {
                     self.concretize_expr(rhs),
                 ))
             }
+            ForLoopUpdate::Increment(IncrementStatement { lhs }) => ForLoopUpdate::Increment(
+                IncrementStatement::new(self.concretize_assignment_lhs(lhs)),
+            ),
+            ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
+                DecrementStatement::new(self.concretize_assignment_lhs(lhs)),
+            ),
         }
     }
 

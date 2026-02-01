@@ -460,8 +460,22 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
         Rule::switch_statement => parse_switch_statement(pair, env),
         Rule::for_statement => parse_for_statement(pair, env),
         Rule::call_statement => parse_call_statement(pair, env),
+        Rule::increment_statement => parse_increment_statement(pair, env),
+        Rule::decrement_statement => parse_decrement_statement(pair, env),
         _ => unreachable!(),
     }
+}
+
+fn parse_increment_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
+    let mut pairs = pair.into_inner();
+    let lhs = parse_assignment_lhs(pairs.next().unwrap(), env);
+    IncrementStatement::new(lhs).into()
+}
+
+fn parse_decrement_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
+    let mut pairs = pair.into_inner();
+    let lhs = parse_assignment_lhs(pairs.next().unwrap(), env);
+    DecrementStatement::new(lhs).into()
 }
 
 fn parse_let_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
@@ -684,11 +698,27 @@ fn parse_for_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
 
     let mut update = None;
     if pair.as_rule() == Rule::for_update {
-        match parse_statement(pair.into_inner().next().unwrap(), env) {
-            Statement::Assignment(stmt) => {
-                update = Some(ForLoopUpdate::Assignment(stmt));
-            }
-            _ => panic!("only assignment statement is currently supported in for loop init"),
+        let inner = pair.into_inner().next().unwrap();
+        update = match inner.as_rule() {
+            Rule::assignment_statement => Some(ForLoopUpdate::Assignment(
+                match parse_assignment_statement(inner, env) {
+                    Statement::Assignment(stmt) => stmt,
+                    _ => unreachable!(),
+                },
+            )),
+            Rule::increment_statement => Some(ForLoopUpdate::Increment(
+                match parse_increment_statement(inner, env) {
+                    Statement::Increment(stmt) => stmt,
+                    _ => unreachable!(),
+                },
+            )),
+            Rule::decrement_statement => Some(ForLoopUpdate::Decrement(
+                match parse_decrement_statement(inner, env) {
+                    Statement::Decrement(stmt) => stmt,
+                    _ => unreachable!(),
+                },
+            )),
+            _ => unreachable!(),
         };
         pair = pairs.next().unwrap();
     }

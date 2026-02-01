@@ -260,6 +260,12 @@ fn visit_stmt<'a>(
                         visit_lhs(analysis, &mut scope, cx, &stmt.lhs);
                         visit_expr(analysis, &mut scope, cx, &stmt.rhs);
                     }
+                    ForLoopUpdate::Increment(stmt) => {
+                        handle_inc_dec(analysis, &mut scope, cx, &stmt.lhs);
+                    }
+                    ForLoopUpdate::Decrement(stmt) => {
+                        handle_inc_dec(analysis, &mut scope, cx, &stmt.lhs);
+                    }
                 }
             }
 
@@ -270,6 +276,23 @@ fn visit_stmt<'a>(
         }
         Statement::Continue => {}
         Statement::Fallthrough => {}
+        Statement::Increment(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
+        Statement::Decrement(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
+    }
+}
+
+fn handle_inc_dec<'a>(
+    analysis: &mut Analysis<'a>,
+    scope: &mut Scope<'a>,
+    cx: &mut FnContext<'a>,
+    lhs: &'a AssignmentLhs,
+) {
+    visit_lhs(analysis, scope, cx, lhs);
+    if let AssignmentLhs::Expr(lhs) = lhs {
+        let ident = find_lhs_ident(lhs);
+        if let Some(root_ident) = scope.idents.get(ident) {
+            cx.accesses.insert((AccessType::Read, *root_ident));
+        }
     }
 }
 
