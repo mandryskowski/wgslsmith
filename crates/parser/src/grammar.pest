@@ -48,7 +48,7 @@ t_matrix = {
 }
 
 array_type_decl = { "array" ~ ("<" ~ type_decl ~ ("," ~ array_length)? ~ ">")? }
-array_length    = _{ expression }
+array_length    = _{ expression_no_gt }
 ptr_type_decl   = { "ptr" ~ "<" ~ storage_class ~ "," ~ type_decl ~ ("," ~ access_mode)? ~ ">" }
 
 type_decl          = { t_scalar | t_vector | t_matrix | array_type_decl | ptr_type_decl | ident }
@@ -96,12 +96,14 @@ compound_assignment_operator = {
 }
 
 unary_operator  = _{ op_minus | op_log_not | op_bit_not | op_address_of | op_indirection }
-binary_operator = _{
+binary_operator = _{ binary_operator_common | op_greater }
+
+binary_operator_common = _{
     op_plus | op_minus | op_times | op_divide | op_mod |
     op_log_and | op_log_or |
     op_bit_and | op_bit_or | op_bit_xor |
     op_lshift | op_rshift |
-    op_equal | op_nequal | op_less_eq | op_less | op_greater_eq | op_greater
+    op_equal | op_nequal | op_less_eq | op_less | op_greater_eq
 }
 
 // EXPRESSIONS
@@ -127,6 +129,7 @@ primary_expression  = {
 }
 
 expression = { unary_expression ~ (binary_operator ~ unary_expression)* }
+expression_no_gt = { unary_expression ~ (binary_operator_common ~ unary_expression)* }
 
 core_lhs_expression = { ident | "(" ~ lhs_expression ~ ")" }
 lhs_expression      = { (op_address_of | op_indirection)* ~ core_lhs_expression ~ postfix_expression* }
