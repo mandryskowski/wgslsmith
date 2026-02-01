@@ -42,6 +42,40 @@ impl LetDeclStatement {
     }
 }
 
+#[derive(Debug, Display, PartialEq)]
+#[display("const {ident}{0} = {initializer}", data_type.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())]
+pub struct ConstDeclStatement {
+    pub ident: String,
+    pub data_type: Option<DataType>,
+    pub initializer: ExprNode,
+}
+
+impl ConstDeclStatement {
+    pub fn new(
+        ident: impl Into<String>,
+        data_type: Option<DataType>,
+        initializer: impl Into<ExprNode>,
+    ) -> Self {
+        Self {
+            ident: ident.into(),
+            data_type,
+            initializer: initializer.into(),
+        }
+    }
+
+    pub fn inferred_type(&self) -> &DataType {
+        if let Some(ty) = &self.data_type {
+            return ty;
+        }
+
+        if let DataType::Ref(view) = &self.initializer.data_type {
+            view.inner.as_ref()
+        } else {
+            &self.initializer.data_type
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct VarDeclStatement {
     pub ident: String,
@@ -520,6 +554,7 @@ impl Display for FnCallStatement {
 #[derive(Debug, PartialEq, From)]
 pub enum Statement {
     LetDecl(LetDeclStatement),
+    ConstDecl(ConstDeclStatement),
     VarDecl(VarDeclStatement),
     Assignment(AssignmentStatement),
     Compound(Vec<Statement>),
@@ -550,6 +585,7 @@ impl Display for Statement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Statement::LetDecl(stmt) => write!(f, "{stmt};"),
+            Statement::ConstDecl(stmt) => write!(f, "{stmt};"),
             Statement::VarDecl(stmt) => write!(f, "{stmt};"),
             Statement::Assignment(stmt) => write!(f, "{stmt};"),
             Statement::Compound(stmts) => {

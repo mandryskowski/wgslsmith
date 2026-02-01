@@ -201,6 +201,7 @@ fn visit_stmt<'a>(
 ) {
     match stmt {
         Statement::LetDecl(stmt) => visit_expr(analysis, scope, cx, &stmt.initializer),
+        Statement::ConstDecl(stmt) => visit_expr(analysis, scope, cx, &stmt.initializer),
         Statement::VarDecl(stmt) => {
             if let Some(initializer) = &stmt.initializer {
                 visit_expr(analysis, scope, cx, initializer);

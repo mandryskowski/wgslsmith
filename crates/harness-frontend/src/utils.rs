@@ -16,6 +16,7 @@ pub fn remove_accessed_vars(vars: &mut HashSet<String>, module: &Module) {
 fn visit_stmt(vars: &mut HashSet<String>, stmt: &Statement) {
     match stmt {
         Statement::LetDecl(decl) => visit_expr(vars, &decl.initializer),
+        Statement::ConstDecl(decl) => visit_expr(vars, &decl.initializer),
         Statement::VarDecl(decl) => {
             if let Some(init) = &decl.initializer {
                 visit_expr(vars, init);

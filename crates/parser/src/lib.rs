@@ -1,5 +1,7 @@
 use ast::types::{DataType, MemoryViewType, ScalarType};
 use ast::*;
+use concretizer::concretizer::{Concretizer, ErrorHandling, Options};
+use concretizer::value::Value;
 use peeking_take_while::PeekableExt;
 use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
@@ -39,6 +41,7 @@ pub struct Environment {
     vars: HashTrieMap<String, DataType>,
     fns: HashTrieMap<String, Func>,
     types: HashTrieMap<String, Rc<StructDecl>>,
+    consts: HashTrieMap<String, Value>,
 }
 
 fn builtins() -> HashTrieMap<String, Func> {
@@ -53,6 +56,7 @@ impl Environment {
             vars: HashTrieMap::new(),
             fns: builtins(),
             types: HashTrieMap::new(),
+            consts: HashTrieMap::new(),
         }
     }
 
@@ -70,6 +74,18 @@ impl Environment {
 
     pub fn insert_struct(&mut self, name: String, decl: Rc<StructDecl>) {
         self.types.insert_mut(name, decl);
+    }
+
+    pub fn const_value(&self, name: &str) -> Option<&Value> {
+        self.consts.get(name)
+    }
+
+    pub fn insert_const(&mut self, name: String, val: Value) {
+        self.consts.insert_mut(name, val);
+    }
+
+    pub fn iter_consts(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.consts.iter()
     }
 
     pub fn func<'a>(
@@ -171,6 +187,18 @@ fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalCon
     let data_type = data_type.unwrap_or_else(|| expr.data_type.clone());
 
     env.insert_var(name.clone(), data_type.clone());
+
+    let mut concretizer = Concretizer::new(Options {
+        error_handling: ErrorHandling::Panic,
+    });
+    for (k, v) in env.iter_consts() {
+        concretizer.register_const(k.clone(), v.clone());
+    }
+
+    let val = concretizer.concretize_expr(expr.clone()).value;
+    if let Some(val) = val {
+        env.insert_const(name.clone(), val);
+    }
 
     GlobalConstDecl {
         name,
@@ -419,6 +447,7 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
 
     match pair.as_rule() {
         Rule::let_statement => parse_let_statement(pair, env),
+        Rule::const_statement => parse_const_statement(pair, env),
         Rule::var_statement => parse_var_statement(pair, env),
         Rule::assignment_statement => parse_assignment_statement(pair, env),
         Rule::compound_statement => parse_compound_statement(pair, env),
@@ -450,6 +479,36 @@ fn parse_let_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
     let initializer = parse_expression(pair, env, specified_type.as_ref());
     let stmt = LetDeclStatement::new(ident.clone(), specified_type, initializer);
     env.insert_var(ident, stmt.inferred_type().clone());
+    stmt.into()
+}
+
+fn parse_const_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
+    let mut pairs = pair.into_inner();
+    let ident = pairs.next().unwrap().as_str().to_owned();
+
+    let mut pair = pairs.next().unwrap();
+    let mut specified_type = None;
+
+    if pair.as_rule() == Rule::type_decl {
+        specified_type = Some(parse_type_decl(pair, env));
+        pair = pairs.next().unwrap();
+    }
+
+    let initializer = parse_expression(pair, env, specified_type.as_ref());
+    let stmt = ConstDeclStatement::new(ident.clone(), specified_type, initializer);
+    env.insert_var(ident.clone(), stmt.inferred_type().clone());
+
+    let mut concretizer = Concretizer::new(Options {
+        error_handling: ErrorHandling::Panic,
+    });
+    for (k, v) in env.iter_consts() {
+        concretizer.register_const(k.clone(), v.clone());
+    }
+
+    let val = concretizer.concretize_expr(stmt.initializer.clone()).value;
+    if let Some(val) = val {
+        env.insert_const(ident, val);
+    }
     stmt.into()
 }
 
@@ -1182,10 +1241,28 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
         Rule::array_type_decl => {
             let mut pairs = pair.into_inner();
             if let Some(pair) = pairs.next() {
-                DataType::Array(
-                    Rc::new(parse_type_decl(pair, env)),
-                    pairs.next().map(|it| it.as_str().parse().unwrap()),
-                )
+                let ty = Rc::new(parse_type_decl(pair, env));
+                let len = pairs.next().map(|it| {
+                    let mut concretizer = Concretizer::new(Options {
+                        error_handling: ErrorHandling::Panic,
+                    });
+                    for (k, v) in env.iter_consts() {
+                        concretizer.register_const(k.clone(), v.clone());
+                    }
+                    match concretizer
+                        .concretize_expr(parse_expression(it, env, None))
+                        .value
+                        .unwrap()
+                    {
+                        Value::Lit(lit) => match lit {
+                            Lit::I32(num) => num as u32,
+                            Lit::U32(num) => num,
+                            _ => panic!(),
+                        },
+                        _ => panic!(),
+                    }
+                });
+                DataType::Array(ty, len)
             } else {
                 panic!("Explicit type required for array");
             }

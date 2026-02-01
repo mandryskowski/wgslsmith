@@ -2,7 +2,6 @@ mod safe_wrappers;
 
 pub mod analysis;
 pub mod cli;
-pub mod evaluator;
 
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -99,7 +98,7 @@ pub fn recondition_with(mut ast: Module, options: Options) -> Module {
     let mut reconditioner = Reconditioner::new(options);
 
     // Abstract numerics
-    ast = evaluator::concretize(ast);
+    ast = concretizer::concretize(ast);
 
     let functions = ast
         .functions
@@ -182,6 +181,13 @@ impl Reconditioner {
                 data_type,
             }) => {
                 LetDeclStatement::new(ident, data_type, self.recondition_expr(initializer)).into()
+            }
+            Statement::ConstDecl(ConstDeclStatement {
+                ident,
+                initializer,
+                data_type,
+            }) => {
+                ConstDeclStatement::new(ident, data_type, self.recondition_expr(initializer)).into()
             }
             Statement::VarDecl(VarDeclStatement {
                 ident,

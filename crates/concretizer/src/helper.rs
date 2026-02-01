@@ -1,4 +1,4 @@
-use crate::evaluator::value::Value;
+use crate::value::Value;
 use ast::Lit;
 
 // Division
