@@ -5,7 +5,7 @@ pub use types::{
 
 pub fn reflect(
     module: &Module,
-    mut init: impl FnMut(ResourceData<'_>) -> Option<Vec<u8>>,
+    input_data: &std::collections::HashMap<String, Vec<u8>>,
 ) -> (PipelineDescription, Vec<common::Type>) {
     let mut resources = vec![];
     let mut types = vec![];
@@ -29,15 +29,21 @@ pub fn reflect(
                 .binding_index()
                 .expect("resource variable must have binding attribute");
 
-            let init = init(ResourceData {
-                name: &var.name,
-                group,
-                binding,
-            })
-            .map(|mut init| {
-                init.resize(type_desc.buffer_size() as usize, 0);
-                init
-            });
+            let init = input_data
+                .get(&format!("{group}:{binding}"))
+                .cloned()
+                .map(|mut init| {
+                    if init.len() < type_desc.buffer_size() as usize {
+                        init.resize(type_desc.buffer_size() as usize, 0);
+                    }
+                    init
+                });
+
+            let size = init
+                .as_ref()
+                .map(|it| it.len() as u32)
+                .unwrap_or(0)
+                .max(type_desc.size());
 
             resources.push(PipelineResource {
                 name: var.name.clone(),
@@ -45,7 +51,7 @@ pub fn reflect(
                 group,
                 binding,
                 init,
-                size: type_desc.size(),
+                size,
             });
 
             types.push(type_desc);

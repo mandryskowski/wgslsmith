@@ -75,13 +75,11 @@ pub fn read_shader_from_path(path: &str) -> eyre::Result<String> {
 
 pub fn reflect_shader(
     shader: &str,
-    mut input_data: HashMap<String, Vec<u8>>,
+    input_data: HashMap<String, Vec<u8>>,
 ) -> (PipelineDescription, Vec<common::Type>) {
     let module = parser::parse(shader);
 
-    let (mut pipeline_desc, type_descs) = reflection::reflect(&module, |resource| {
-        input_data.remove(&format!("{}:{}", resource.group, resource.binding))
-    });
+    let (mut pipeline_desc, type_descs) = reflection::reflect(&module, &input_data);
 
     let mut resource_vars = HashSet::new();
 

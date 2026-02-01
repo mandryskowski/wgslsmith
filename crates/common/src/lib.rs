@@ -31,7 +31,7 @@ pub enum Type {
         scalar_type: ScalarType,
     },
     Array {
-        size: u32,
+        size: Option<u32>,
         element_type: Box<Type>,
     },
     Struct {
@@ -65,9 +65,10 @@ impl Type {
                     VectorSize::N4 => scalar_size * 4,
                 }
             }
-            Type::Array { size, element_type } => {
-                size * aligned(element_type.size(), element_type.alignment())
-            }
+            Type::Array { size, element_type } => match size {
+                Some(size) => size * aligned(element_type.size(), element_type.alignment()),
+                None => aligned(element_type.size(), element_type.alignment()),
+            },
             Type::Struct { members } => {
                 let mut size = 0;
                 let mut alignment = 0;
@@ -113,18 +114,34 @@ impl Type {
         }
     }
 
-    pub fn ranges(&self) -> Vec<(usize, usize)> {
+    pub fn ranges(&self, buffer_size: Option<u64>) -> Vec<(usize, usize)> {
         let mut ranges = vec![];
 
-        fn collect_ranges(acc: &mut Vec<(usize, usize)>, mut offset: u32, type_desc: &Type) {
+        fn collect_ranges(
+            acc: &mut Vec<(usize, usize)>,
+            mut offset: u32,
+            type_desc: &Type,
+            buffer_size: Option<u64>,
+        ) {
             match type_desc {
                 Type::Scalar { .. } => acc.push((offset as _, type_desc.size() as _)),
                 Type::Vector { .. } => acc.push((offset as _, type_desc.size() as _)),
                 Type::Array { size, element_type } => {
                     let element_size = element_type.size();
                     let alignment = element_type.alignment();
-                    for _ in 0..*size {
-                        collect_ranges(acc, offset, element_type);
+
+                    let count = if let Some(size) = size {
+                        *size
+                    } else if let Some(buffer_size) = buffer_size {
+                        let stride = aligned(element_size, alignment);
+                        let remaining = buffer_size.saturating_sub(offset as u64);
+                        (remaining / stride as u64) as u32
+                    } else {
+                        1
+                    };
+
+                    for _ in 0..count {
+                        collect_ranges(acc, offset, element_type, buffer_size);
                         offset = aligned(offset + element_size, alignment);
                     }
                 }
@@ -134,7 +151,7 @@ impl Type {
                             .alignment
                             .unwrap_or_else(|| member.type_desc.alignment());
                         offset = aligned(offset, alignment);
-                        collect_ranges(acc, offset, &member.type_desc);
+                        collect_ranges(acc, offset, &member.type_desc, buffer_size);
                         let size = member.size.unwrap_or_else(|| member.type_desc.size());
                         offset += size;
                     }
@@ -142,7 +159,7 @@ impl Type {
             }
         }
 
-        collect_ranges(&mut ranges, 0, self);
+        collect_ranges(&mut ranges, 0, self, buffer_size);
 
         ranges
     }
@@ -180,7 +197,7 @@ impl TryFrom<&ast::DataType> for Type {
                 scalar_type: scalar.try_into()?,
             }),
             ast::DataType::Matrix(c, r, scalar) => Ok(Type::Array {
-                size: *c as u32,
+                size: Some(*c as u32),
                 element_type: Box::new(Type::Vector {
                     size: match r {
                         2 => VectorSize::N2,
@@ -192,7 +209,7 @@ impl TryFrom<&ast::DataType> for Type {
                 }),
             }),
             ast::DataType::Array(inner, size) => Ok(Type::Array {
-                size: size.ok_or("runtime sized arrays are not supported")?,
+                size: *size,
                 element_type: Box::new(inner.as_ref().try_into()?),
             }),
             ast::DataType::Struct(decl) => {

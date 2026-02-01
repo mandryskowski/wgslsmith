@@ -358,7 +358,11 @@ impl Reconditioner {
                 let postfix = match postfix {
                     Postfix::Index(index) => {
                         let index = self.recondition_expr(*index);
-                        Postfix::index(self.recondition_array_index(&expr.data_type, index))
+                        let array_expr = match expr.data_type.dereference() {
+                            DataType::Array(_, None) => Some(Self::lhs_to_expr(&expr)),
+                            _ => None,
+                        };
+                        Postfix::index(self.recondition_index(&expr.data_type, array_expr, index))
                     }
                     Postfix::Member(ident) => Postfix::Member(ident),
                 };
@@ -468,7 +472,15 @@ impl Reconditioner {
                 let postfix = match expr.postfix {
                     Postfix::Index(index) => {
                         let index = self.recondition_expr(*index);
-                        Postfix::Index(Box::new(self.recondition_array_index(&e.data_type, index)))
+                        let array_expr = match e.data_type.dereference() {
+                            DataType::Array(_, None) => Some(e.clone()),
+                            _ => None,
+                        };
+                        Postfix::Index(Box::new(self.recondition_index(
+                            &e.data_type,
+                            array_expr,
+                            index,
+                        )))
                     }
                     Postfix::Member(n) => Postfix::Member(n),
                 };
@@ -484,27 +496,57 @@ impl Reconditioner {
         }
     }
 
-    fn recondition_array_index(&mut self, array_type: &DataType, index: ExprNode) -> ExprNode {
-        let size = match array_type.dereference() {
-            DataType::Array(_, Some(n)) => *n,
-            DataType::Array(_, None) => {
-                todo!("runtime-sized arrays are not currently supported")
+    fn lhs_to_expr(node: &LhsExprNode) -> ExprNode {
+        let expr = match &node.expr {
+            LhsExpr::Ident(ident) => Expr::Var(VarExpr::new(ident.clone())),
+            LhsExpr::Postfix(inner, postfix) => {
+                Expr::Postfix(PostfixExpr::new(Self::lhs_to_expr(inner), postfix.clone()))
             }
-            DataType::Vector(n, _) => *n as u32,
-            DataType::Matrix(c, _, _) => *c as u32,
+            LhsExpr::Deref(inner) => {
+                Expr::UnOp(UnOpExpr::new(UnOp::Deref, Self::lhs_to_expr(inner)))
+            }
+            LhsExpr::AddressOf(inner) => {
+                Expr::UnOp(UnOpExpr::new(UnOp::AddressOf, Self::lhs_to_expr(inner)))
+            }
+        };
+
+        ExprNode {
+            data_type: node.data_type.clone(),
+            expr,
+        }
+    }
+
+    fn recondition_index(
+        &mut self,
+        array_type: &DataType,
+        array_expr: Option<ExprNode>,
+        index: ExprNode,
+    ) -> ExprNode {
+        let size = match array_type.dereference() {
+            DataType::Array(_, Some(n)) => Some(*n),
+            DataType::Array(_, None) => None,
+            DataType::Vector(n, _) => Some(*n as u32),
+            DataType::Matrix(c, _, _) => Some(*c as u32),
             _ => unreachable!("index operator cannot be applied to type `{array_type}`"),
         };
 
         let index_type = index.data_type.dereference().clone();
-        let size_expr = match index_type.as_scalar().unwrap() {
-            ScalarType::I32 => Lit::I32(size as i32),
-            ScalarType::U32 => Lit::U32(size),
-            _ => unreachable!("index expression must be an integer"),
+        let size_expr = match size {
+            Some(n) => match index_type.as_scalar().unwrap() {
+                ScalarType::I32 => Lit::I32(n as i32).into(),
+                ScalarType::U32 => Lit::U32(n).into(),
+                _ => unreachable!("index expression must be an integer"),
+            },
+            None => {
+                let array_expr = array_expr.expect("runtime array needs expression");
+                let addr = UnOpExpr::new(UnOp::AddressOf, array_expr).into();
+                FnCallExpr::new("arrayLength", vec![addr]).into_node(ScalarType::U32)
+            }
         };
 
         FnCallExpr::new(
             self.safe_wrapper(Wrapper::Index(index_type.clone())),
-            vec![index, size_expr.into()],
+            vec![index, size_expr],
         )
         .into_node(index_type)
     }
