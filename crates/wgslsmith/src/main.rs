@@ -154,7 +154,7 @@ fn main() -> eyre::Result<()> {
                             pipeline_desc: &PipelineDescription,
                             configs: &[ConfigId],
                             timeout: Option<Duration>,
-                            _parallelism: Option<usize>,
+                            parallelism: usize,
                             on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>
                                       + Send),
                         ) -> Result<(), ExecutionError> {
