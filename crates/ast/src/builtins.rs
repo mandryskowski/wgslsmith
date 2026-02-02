@@ -65,6 +65,7 @@ pub enum BuiltinFn {
     Step,
     Tan,
     Tanh,
+    Transpose,
     Trunc,
 }
 
@@ -144,6 +145,13 @@ impl BuiltinFn {
             Step => first_param()?,
             Tan => first_param()?,
             Tanh => first_param()?,
+            Transpose => {
+                if let DataType::Matrix(c, r, s) = first_param()? {
+                    DataType::Matrix(r, c, s)
+                } else {
+                    return None;
+                }
+            }
             Trunc => first_param()?,
         };
 
