@@ -15,6 +15,7 @@ pub enum EnableExtension {
 pub struct PipelineDescription {
     pub resources: Vec<PipelineResource>,
     pub enables: Vec<EnableExtension>,
+    pub entry_point: String,
 }
 
 #[derive(Clone, Debug, Decode, Encode, PartialEq, Eq)]

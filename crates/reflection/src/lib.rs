@@ -29,21 +29,20 @@ pub fn reflect(
                 .binding_index()
                 .expect("resource variable must have binding attribute");
 
+            let mut min_size = type_desc.buffer_size();
+            min_size = (min_size + 3) & !3;
+
             let init = input_data
                 .get(&format!("{group}:{binding}"))
                 .cloned()
                 .map(|mut init| {
-                    if init.len() < type_desc.buffer_size() as usize {
-                        init.resize(type_desc.buffer_size() as usize, 0);
+                    if init.len() < min_size as usize {
+                        init.resize(min_size as usize, 0);
                     }
                     init
                 });
 
-            let size = init
-                .as_ref()
-                .map(|it| it.len() as u32)
-                .unwrap_or(0)
-                .max(type_desc.size());
+            let size = init.as_ref().map(|it| it.len() as u32).unwrap_or(min_size);
 
             resources.push(PipelineResource {
                 name: var.name.clone(),
@@ -66,5 +65,23 @@ pub fn reflect(
         })
         .collect();
 
-    (PipelineDescription { resources, enables }, types)
+    let entry_point = module
+        .functions
+        .iter()
+        .find(|f| {
+            f.attrs
+                .iter()
+                .any(|attr| matches!(attr, ast::FnAttr::Stage(ast::ShaderStage::Compute)))
+        })
+        .map(|f| f.name.clone())
+        .unwrap_or_else(|| "main".to_owned());
+
+    (
+        PipelineDescription {
+            resources,
+            enables,
+            entry_point,
+        },
+        types,
+    )
 }
