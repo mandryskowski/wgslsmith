@@ -175,7 +175,7 @@ pub async fn run(
     )
     .execute(|| {
         device.create_compute_pipeline(&ComputePipelineDescriptor {
-            entry_point: Some("main"),
+            entry_point: Some(&meta.entry_point),
             label: None,
             module: &shader_module,
             layout: None,
@@ -189,12 +189,14 @@ pub async fn run(
 
     enum ResourceBuffer {
         Storage {
+            group: u32,
             binding: u32,
             size: u64,
             gpu_buffer: Buffer,
             staging_buffer: Buffer,
         },
         Uniform {
+            group: u32,
             binding: u32,
             buffer: Buffer,
         },
@@ -228,6 +230,7 @@ pub async fn run(
                 });
 
                 resource_buffers.push(ResourceBuffer::Storage {
+                    group: resource.group,
                     binding: resource.binding,
                     size,
                     gpu_buffer,
@@ -252,6 +255,7 @@ pub async fn run(
                 buffer.unmap();
 
                 resource_buffers.push(ResourceBuffer::Uniform {
+                    group: resource.group,
                     binding: resource.binding,
                     buffer,
                 });
@@ -259,46 +263,61 @@ pub async fn run(
         }
     }
 
-    let bind_group_entries = resource_buffers
-        .iter()
-        .map(|res| match res {
+    let mut bind_groups = HashMap::new();
+    let mut groups = std::collections::HashSet::new();
+
+    for res in &resource_buffers {
+        let (group, binding, resource) = match res {
             ResourceBuffer::Storage {
+                group,
                 binding,
                 gpu_buffer,
                 ..
-            } => BindGroupEntry {
-                binding: *binding,
-                resource: gpu_buffer.as_entire_binding(),
-            },
+            } => (*group, *binding, gpu_buffer.as_entire_binding()),
             ResourceBuffer::Uniform {
-                binding, buffer, ..
-            } => BindGroupEntry {
-                binding: *binding,
-                resource: buffer.as_entire_binding(),
-            },
-        })
-        .collect::<Vec<_>>();
+                group,
+                binding,
+                buffer,
+            } => (*group, *binding, buffer.as_entire_binding()),
+        };
 
-    let bind_group_layout = ErrorScope::new(&device, vec![ErrorFilter::Validation])
-        .execute(|| pipeline.get_bind_group_layout(0))
-        .await?;
+        groups.insert(group);
+        bind_groups
+            .entry(group)
+            .or_insert_with(Vec::new)
+            .push(BindGroupEntry { binding, resource });
+    }
 
-    let bind_group = ErrorScope::new(&device, vec![ErrorFilter::Validation])
-        .execute(|| {
-            device.create_bind_group(&BindGroupDescriptor {
-                layout: &bind_group_layout,
-                label: None,
-                entries: &bind_group_entries,
+    let mut final_bind_groups = HashMap::new();
+
+    for group in groups {
+        let bind_group_layout = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+            .execute(|| pipeline.get_bind_group_layout(group))
+            .await?;
+
+        let entries = bind_groups.get(&group).unwrap();
+
+        let bind_group = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+            .execute(|| {
+                device.create_bind_group(&BindGroupDescriptor {
+                    layout: &bind_group_layout,
+                    label: None,
+                    entries,
+                })
             })
-        })
-        .await?;
+            .await?;
+
+        final_bind_groups.insert(group, bind_group);
+    }
 
     let commands = {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
             pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
+            for (group, bind_group) in &final_bind_groups {
+                pass.set_bind_group(*group, bind_group, &[]);
+            }
             pass.dispatch_workgroups(1, 1, 1);
         }
 

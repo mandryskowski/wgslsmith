@@ -5,7 +5,7 @@ use dawn::webgpu::{
 };
 use dawn::*;
 use reflection::{PipelineDescription, ResourceKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::ConfigId;
@@ -30,12 +30,14 @@ impl DawnState {
 
 enum BufferSet {
     Storage {
+        group: u32,
         binding: u32,
         size: usize,
         storage: DeviceBuffer,
         read: DeviceBuffer,
     },
     Uniform {
+        group: u32,
         binding: u32,
         size: usize,
         buffer: DeviceBuffer,
@@ -118,7 +120,7 @@ pub async fn run(
     let instance = dawn_state.instance;
 
     let shader_module = device.create_shader_module(shader)?;
-    let pipeline = device.create_compute_pipeline(&shader_module, "main")?;
+    let pipeline = device.create_compute_pipeline(&shader_module, &meta.entry_point)?;
 
     let mut buffer_sets = vec![];
 
@@ -149,6 +151,7 @@ pub async fn run(
                 )?;
 
                 buffer_sets.push(BufferSet::Storage {
+                    group: resource.group,
                     binding: resource.binding,
                     size,
                     storage,
@@ -165,6 +168,7 @@ pub async fn run(
                 buffer.unmap();
 
                 buffer_sets.push(BufferSet::Uniform {
+                    group: resource.group,
                     binding: resource.binding,
                     size,
                     buffer,
@@ -173,40 +177,57 @@ pub async fn run(
         }
     }
 
-    let bind_group_entries = buffer_sets
-        .iter()
-        .map(|buffers| match buffers {
-            BufferSet::Storage {
-                binding,
-                size,
-                storage,
-                ..
-            } => BindGroupEntry {
-                binding: *binding,
-                buffer: storage,
-                size: *size,
-            },
-            BufferSet::Uniform {
-                binding,
-                size,
-                buffer,
-            } => BindGroupEntry {
-                binding: *binding,
-                buffer,
-                size: *size,
-            },
-        })
-        .collect::<Vec<_>>();
+    let mut bind_groups = HashMap::new();
+    let mut groups = HashSet::new();
 
-    let bind_group =
-        device.create_bind_group(&pipeline.get_bind_group_layout(0), &bind_group_entries)?;
+    for buffer in &buffer_sets {
+        let (group, binding, buffer_obj, size) = match buffer {
+            BufferSet::Storage {
+                group,
+                binding,
+                storage,
+                size,
+                ..
+            } => (*group, *binding, storage, *size),
+            BufferSet::Uniform {
+                group,
+                binding,
+                buffer,
+                size,
+            } => (*group, *binding, buffer, *size),
+        };
+
+        groups.insert(group);
+        bind_groups
+            .entry(group)
+            .or_insert_with(Vec::new)
+            .push(BindGroupEntry {
+                binding,
+                buffer: buffer_obj,
+                size,
+            });
+    }
+
+    let bind_groups: HashMap<_, _> = bind_groups
+        .into_iter()
+        .map(|(group, entries)| {
+            (
+                group,
+                device
+                    .create_bind_group(&pipeline.get_bind_group_layout(group), &entries)
+                    .unwrap(),
+            )
+        })
+        .collect();
 
     let encoder = device.create_command_encoder()?;
 
     {
         let compute_pass = encoder.begin_compute_pass();
         compute_pass.set_pipeline(&pipeline);
-        compute_pass.set_bind_group(0, &bind_group);
+        for (group, bind_group) in &bind_groups {
+            compute_pass.set_bind_group(*group, bind_group);
+        }
         compute_pass.dispatch(1, 1, 1);
     }
 
