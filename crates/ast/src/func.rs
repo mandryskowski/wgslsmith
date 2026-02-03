@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use derive_more::Display;
 
+use crate::builtins::BuiltinValue;
 use crate::stmt::Statement;
 use crate::types::DataType;
 
@@ -23,17 +24,6 @@ pub enum FnAttr {
     WorkgroupSize(u32),
 }
 
-#[derive(
-    Debug, PartialEq, Eq, strum::AsRefStr, strum::Display, strum::EnumIter, strum::EnumString,
-)]
-#[strum(serialize_all = "snake_case")]
-pub enum BuiltinValue {
-    LocalInvocationId,
-    LocalInvocationIndex,
-    GlobalInvocationId,
-    WorkgroupId,
-    NumWorkgroups,
-}
 #[derive(Debug, Display, PartialEq, Eq)]
 pub enum FnInputAttr {
     #[display("builtin({_0})")]

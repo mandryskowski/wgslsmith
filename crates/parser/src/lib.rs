@@ -326,6 +326,17 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
                         match name {
                             "align" => StructMemberAttr::Align(arg.parse().unwrap()),
                             "size" => StructMemberAttr::Size(arg.parse().unwrap()),
+                            "builtin" => StructMemberAttr::Builtin(arg.parse().unwrap()),
+                            "interpolate" => {
+                                let ty = arg.parse().unwrap();
+                                let sample = if let Some(arg) = pairs.next() {
+                                    Some(arg.as_str().parse().unwrap())
+                                } else {
+                                    None
+                                };
+                                StructMemberAttr::Interpolate(ty, sample)
+                            }
+                            "location" => StructMemberAttr::Location(arg.parse().unwrap()),
                             _ => panic!("invalid struct member attribute: {}", name),
                         }
                     })
