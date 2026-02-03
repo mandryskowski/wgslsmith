@@ -333,7 +333,12 @@ pub async fn run(
             }
         }
 
-        encoder.finish()
+        ErrorScope::new(
+            &device,
+            vec![ErrorFilter::Internal, ErrorFilter::Validation],
+        )
+        .execute(|| encoder.finish())
+        .await?
     };
 
     let submission_index = queue.submit(std::iter::once(commands));

@@ -223,9 +223,10 @@ impl Device<'_> {
         })
     }
 
-    pub fn create_command_encoder(&self) -> Result<CommandEncoder> {
+    pub fn create_command_encoder(&self) -> Result<CommandEncoder<'_>> {
         ErrorScope::new(self, "command encoder creation failed").execute(|| unsafe {
             CommandEncoder {
+                device: self,
                 handle: wgpuDeviceCreateCommandEncoder(self.handle, &zeroed()).assert_not_null(),
             }
         })
@@ -447,11 +448,12 @@ impl Drop for BindGroup {
     }
 }
 
-pub struct CommandEncoder {
+pub struct CommandEncoder<'a> {
+    device: &'a Device<'a>,
     handle: WGPUCommandEncoder,
 }
 
-impl CommandEncoder {
+impl<'a> CommandEncoder<'a> {
     pub fn begin_compute_pass(&self) -> ComputePassEncoder {
         unsafe {
             ComputePassEncoder {
@@ -474,16 +476,16 @@ impl CommandEncoder {
         }
     }
 
-    pub fn finish(self) -> CommandBuffer {
-        unsafe {
+    pub fn finish(self) -> Result<CommandBuffer> {
+        ErrorScope::new(self.device, "command buffer finish failed").execute(|| unsafe {
             CommandBuffer {
                 handle: wgpuCommandEncoderFinish(self.handle, &zeroed()).assert_not_null(),
             }
-        }
+        })
     }
 }
 
-impl Drop for CommandEncoder {
+impl Drop for CommandEncoder<'_> {
     fn drop(&mut self) {
         unsafe {
             wgpuCommandEncoderRelease(self.handle);

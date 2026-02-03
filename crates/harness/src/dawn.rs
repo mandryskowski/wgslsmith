@@ -243,7 +243,7 @@ pub async fn run(
         }
     }
 
-    let commands = encoder.finish();
+    let commands = encoder.finish()?;
 
     queue.submit(&commands);
 
