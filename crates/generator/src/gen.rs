@@ -139,6 +139,7 @@ impl<'a> Generator<'a> {
 
         Module {
             enables: vec![ast::EnableExtension::F16],
+            aliases: vec![],
             structs: {
                 let mut structs = types.into_structs();
                 structs.push(ub_type_decl);

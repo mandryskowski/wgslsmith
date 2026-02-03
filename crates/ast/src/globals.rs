@@ -90,3 +90,34 @@ pub struct GlobalConstDecl {
     pub data_type: DataType,
     pub initializer: ExprNode,
 }
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    bincode::Encode,
+    bincode::Decode,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum EnableExtension {
+    F16,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AliasDecl {
+    pub name: String,
+    pub data_type: DataType,
+}
+
+impl std::fmt::Display for AliasDecl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "alias {} = {};", self.name, self.data_type)
+    }
+}

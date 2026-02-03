@@ -40,7 +40,7 @@ impl Func {
 pub struct Environment {
     vars: HashTrieMap<String, DataType>,
     fns: HashTrieMap<String, Func>,
-    types: HashTrieMap<String, Rc<StructDecl>>,
+    types: HashTrieMap<String, DataType>,
     consts: HashTrieMap<String, Value>,
 }
 
@@ -68,11 +68,11 @@ impl Environment {
         self.vars.insert_mut(name, ty);
     }
 
-    pub fn ty(&self, name: &str) -> Option<&Rc<StructDecl>> {
+    pub fn ty(&self, name: &str) -> Option<&DataType> {
         self.types.get(name)
     }
 
-    pub fn insert_struct(&mut self, name: String, decl: Rc<StructDecl>) {
+    pub fn insert_type(&mut self, name: String, decl: DataType) {
         self.types.insert_mut(name, decl);
     }
 
@@ -119,6 +119,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
         .collect::<Vec<_>>();
 
     let mut enables = vec![];
+    let mut aliases = vec![];
     let mut functions = vec![];
     let mut structs = vec![];
     let mut consts = vec![];
@@ -127,6 +128,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
     for decl in decls {
         match decl {
             GlobalDecl::Enable(decl) => enables.push(decl),
+            GlobalDecl::Alias(decl) => aliases.push(decl),
             GlobalDecl::Const(decl) => consts.push(decl),
             GlobalDecl::Var(decl) => vars.push(decl),
             GlobalDecl::Struct(decl) => structs.push(decl),
@@ -136,6 +138,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
 
     Module {
         enables,
+        aliases,
         functions,
         structs,
         consts,
@@ -145,6 +148,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
 
 enum GlobalDecl {
     Enable(ast::EnableExtension),
+    Alias(AliasDecl),
     Const(GlobalConstDecl),
     Var(GlobalVarDecl),
     Struct(Rc<StructDecl>),
@@ -155,6 +159,7 @@ fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
     let pair = pair.into_inner().next().unwrap();
     match pair.as_rule() {
         Rule::enable_directive => GlobalDecl::Enable(parse_enable_directive(pair)),
+        Rule::type_alias_decl => GlobalDecl::Alias(parse_alias_decl(pair, env)),
         Rule::global_constant_decl => GlobalDecl::Const(parse_global_const_decl(pair, env)),
         Rule::global_variable_decl => GlobalDecl::Var(parse_global_variable_decl(pair, env)),
         Rule::struct_decl => GlobalDecl::Struct(parse_struct_decl(pair, env)),
@@ -293,6 +298,16 @@ fn parse_global_variable_decl(pair: Pair<Rule>, env: &mut Environment) -> Global
     }
 }
 
+fn parse_alias_decl(pair: Pair<Rule>, env: &mut Environment) -> AliasDecl {
+    let mut pairs = pair.into_inner();
+    let name = pairs.next().unwrap().as_str().to_owned();
+    let data_type = parse_type_decl(pairs.next().unwrap(), env);
+
+    env.insert_type(name.clone(), data_type.clone());
+
+    AliasDecl { name, data_type }
+}
+
 fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> {
     let mut pairs = pair.into_inner();
     let name = pairs.next().unwrap().as_str().to_owned();
@@ -326,7 +341,7 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
     let decl = StructDecl::new(name.clone(), members);
     let params = decl.members.iter().map(|m| m.data_type.clone()).collect();
 
-    env.insert_struct(name, decl.clone());
+    env.insert_type(name, DataType::Struct(decl.clone()));
     env.insert_func(
         decl.name.clone(),
         params,
@@ -1303,11 +1318,10 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
             let inner = parse_type_decl(pairs.next().unwrap(), env);
             DataType::Ptr(MemoryViewType::new(inner, storage_class))
         }
-        Rule::ident => DataType::Struct(
-            env.ty(pair.as_str())
-                .unwrap_or_else(|| panic!("type not found: {}", pair.as_str()))
-                .clone(),
-        ),
+        Rule::ident => env
+            .ty(pair.as_str())
+            .unwrap_or_else(|| panic!("type not found: {}", pair.as_str()))
+            .clone(),
         _ => panic!("{}", pair),
     }
 }

@@ -33,6 +33,10 @@ impl Writer {
             writeln!(f)?;
         }
 
+        for decl in &module.aliases {
+            writeln!(f, "{decl}")?;
+        }
+
         for decl in &module.consts {
             self.write_global_const(f, decl)?;
             writeln!(f)?;
