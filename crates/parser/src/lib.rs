@@ -415,6 +415,10 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
                                 let arg = pairs.next().unwrap().as_str();
                                 FnInputAttr::Builtin(arg.parse().unwrap())
                             }
+                            "location" => {
+                                let arg = pairs.next().unwrap().as_str();
+                                FnInputAttr::Location(arg.parse().unwrap())
+                            }
                             _ => panic!("invalid param attribute: {}", name),
                         }
                     })
@@ -432,11 +436,30 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
         })
         .collect::<Vec<_>>();
 
+    let output_attrs = pairs
+        .by_ref()
+        .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)
+        .flat_map(|pair| {
+            pair.into_inner().map(|pair| {
+                let mut pairs = pair.into_inner();
+                let name = pairs.next().unwrap().as_str();
+
+                match name {
+                    "location" => {
+                        let arg = pairs.next().unwrap().as_str();
+                        FnOutputAttr::Location(arg.parse().unwrap())
+                    }
+                    _ => panic!("invalid param attribute: {}", name),
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
     let output = pairs
         .by_ref()
         .peeking_take_while(|pair| pair.as_rule() == Rule::type_decl)
         .map(|pair| FnOutput {
-            attrs: vec![],
+            attrs: output_attrs.clone(),
             data_type: parse_type_decl(pair, env),
         })
         .next();

@@ -24,14 +24,19 @@ pub enum FnAttr {
     WorkgroupSize(u32),
 }
 
-#[derive(Debug, Display, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 pub enum FnInputAttr {
     #[display("builtin({_0})")]
     Builtin(BuiltinValue),
+    #[display("location({_0})")]
+    Location(u32),
 }
 
-#[derive(Debug, Display, PartialEq, Eq)]
-pub enum FnOutputAttr {}
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+pub enum FnOutputAttr {
+    #[display("location({_0})")]
+    Location(u32),
+}
 
 #[derive(Debug, Display, PartialEq, Eq)]
 #[display("{}{name}: {data_type}", InlineAttrs(attrs))]

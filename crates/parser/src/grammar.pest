@@ -193,7 +193,7 @@ literal_or_ident = _{ literal_expression | ident }
 // FUNCTIONS
 
 function_decl   = { attribute_list* ~ function_header ~ compound_statement }
-function_header = _{ "fn" ~ ident ~ param_list ~ ("->" ~ type_decl)? }
+function_header = _{ "fn" ~ ident ~ param_list ~ ("->" ~ attribute_list* ~ type_decl)? }
 param_list      = _{ "(" ~ (param ~ ("," ~ param)* ~ ","?)? ~ ")" }
 param           = { attribute_list* ~ ident ~ ":" ~ type_decl }
 
