@@ -988,16 +988,6 @@ fn parse_literal_expression(pair: Pair<Rule>, expected_type: Option<&DataType>) 
                     ScalarType::I32,
                     Lit::I32(s.trim_end_matches('i').parse().unwrap()),
                 )
-            } else if s.starts_with("i32(") {
-                (
-                    ScalarType::I32,
-                    Lit::I32(
-                        s.trim_start_matches("i32(")
-                            .trim_end_matches(')')
-                            .parse()
-                            .unwrap(),
-                    ),
-                )
             } else {
                 // No suffix
                 match expected_type.and_then(|t| t.as_scalar()) {
@@ -1066,10 +1056,11 @@ fn parse_type_cons_expression(
     let arg_pairs: Vec<_> = pairs.collect();
     let arg_count = arg_pairs.len();
 
-    let args = arg_pairs
+    let args: Vec<_> = arg_pairs
         .into_iter()
         .map(|pair| {
             let expected_arg_type = match &data_type {
+                DataType::Scalar(_) => Some(data_type.clone()),
                 DataType::Vector(_, scalar) => Some(DataType::Scalar(*scalar)),
                 DataType::Matrix(cols, rows, scalar) => {
                     if arg_count == *cols as usize {
@@ -1084,6 +1075,16 @@ fn parse_type_cons_expression(
             parse_expression(pair, env, expected_arg_type.as_ref())
         })
         .collect();
+
+    // i32::MIN is written as i32(-2147483648) in WGSL
+    // For this reason when we encounter i32(-2147483648) we treat is as a Lit
+    // Otherwise, parsing and writing i32(-2147483648) would output i32(i32(-2147483648))
+    if data_type == DataType::Scalar(ScalarType::I32)
+        && args.len() == 1
+        && args[0].expr == Expr::Lit(Lit::I32(i32::MIN))
+    {
+        return Lit::I32(i32::MIN).into();
+    }
 
     TypeConsExpr::new(data_type, args).into()
 }
