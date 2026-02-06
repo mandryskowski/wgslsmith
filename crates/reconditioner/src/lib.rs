@@ -16,7 +16,6 @@ pub struct ReconditionResult {
 
 #[derive(Hash, PartialEq, Eq)]
 enum Wrapper {
-    Dot(DataType),
     ExtractBits(DataType),
     InsertBits(DataType),
     FloatOp(DataType),
@@ -30,7 +29,6 @@ impl Wrapper {
     fn gen_fn_decl(&self) -> FnDecl {
         let name = self.to_string();
         match self {
-            Wrapper::Dot(ty) => safe_wrappers::dot(name, ty),
             Wrapper::ExtractBits(ty) => {
                 if ty.is_signed_int() {
                     safe_wrappers::extract_bits(name, ty)
@@ -68,7 +66,6 @@ impl Display for Wrapper {
             }
             other => {
                 let (name, ty) = match other {
-                    Wrapper::Dot(ty) => ("dot", ty),
                     Wrapper::ExtractBits(ty) => ("extract_bits", ty),
                     Wrapper::InsertBits(ty) => ("insert_bits", ty),
                     Wrapper::FloatOp(ty) => ("f_op", ty),
@@ -437,10 +434,6 @@ impl Reconditioner {
                     .collect();
 
                 let expr = match expr.ident.as_str() {
-                    "dot" if args[0].data_type.is_integer() => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::Dot(args[0].data_type.dereference().clone())),
-                        args,
-                    ),
                     "extractBits" => FnCallExpr::new(
                         self.safe_wrapper(Wrapper::ExtractBits(
                             args[0].data_type.dereference().clone(),
