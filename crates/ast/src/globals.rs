@@ -108,6 +108,7 @@ pub struct GlobalConstDecl {
 #[strum(serialize_all = "snake_case")]
 pub enum EnableExtension {
     F16,
+    Subgroups,
 }
 
 #[derive(Clone, Debug, PartialEq)]

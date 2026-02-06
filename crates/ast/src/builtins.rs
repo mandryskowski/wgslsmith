@@ -67,6 +67,35 @@ pub enum BuiltinFn {
     Tanh,
     Transpose,
     Trunc,
+
+    // Subgroup
+    SubgroupAdd,
+    SubgroupAnd,
+    SubgroupExclusiveAdd,
+    SubgroupInclusiveAdd,
+    SubgroupAll,
+    SubgroupAny,
+    SubgroupBallot,
+    SubgroupBroadcast,
+    SubgroupBroadcastFirst,
+    SubgroupElect,
+    SubgroupMax,
+    SubgroupMin,
+    SubgroupMul,
+    SubgroupExclusiveMul,
+    SubgroupInclusiveMul,
+    SubgroupOr,
+    SubgroupShuffle,
+    SubgroupShuffleDown,
+    SubgroupShuffleUp,
+    SubgroupShuffleXor,
+    SubgroupXor,
+
+    // Quad
+    QuadBroadcast,
+    QuadSwapDiagonal,
+    QuadSwapX,
+    QuadSwapY,
 }
 
 impl BuiltinFn {
@@ -127,6 +156,7 @@ impl BuiltinFn {
             Mix => first_param()?,
             Normalize => first_param()?,
             Pow => first_param()?,
+            QuadBroadcast | QuadSwapX | QuadSwapY | QuadSwapDiagonal => first_param()?,
             QuantizeToF16 => first_param()?,
             Radians => first_param()?,
             Reflect => first_param()?,
@@ -145,6 +175,17 @@ impl BuiltinFn {
             Step => first_param()?,
             Tan => first_param()?,
             Tanh => first_param()?,
+            SubgroupBallot => DataType::Vector(4, U32),
+            SubgroupBroadcast
+            | SubgroupBroadcastFirst
+            | SubgroupShuffle
+            | SubgroupShuffleXor
+            | SubgroupShuffleUp
+            | SubgroupShuffleDown => first_param()?,
+            SubgroupAdd | SubgroupExclusiveAdd | SubgroupInclusiveAdd | SubgroupMul
+            | SubgroupExclusiveMul | SubgroupInclusiveMul | SubgroupMin | SubgroupMax
+            | SubgroupAnd | SubgroupOr | SubgroupXor => first_param()?,
+            SubgroupAll | SubgroupAny | SubgroupElect => Bool.into(),
             Transpose => {
                 if let DataType::Matrix(c, r, s) = first_param()? {
                     DataType::Matrix(r, c, s)

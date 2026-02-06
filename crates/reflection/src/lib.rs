@@ -62,6 +62,7 @@ pub fn reflect(
         .iter()
         .map(|e| match e {
             ast::EnableExtension::F16 => types::EnableExtension::F16,
+            ast::EnableExtension::Subgroups => types::EnableExtension::Subgroups,
         })
         .collect();
 

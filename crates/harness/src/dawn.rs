@@ -96,6 +96,10 @@ pub async fn run(
                         required_features
                             .push(dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16);
                     }
+                    reflection::EnableExtension::Subgroups => {
+                        required_features
+                            .push(dawn::webgpu::WGPUFeatureName_WGPUFeatureName_Subgroups);
+                    }
                 }
             }
 

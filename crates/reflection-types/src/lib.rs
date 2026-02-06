@@ -9,6 +9,7 @@ pub struct ResourceData<'a> {
 #[derive(Clone, Debug, Decode, Encode, PartialEq, Eq, Hash)]
 pub enum EnableExtension {
     F16,
+    Subgroups,
 }
 
 #[derive(Clone, Debug, Decode, Encode)]

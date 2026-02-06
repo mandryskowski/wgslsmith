@@ -131,6 +131,9 @@ pub async fn run(
                     reflection::EnableExtension::F16 => {
                         required_features |= wgpu::Features::SHADER_F16;
                     }
+                    reflection::EnableExtension::Subgroups => {
+                        required_features |= wgpu::Features::SUBGROUP;
+                    }
                 }
             }
 
