@@ -242,12 +242,7 @@ fn parse_global_variable_decl(pair: Pair<Rule>, env: &mut Environment) -> Global
 
             let access_mode = if matches!(pairs.peek(), Some(access_mode) if access_mode.as_rule() == Rule::access_mode)
             {
-                Some(match pairs.next().unwrap().as_str() {
-                    "read" => AccessMode::Read,
-                    "write" => AccessMode::Write,
-                    "read_write" => AccessMode::ReadWrite,
-                    _ => unreachable!(),
-                })
+                Some(parse_access_mode(pairs.next().unwrap().as_str()))
             } else {
                 None
             };
@@ -259,7 +254,6 @@ fn parse_global_variable_decl(pair: Pair<Rule>, env: &mut Environment) -> Global
         }
     }
 
-    let qualifier = qualifier.expect("module scope var declaration must specify storage class");
     let name = pairs.next().unwrap().as_str().to_owned();
     let mut data_type = None;
     let mut expr = None;
@@ -282,6 +276,17 @@ fn parse_global_variable_decl(pair: Pair<Rule>, env: &mut Environment) -> Global
             .data_type
             .clone()
     });
+
+    let qualifier = if let Some(q) = qualifier {
+        q
+    } else if matches!(data_type, DataType::Texture(_) | DataType::Sampler(_)) {
+        VarQualifier {
+            storage_class: StorageClass::Handle,
+            access_mode: None,
+        }
+    } else {
+        panic!("module scope var declaration must specify storage class")
+    };
 
     let mut ref_view = MemoryViewType::new(data_type.clone(), qualifier.storage_class);
     if let Some(access_mode) = qualifier.access_mode {
@@ -1354,6 +1359,77 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
             let inner = parse_type_decl(pairs.next().unwrap(), env);
             DataType::Ptr(MemoryViewType::new(inner, storage_class))
         }
+        Rule::t_texture => {
+            let full_str = pair.as_str();
+            let mut inner_pairs = pair.into_inner();
+
+            if full_str == "texture_external" {
+                DataType::Texture(TextureType::External)
+            } else if full_str.starts_with("texture_depth") {
+                let keyword = full_str.split_once('<').map(|(k, _)| k).unwrap_or(full_str);
+
+                if keyword == "texture_depth_multisampled_2d" {
+                    DataType::Texture(TextureType::Depth {
+                        dim: TextureDimension::D2,
+                        clone_of_multisampled: true,
+                    })
+                } else {
+                    let suffix = keyword.strip_prefix("texture_depth_").unwrap();
+                    let dim = suffix.parse().expect("invalid texture dimension");
+                    DataType::Texture(TextureType::Depth {
+                        dim,
+                        clone_of_multisampled: false,
+                    })
+                }
+            } else if full_str.starts_with("texture_storage") {
+                let keyword_end = full_str.find('<').unwrap();
+                let keyword_str = &full_str[..keyword_end];
+                let suffix = keyword_str.strip_prefix("texture_storage_").unwrap();
+                let dim = suffix.parse().expect("invalid texture dimension");
+
+                let format_str = inner_pairs.next().unwrap().as_str();
+                let access_str = inner_pairs.next().unwrap().as_str();
+
+                let format = format_str.parse().expect("invalid texel format");
+
+                let access = parse_access_mode(access_str);
+
+                DataType::Texture(TextureType::Storage {
+                    dim,
+                    format,
+                    access,
+                })
+            } else if full_str.starts_with("texture_multisampled") {
+                let scalar_pair = inner_pairs.next().unwrap();
+                let scalar = parse_t_scalar(scalar_pair);
+
+                DataType::Texture(TextureType::Multisampled {
+                    dim: TextureDimension::D2,
+                    derived_type: scalar,
+                })
+            } else if full_str.starts_with("texture_") {
+                let keyword_end = full_str.find('<').unwrap();
+                let keyword_str = &full_str[..keyword_end];
+
+                let suffix = keyword_str.strip_prefix("texture_").unwrap();
+                let dim = suffix.parse().expect("invalid texture dimension");
+
+                let scalar_pair = inner_pairs.next().unwrap();
+                let scalar = parse_t_scalar(scalar_pair);
+
+                DataType::Texture(TextureType::Sampled {
+                    dim,
+                    derived_type: scalar,
+                })
+            } else {
+                unreachable!("Unknown texture type: {}", full_str)
+            }
+        }
+        Rule::t_sampler => match pair.as_str() {
+            "sampler" => DataType::Sampler(SamplerType::Sampler),
+            "sampler_comparison" => DataType::Sampler(SamplerType::Comparison),
+            _ => unreachable!(),
+        },
         Rule::ident => env
             .ty(pair.as_str())
             .unwrap_or_else(|| panic!("type not found: {}", pair.as_str()))
@@ -1386,6 +1462,15 @@ fn parse_storage_class(pair: Pair<Rule>) -> StorageClass {
         "workgroup" => StorageClass::WorkGroup,
         "uniform" => StorageClass::Uniform,
         "storage" => StorageClass::Storage,
+        _ => unreachable!(),
+    }
+}
+
+fn parse_access_mode(s: &str) -> AccessMode {
+    match s {
+        "read" => AccessMode::Read,
+        "write" => AccessMode::Write,
+        "read_write" => AccessMode::ReadWrite,
         _ => unreachable!(),
     }
 }
@@ -1461,4 +1546,5 @@ mod tests {
     test_case!(test_4);
     test_case!(test_5);
     test_case!(subgroups);
+    test_case!(textures);
 }

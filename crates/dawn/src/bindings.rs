@@ -232,6 +232,46 @@ impl Device<'_> {
         })
     }
 
+    pub fn create_texture(
+        &self,
+        format: WGPUTextureFormat,
+        usage: DeviceTextureUsage,
+        dimension: WGPUTextureDimension,
+        size: WGPUExtent3D,
+    ) -> Result<DeviceTexture> {
+        ErrorScope::new(self, "texture creation failed").execute(|| unsafe {
+            DeviceTexture {
+                handle: wgpuDeviceCreateTexture(
+                    self.handle,
+                    &WGPUTextureDescriptor {
+                        label: WGPUStringView {
+                            data: null(),
+                            length: 0,
+                        },
+                        nextInChain: null_mut(),
+                        usage: usage.bits as _,
+                        dimension,
+                        size,
+                        format,
+                        mipLevelCount: 1,
+                        sampleCount: 1,
+                        viewFormatCount: 0,
+                        viewFormats: null(),
+                    },
+                )
+                .assert_not_null(),
+            }
+        })
+    }
+
+    pub fn create_sampler(&self, descriptor: &WGPUSamplerDescriptor) -> Result<DeviceSampler> {
+        ErrorScope::new(self, "sampler creation failed").execute(|| unsafe {
+            DeviceSampler {
+                handle: wgpuDeviceCreateSampler(self.handle, descriptor).assert_not_null(),
+            }
+        })
+    }
+
     pub fn tick(&self) {
         unsafe {
             wgpuDeviceTick(self.handle);
@@ -257,6 +297,25 @@ impl DeviceQueue {
     pub fn submit(&self, commands: &CommandBuffer) {
         unsafe {
             wgpuQueueSubmit(self.handle, 1, &commands.handle);
+        }
+    }
+
+    pub fn write_texture(
+        &self,
+        destination: &WGPUTexelCopyTextureInfo,
+        data: &[u8],
+        data_layout: &WGPUTexelCopyBufferLayout,
+        write_size: &WGPUExtent3D,
+    ) {
+        unsafe {
+            wgpuQueueWriteTexture(
+                self.handle,
+                destination,
+                data.as_ptr() as _,
+                data.len(),
+                data_layout,
+                write_size,
+            );
         }
     }
 }
@@ -400,6 +459,62 @@ impl Drop for DeviceBuffer {
     }
 }
 
+pub struct DeviceTexture {
+    pub handle: WGPUTexture,
+}
+
+impl DeviceTexture {
+    pub fn create_view(&self) -> DeviceTextureView {
+        unsafe {
+            DeviceTextureView {
+                handle: wgpuTextureCreateView(self.handle, null()).assert_not_null(),
+            }
+        }
+    }
+}
+
+impl Drop for DeviceTexture {
+    fn drop(&mut self) {
+        unsafe {
+            wgpuTextureRelease(self.handle);
+        }
+    }
+}
+
+pub struct DeviceTextureView {
+    pub handle: WGPUTextureView,
+}
+
+impl Drop for DeviceTextureView {
+    fn drop(&mut self) {
+        unsafe {
+            wgpuTextureViewRelease(self.handle);
+        }
+    }
+}
+
+pub struct DeviceSampler {
+    pub handle: WGPUSampler,
+}
+
+impl Drop for DeviceSampler {
+    fn drop(&mut self) {
+        unsafe {
+            wgpuSamplerRelease(self.handle);
+        }
+    }
+}
+
+bitflags::bitflags! {
+    pub struct DeviceTextureUsage: WGPUTextureUsage {
+        const COPY_SRC = WGPUTextureUsage_CopySrc;
+        const COPY_DST = WGPUTextureUsage_CopyDst;
+        const TEXTURE_BINDING = WGPUTextureUsage_TextureBinding;
+        const STORAGE_BINDING = WGPUTextureUsage_StorageBinding;
+        const RENDER_ATTACHMENT = WGPUTextureUsage_RenderAttachment;
+    }
+}
+
 pub struct BindGroupLayout {
     handle: WGPUBindGroupLayout,
 }
@@ -416,7 +531,9 @@ impl Drop for BindGroupLayout {
 
 pub struct BindGroupEntry<'a> {
     pub binding: u32,
-    pub buffer: &'a DeviceBuffer,
+    pub buffer: Option<&'a DeviceBuffer>,
+    pub texture_view: Option<&'a DeviceTextureView>,
+    pub sampler: Option<&'a DeviceSampler>,
     pub size: usize,
 }
 
@@ -424,11 +541,11 @@ impl<'a> From<&BindGroupEntry<'a>> for WGPUBindGroupEntry {
     fn from(entry: &BindGroupEntry<'a>) -> Self {
         WGPUBindGroupEntry {
             binding: entry.binding,
-            buffer: entry.buffer.handle,
+            buffer: entry.buffer.map(|b| b.handle).unwrap_or(null_mut()),
             offset: 0,
             size: entry.size as _,
-            sampler: null_mut(),
-            textureView: null_mut(),
+            sampler: entry.sampler.map(|s| s.handle).unwrap_or(null_mut()),
+            textureView: entry.texture_view.map(|t| t.handle).unwrap_or(null_mut()),
             nextInChain: null_mut(),
         }
     }

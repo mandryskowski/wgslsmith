@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use derive_more::Display;
 
-use crate::{AccessMode, StorageClass, StructDecl};
+use crate::{AccessMode, SamplerType, StorageClass, StructDecl, TextureType};
 
 #[derive(Clone, Copy, Debug, Display, Hash, PartialEq, Eq)]
 pub enum ScalarType {
@@ -60,6 +60,8 @@ pub enum DataType {
     Matrix(u8, u8, ScalarType),
     Array(Rc<DataType>, Option<u32>),
     Struct(Rc<StructDecl>),
+    Texture(TextureType),
+    Sampler(SamplerType),
     Ptr(MemoryViewType),
     Ref(MemoryViewType),
 }
@@ -145,6 +147,8 @@ impl fmt::Debug for DataType {
             Self::Matrix(c, r, t) => f.debug_tuple("Matrix").field(c).field(r).field(t).finish(),
             Self::Array(arg0, arg1) => f.debug_tuple("Array").field(arg0).field(arg1).finish(),
             Self::Struct(arg0) => f.debug_tuple("Struct").field(&arg0.name).finish(),
+            Self::Texture(arg0) => f.debug_tuple("Texture").field(arg0).finish(),
+            Self::Sampler(arg0) => f.debug_tuple("Sampler").field(arg0).finish(),
             Self::Ptr(arg0) => f.debug_tuple("Ptr").field(arg0).finish(),
             Self::Ref(arg0) => f.debug_tuple("Ref").field(arg0).finish(),
         }
@@ -165,6 +169,8 @@ impl Display for DataType {
                 write!(f, ">")
             }
             DataType::Struct(decl) => write!(f, "{}", decl.name),
+            DataType::Texture(t) => write!(f, "{}", t),
+            DataType::Sampler(s) => write!(f, "{}", s),
             DataType::Ptr(view) => write!(f, "ptr<{view}>"),
             DataType::Ref(view) => write!(f, "ref<{view}>"),
         }

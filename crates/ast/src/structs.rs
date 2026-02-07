@@ -178,6 +178,9 @@ fn collect_struct_accessors(
             }
             DataType::Ptr(_) => unreachable!("pointers are not storable"),
             DataType::Ref(_) => unreachable!("references are not storable"),
+            DataType::Texture(_) | DataType::Sampler(_) => {
+                unreachable!("textures and samplers are not storable")
+            }
         }
     }
 

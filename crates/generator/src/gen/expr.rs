@@ -31,6 +31,7 @@ impl super::Generator<'_> {
             DataType::Struct(_) => allowed.push(ExprType::TypeCons),
             DataType::Ptr(view) => return self.gen_pointer_expr(view),
             DataType::Ref(_) => panic!("explicit request to generate ref expression: `{ty}`"),
+            DataType::Texture(_) | DataType::Sampler(_) => {}
         }
 
         if self.fn_state.expression_depth < 5 {
@@ -134,6 +135,7 @@ impl super::Generator<'_> {
                 .map(|it| self.gen_expr(&it.data_type))
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         self.fn_state.expression_depth -= 1;
@@ -156,6 +158,7 @@ impl super::Generator<'_> {
                 .map(|it| self.gen_const_expr(&it.data_type))
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         TypeConsExpr::new(ty.clone(), args).into()
@@ -342,7 +345,7 @@ impl super::Generator<'_> {
             DataType::Array(_, _) => self.gen_array_accessor(target, expr),
             DataType::Struct(decl) => self.gen_struct_accessor(&decl.clone(), target, expr),
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
-            DataType::Ref(_) => todo!(),
+            DataType::Ref(_) | DataType::Texture(_) | DataType::Sampler(_) => todo!(),
         }
     }
 
@@ -416,6 +419,7 @@ impl super::Generator<'_> {
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),
             DataType::Ref(_) => todo!(),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         match scalar_ty {
@@ -439,6 +443,7 @@ impl super::Generator<'_> {
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),
             DataType::Ref(_) => todo!(),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         let allowed: &[BinOp] = match scalar_ty {

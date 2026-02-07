@@ -7,6 +7,7 @@ mod func;
 mod globals;
 mod stmt;
 mod structs;
+mod texture;
 
 pub use builtins::*;
 pub use expr::*;
@@ -14,6 +15,7 @@ pub use func::*;
 pub use globals::*;
 pub use stmt::*;
 pub use structs::*;
+pub use texture::*;
 
 use std::rc::Rc;
 

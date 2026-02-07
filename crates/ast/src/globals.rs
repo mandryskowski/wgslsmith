@@ -23,6 +23,8 @@ pub enum StorageClass {
     Uniform,
     #[display("storage")]
     Storage,
+    #[display("handle")]
+    Handle,
 }
 
 impl StorageClass {
@@ -33,6 +35,7 @@ impl StorageClass {
             StorageClass::WorkGroup => AccessMode::ReadWrite,
             StorageClass::Uniform => AccessMode::Read,
             StorageClass::Storage => AccessMode::Read,
+            StorageClass::Handle => AccessMode::Read,
         }
     }
 }

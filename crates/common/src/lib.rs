@@ -242,6 +242,8 @@ impl TryFrom<&ast::DataType> for Type {
             }
             ast::DataType::Ptr(_) => Err("pointers are not storable"),
             ast::DataType::Ref(_) => Err("references are not storable"),
+            ast::DataType::Texture(_) => Err("textures are not storable"),
+            ast::DataType::Sampler(_) => Err("samplers are not storable"),
         }
     }
 }
