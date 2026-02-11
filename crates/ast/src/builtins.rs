@@ -236,7 +236,8 @@ impl BuiltinFn {
                 }
             }
             TextureGather => {
-                let ty = first_param()?;
+                let _ = first_param()?;
+                let ty = params.next().map(DataType::dereference).cloned()?;
                 if let DataType::Texture(t) = ty {
                     match t {
                         TextureType::Sampled { derived_type, .. } => {
@@ -245,10 +246,10 @@ impl BuiltinFn {
                         TextureType::Multisampled { derived_type, .. } => {
                             DataType::Vector(4, derived_type)
                         }
-                        _ => DataType::Vector(4, F32),
+                        _ => todo!(),
                     }
                 } else {
-                    return None;
+                    DataType::Vector(4, F32)
                 }
             }
             TextureGatherCompare => DataType::Vector(4, F32),
