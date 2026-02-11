@@ -419,24 +419,7 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
             let attrs = pairs
                 .by_ref()
                 .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)
-                .flat_map(|pair| {
-                    pair.into_inner().map(|pair| {
-                        let mut pairs = pair.into_inner();
-                        let name = pairs.next().unwrap().as_str();
-
-                        match name {
-                            "builtin" => {
-                                let arg = pairs.next().unwrap().as_str();
-                                FnInputAttr::Builtin(arg.parse().unwrap())
-                            }
-                            "location" => {
-                                let arg = pairs.next().unwrap().as_str();
-                                FnInputAttr::Location(arg.parse().unwrap())
-                            }
-                            _ => panic!("invalid param attribute: {}", name),
-                        }
-                    })
-                })
+                .flat_map(|pair| pair.into_inner().map(parse_fn_param_return_attr))
                 .collect::<Vec<_>>();
 
             let name = pairs.next().unwrap().as_str().to_owned();
@@ -453,20 +436,7 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
     let output_attrs = pairs
         .by_ref()
         .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)
-        .flat_map(|pair| {
-            pair.into_inner().map(|pair| {
-                let mut pairs = pair.into_inner();
-                let name = pairs.next().unwrap().as_str();
-
-                match name {
-                    "location" => {
-                        let arg = pairs.next().unwrap().as_str();
-                        FnOutputAttr::Location(arg.parse().unwrap())
-                    }
-                    _ => panic!("invalid param attribute: {}", name),
-                }
-            })
-        })
+        .flat_map(|pair| pair.into_inner().map(parse_fn_param_return_attr))
         .collect::<Vec<_>>();
 
     let output = pairs
@@ -498,6 +468,24 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
         inputs,
         output,
         body,
+    }
+}
+
+fn parse_fn_param_return_attr(pair: Pair<Rule>) -> FnParamReturnAttr {
+    let mut pairs = pair.into_inner();
+    let name = pairs.next().unwrap().as_str();
+
+    match name {
+        "builtin" => {
+            let arg = pairs.next().unwrap().as_str();
+            FnParamReturnAttr::Builtin(arg.parse().unwrap())
+        }
+        "invariant" => FnParamReturnAttr::Invariant,
+        "location" => {
+            let arg = pairs.next().unwrap().as_str();
+            FnParamReturnAttr::Location(arg.parse().unwrap())
+        }
+        _ => panic!("invalid param attribute: {}", name),
     }
 }
 

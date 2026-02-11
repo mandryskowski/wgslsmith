@@ -25,15 +25,11 @@ pub enum FnAttr {
 }
 
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
-pub enum FnInputAttr {
+pub enum FnParamReturnAttr {
     #[display("builtin({_0})")]
     Builtin(BuiltinValue),
-    #[display("location({_0})")]
-    Location(u32),
-}
-
-#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
-pub enum FnOutputAttr {
+    #[display("invariant")]
+    Invariant,
     #[display("location({_0})")]
     Location(u32),
 }
@@ -41,7 +37,7 @@ pub enum FnOutputAttr {
 #[derive(Debug, Display, PartialEq, Eq)]
 #[display("{}{name}: {data_type}", InlineAttrs(attrs))]
 pub struct FnInput {
-    pub attrs: Vec<FnInputAttr>,
+    pub attrs: Vec<FnParamReturnAttr>,
     pub name: String,
     pub data_type: DataType,
 }
@@ -59,7 +55,7 @@ impl FnInput {
 #[derive(Debug, Display, PartialEq, Eq)]
 #[display("{}{data_type}", InlineAttrs(attrs))]
 pub struct FnOutput {
-    pub attrs: Vec<FnOutputAttr>,
+    pub attrs: Vec<FnParamReturnAttr>,
     pub data_type: DataType,
 }
 
