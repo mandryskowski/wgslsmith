@@ -263,6 +263,7 @@ pub async fn run(
                     buffer,
                 });
             }
+            ResourceKind::Texture { .. } | ResourceKind::Sampler { .. } => todo!(),
         }
     }
 

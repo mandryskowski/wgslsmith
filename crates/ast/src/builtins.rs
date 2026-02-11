@@ -264,7 +264,7 @@ impl BuiltinFn {
                         TextureType::Multisampled { derived_type, .. } => {
                             DataType::Vector(4, derived_type)
                         }
-                        TextureType::Storage { format, .. } => DataType::Vector(4, F32),
+                        TextureType::Storage { .. } => DataType::Vector(4, F32),
                         TextureType::External => DataType::Vector(4, F32),
                     }
                 } else {

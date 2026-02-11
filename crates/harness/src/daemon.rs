@@ -186,7 +186,7 @@ pub fn daemon_exec(config: ConfigId) -> eyre::Result<()> {
         match bincode::decode_from_std_read(&mut reader, bincode::config::standard()) {
             Ok(res) => res,
             Err(e) => {
-                if let bincode::error::DecodeError::UnexpectedEnd { .. } = e {
+                if let bincode::error::DecodeError::UnexpectedEnd = e {
                     panic!("The harness daemon crashed or closed the connection unexpectedly.");
                 }
                 panic!("Unknown error {:?}", e);

@@ -531,21 +531,30 @@ impl Drop for BindGroupLayout {
 
 pub struct BindGroupEntry<'a> {
     pub binding: u32,
-    pub buffer: Option<&'a DeviceBuffer>,
-    pub texture_view: Option<&'a DeviceTextureView>,
-    pub sampler: Option<&'a DeviceSampler>,
+    pub resource: BindGroupEntryResource<'a>,
     pub size: usize,
+}
+
+pub enum BindGroupEntryResource<'a> {
+    Buffer(&'a DeviceBuffer),
+    TextureView(&'a DeviceTextureView),
+    Sampler(&'a DeviceSampler),
 }
 
 impl<'a> From<&BindGroupEntry<'a>> for WGPUBindGroupEntry {
     fn from(entry: &BindGroupEntry<'a>) -> Self {
+        let (buffer, texture_view, sampler) = match entry.resource {
+            BindGroupEntryResource::Buffer(b) => (b.handle, null_mut(), null_mut()),
+            BindGroupEntryResource::TextureView(t) => (null_mut(), t.handle, null_mut()),
+            BindGroupEntryResource::Sampler(s) => (null_mut(), null_mut(), s.handle),
+        };
         WGPUBindGroupEntry {
             binding: entry.binding,
-            buffer: entry.buffer.map(|b| b.handle).unwrap_or(null_mut()),
+            buffer,
             offset: 0,
             size: entry.size as _,
-            sampler: entry.sampler.map(|s| s.handle).unwrap_or(null_mut()),
-            textureView: entry.texture_view.map(|t| t.handle).unwrap_or(null_mut()),
+            sampler,
+            textureView: texture_view,
             nextInChain: null_mut(),
         }
     }

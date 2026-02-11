@@ -178,6 +178,7 @@ pub async fn run(
                     buffer,
                 })
             }
+            ResourceKind::Texture { .. } | ResourceKind::Sampler { .. } => todo!(),
         }
     }
 
@@ -207,7 +208,7 @@ pub async fn run(
             .or_insert_with(Vec::new)
             .push(BindGroupEntry {
                 binding,
-                buffer: buffer_obj,
+                resource: BindGroupEntryResource::Buffer(buffer_obj),
                 size,
             });
     }

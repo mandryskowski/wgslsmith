@@ -347,11 +347,7 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
                             "builtin" => StructMemberAttr::Builtin(arg.parse().unwrap()),
                             "interpolate" => {
                                 let ty = arg.parse().unwrap();
-                                let sample = if let Some(arg) = pairs.next() {
-                                    Some(arg.as_str().parse().unwrap())
-                                } else {
-                                    None
-                                };
+                                let sample = pairs.next().map(|arg| arg.as_str().parse().unwrap());
                                 StructMemberAttr::Interpolate(ty, sample)
                             }
                             "location" => StructMemberAttr::Location(arg.parse().unwrap()),
