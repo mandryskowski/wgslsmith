@@ -28,6 +28,13 @@ impl Writer {
             writeln!(f)?;
         }
 
+        for require in &module.requires {
+            writeln!(f, "requires {require};")?;
+        }
+        if !module.requires.is_empty() {
+            writeln!(f)?;
+        }
+
         for decl in &module.structs {
             self.write_struct(f, decl)?;
             writeln!(f)?;

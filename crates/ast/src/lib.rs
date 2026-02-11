@@ -24,6 +24,7 @@ pub use types::{DataType, ScalarType};
 #[derive(Debug, PartialEq)]
 pub struct Module {
     pub enables: Vec<EnableExtension>,
+    pub requires: Vec<RequiresExtension>,
     pub aliases: Vec<AliasDecl>,
     pub structs: Vec<Rc<StructDecl>>,
     pub consts: Vec<GlobalConstDecl>,

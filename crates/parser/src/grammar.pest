@@ -215,10 +215,12 @@ struct_member = { attribute_list* ~ ident ~ ":" ~ type_decl }
 
 type_alias_decl = { "alias" ~ ident ~ "=" ~ type_decl }
 
-enable_directive = { "enable" ~ ident ~ ";" }
+enable_directive   = { "enable" ~ ident ~ ";" }
+requires_directive = { "requires" ~ ident ~ ";" }
 
 global_decl = {
     enable_directive |
+    requires_directive |
     type_alias_decl ~ ";" |
     global_constant_decl ~ ";" |
     global_variable_decl ~ ";" |

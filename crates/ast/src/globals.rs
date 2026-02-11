@@ -114,6 +114,25 @@ pub enum EnableExtension {
     Subgroups,
 }
 
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    bincode::Encode,
+    bincode::Decode,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum RequiresExtension {
+    TexelBuffers,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AliasDecl {
     pub name: String,

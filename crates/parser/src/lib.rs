@@ -119,6 +119,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
         .collect::<Vec<_>>();
 
     let mut enables = vec![];
+    let mut requires = vec![];
     let mut aliases = vec![];
     let mut functions = vec![];
     let mut structs = vec![];
@@ -128,6 +129,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
     for decl in decls {
         match decl {
             GlobalDecl::Enable(decl) => enables.push(decl),
+            GlobalDecl::Requires(decl) => requires.push(decl),
             GlobalDecl::Alias(decl) => aliases.push(decl),
             GlobalDecl::Const(decl) => consts.push(decl),
             GlobalDecl::Var(decl) => vars.push(decl),
@@ -138,6 +140,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
 
     Module {
         enables,
+        requires,
         aliases,
         functions,
         structs,
@@ -148,6 +151,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
 
 enum GlobalDecl {
     Enable(ast::EnableExtension),
+    Requires(ast::RequiresExtension),
     Alias(AliasDecl),
     Const(GlobalConstDecl),
     Var(GlobalVarDecl),
@@ -159,6 +163,7 @@ fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
     let pair = pair.into_inner().next().unwrap();
     match pair.as_rule() {
         Rule::enable_directive => GlobalDecl::Enable(parse_enable_directive(pair)),
+        Rule::requires_directive => GlobalDecl::Requires(parse_requires_directive(pair)),
         Rule::type_alias_decl => GlobalDecl::Alias(parse_alias_decl(pair, env)),
         Rule::global_constant_decl => GlobalDecl::Const(parse_global_const_decl(pair, env)),
         Rule::global_variable_decl => GlobalDecl::Var(parse_global_variable_decl(pair, env)),
@@ -173,6 +178,13 @@ fn parse_enable_directive(pair: Pair<Rule>) -> ast::EnableExtension {
         "f16" => ast::EnableExtension::F16,
         "subgroups" => ast::EnableExtension::Subgroups,
         ext => panic!("unsupported enable extension: {}", ext),
+    }
+}
+
+fn parse_requires_directive(pair: Pair<Rule>) -> ast::RequiresExtension {
+    match pair.into_inner().next().unwrap().as_str() {
+        "texel_buffers" => ast::RequiresExtension::TexelBuffers,
+        ext => panic!("unsupported requires extension: {}", ext),
     }
 }
 
