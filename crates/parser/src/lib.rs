@@ -1290,7 +1290,16 @@ fn parse_call_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
     let func_result = env.func(&ident_str, args.iter().map(|arg| &arg.data_type));
 
     if func_result.is_none() {
-        panic!("`{}` not found", FunSig(ident_str.clone(), &args));
+        // If there is no matching function ident, try parsing as aliased TypeCons
+        let ty = env
+            .ty(ident_str.as_str())
+            .unwrap_or_else(|| panic!("`{}` not found", FunSig(ident_str.clone(), &args)))
+            .clone();
+        return TypeConsExpr {
+            data_type: ty,
+            args: args,
+        }
+        .into();
     }
 
     let return_type = func_result.unwrap().unwrap_or_else(|| {
