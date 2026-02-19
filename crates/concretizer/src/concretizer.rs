@@ -347,11 +347,26 @@ impl Concretizer {
                     .collect(),
             )
             .into(),
-            Statement::Loop(LoopStatement { body }) => {
+            Statement::Loop(LoopStatement { body, continuing }) => {
+                self.enter_scope();
+                let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
+                let new_continuing = continuing.map(|c| ContinuingBlock {
+                    stmts: c
+                        .stmts
+                        .into_iter()
+                        .map(|s| self.concretize_stmt(s))
+                        .collect(),
+                    break_if: c.break_if.map(|e| self.concretize_expr(e).into()),
+                });
+                self.exit_scope();
+                LoopStatement::new(new_body, new_continuing).into()
+            }
+            Statement::While(WhileStatement { condition, body }) => {
+                let new_condition = self.concretize_expr(condition).into();
                 self.enter_scope();
                 let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
                 self.exit_scope();
-                LoopStatement::new(new_body).into()
+                WhileStatement::new(new_condition, new_body).into()
             }
             Statement::ForLoop(ForLoopStatement { header, body }) => {
                 // For loop scope covers init, cond, update, and body?

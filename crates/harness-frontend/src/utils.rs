@@ -73,6 +73,20 @@ fn visit_stmt(vars: &mut HashSet<String>, stmt: &Statement) {
             for stmt in &stmt.body {
                 visit_stmt(vars, stmt);
             }
+            if let Some(continuing) = &stmt.continuing {
+                for stmt in &continuing.stmts {
+                    visit_stmt(vars, stmt);
+                }
+                if let Some(break_if) = &continuing.break_if {
+                    visit_expr(vars, break_if);
+                }
+            }
+        }
+        Statement::While(stmt) => {
+            visit_expr(vars, &stmt.condition);
+            for stmt in &stmt.body {
+                visit_stmt(vars, stmt);
+            }
         }
         Statement::Break => {}
         Statement::Switch(stmt) => {

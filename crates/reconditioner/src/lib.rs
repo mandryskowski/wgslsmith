@@ -221,9 +221,25 @@ impl Reconditioner {
                 value: value.map(|e| self.recondition_expr(e)),
             }
             .into(),
-            Statement::Loop(LoopStatement { body }) => {
-                LoopStatement::new(self.recondition_loop_body(body)).into()
-            }
+            Statement::Loop(LoopStatement { body, continuing }) => LoopStatement::new(
+                self.recondition_loop_body(body),
+                continuing.map(|ContinuingBlock { stmts, break_if }| ContinuingBlock {
+                    stmts: stmts
+                        .into_iter()
+                        .map(|s| self.recondition_stmt(s))
+                        .collect(),
+                    break_if: break_if.map(|e| self.recondition_expr(e)),
+                }),
+            )
+            .into(),
+            Statement::While(stmt) => Statement::While(WhileStatement {
+                condition: self.recondition_expr(stmt.condition),
+                body: stmt
+                    .body
+                    .into_iter()
+                    .map(|s| self.recondition_stmt(s))
+                    .collect(),
+            }),
             Statement::Break => Statement::Break,
             Statement::Switch(SwitchStatement {
                 selector,

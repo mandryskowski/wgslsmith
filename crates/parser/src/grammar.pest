@@ -153,9 +153,12 @@ decrement_statement  = { lhs_expression ~ op_decrement }
 compound_statement   = { "{" ~ statement* ~ "}" }
 if_statement         = { "if" ~ paren_expression ~ compound_statement ~ ("else" ~ (compound_statement | if_statement))? }
 return_statement     = { "return" ~ expression? }
-loop_statement       = { "loop" ~ compound_statement }
+loop_statement       = { "loop" ~ "{" ~ statement* ~ continuing_statement? ~ "}" }
+while_statement      = { "while" ~ paren_expression ~ compound_statement }
 break_statement      = { "break" }
+break_if_statement   = { "break" ~ "if" ~ expression }
 continue_statement   = { "continue" }
+continuing_statement   = { "continuing" ~ "{" ~ statement* ~ (break_if_statement ~ ";")? ~ "}" }
 fallthrough_statement = { "fallthrough" }
 call_statement       = { call_expression }
 
@@ -179,6 +182,7 @@ statement = {
     const_statement ~ ";" |
     if_statement |
     loop_statement |
+    while_statement |
     return_statement ~ ";" |
     break_statement ~ ";" |
     compound_statement |

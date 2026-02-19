@@ -405,11 +405,12 @@ impl Display for ReturnStatement {
 #[derive(Debug, PartialEq)]
 pub struct LoopStatement {
     pub body: Vec<Statement>,
+    pub continuing: Option<ContinuingBlock>,
 }
 
 impl LoopStatement {
-    pub fn new(body: Vec<Statement>) -> Self {
-        Self { body }
+    pub fn new(body: Vec<Statement>, continuing: Option<ContinuingBlock>) -> Self {
+        Self { body, continuing }
     }
 }
 
@@ -418,6 +419,67 @@ impl Display for LoopStatement {
         writeln!(f, "loop {{")?;
 
         for stmt in &self.body {
+            writeln!(indented(f), "{}", stmt)?;
+        }
+
+        if let Some(continuing) = &self.continuing {
+            writeln!(indented(f), "{}", continuing)?;
+        }
+
+        write!(f, "}}")
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ContinuingBlock {
+    pub stmts: Vec<Statement>,
+    pub break_if: Option<ExprNode>,
+}
+
+impl ContinuingBlock {
+    pub fn new(stmts: Vec<Statement>, break_if: Option<impl Into<ExprNode>>) -> Self {
+        Self {
+            stmts,
+            break_if: break_if.map(|it| it.into()),
+        }
+    }
+}
+
+impl Display for ContinuingBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "continuing {{")?;
+
+        for stmt in &self.stmts {
+            writeln!(indented(f), "{}", stmt)?;
+        }
+
+        if let Some(break_if) = &self.break_if {
+            writeln!(indented(f), "break if {};", break_if)?;
+        }
+
+        write!(f, "}}")
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct WhileStatement {
+    pub condition: ExprNode,
+    pub body: Vec<Statement>,
+}
+
+impl WhileStatement {
+    pub fn new(condition: ExprNode, body: Vec<Statement>) -> Self {
+        Self { condition, body }
+    }
+}
+
+impl Display for WhileStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let WhileStatement { condition, body } = self;
+
+        writeln!(f, "while ({condition}) {{")?;
+
+        for stmt in body {
             writeln!(indented(f), "{}", stmt)?;
         }
 
@@ -591,6 +653,7 @@ pub enum Statement {
     If(IfStatement),
     Return(ReturnStatement),
     Loop(LoopStatement),
+    While(WhileStatement),
     Break,
     Continue,
     Switch(SwitchStatement),
@@ -632,6 +695,7 @@ impl Display for Statement {
             Statement::If(stmt) => stmt.fmt(f),
             Statement::Return(stmt) => write!(f, "{stmt};"),
             Statement::Loop(stmt) => stmt.fmt(f),
+            Statement::While(stmt) => stmt.fmt(f),
             Statement::Break => write!(f, "break;"),
             Statement::Continue => write!(f, "continue;"),
             Statement::Fallthrough => write!(f, "fallthrough;"),
