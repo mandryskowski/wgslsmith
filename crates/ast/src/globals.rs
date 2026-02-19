@@ -87,13 +87,6 @@ impl GlobalVarDecl {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct GlobalConstDecl {
-    pub name: String,
-    pub data_type: DataType,
-    pub initializer: ExprNode,
-}
-
 #[derive(
     Clone,
     Copy,

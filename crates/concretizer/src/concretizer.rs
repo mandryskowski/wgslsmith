@@ -187,11 +187,11 @@ impl Concretizer {
         }
     }
 
-    pub fn register_global_consts(&mut self, consts: &[GlobalConstDecl]) {
+    pub fn register_global_consts(&mut self, consts: &[ConstDeclStatement]) {
         for decl in consts {
             let con_node = self.concretize_expr(decl.initializer.clone());
             if let Some(val) = con_node.value {
-                self.global_constants.insert(decl.name.clone(), val);
+                self.global_constants.insert(decl.ident.clone(), val);
             }
         }
     }
@@ -722,7 +722,7 @@ impl Concretizer {
 
     fn default_node(&self, data_type: DataType) -> ConNode {
         if self.error_handling == ErrorHandling::Panic {
-            panic!("Invalid expression")
+            panic!("Invalid expression of type {data_type}")
         }
         match data_type {
             DataType::Scalar(ty) => match ty {

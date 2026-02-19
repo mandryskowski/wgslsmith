@@ -153,7 +153,7 @@ enum GlobalDecl {
     Enable(ast::EnableExtension),
     Requires(ast::RequiresExtension),
     Alias(AliasDecl),
-    Const(GlobalConstDecl),
+    Const(ConstDeclStatement),
     Var(GlobalVarDecl),
     Struct(Rc<StructDecl>),
     Fn(FnDecl),
@@ -188,10 +188,10 @@ fn parse_requires_directive(pair: Pair<Rule>) -> ast::RequiresExtension {
     }
 }
 
-fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalConstDecl {
+fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> ConstDeclStatement {
     let mut pairs = pair.into_inner().peekable();
 
-    let name = pairs.next().unwrap().as_str().to_owned();
+    let ident = pairs.next().unwrap().as_str().to_owned();
     let mut data_type = None;
 
     if let Some(pair) = pairs.peek() {
@@ -204,7 +204,7 @@ fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalCon
     let expr = parse_expression(pairs.next().unwrap(), env, data_type.as_ref());
     let data_type = data_type.unwrap_or_else(|| expr.data_type.clone());
 
-    env.insert_var(name.clone(), data_type.clone());
+    env.insert_var(ident.clone(), data_type.clone());
 
     let mut concretizer = Concretizer::new(Options {
         error_handling: ErrorHandling::Panic,
@@ -215,12 +215,12 @@ fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalCon
 
     let val = concretizer.concretize_expr(expr.clone()).value;
     if let Some(val) = val {
-        env.insert_const(name.clone(), val);
+        env.insert_const(ident.clone(), val);
     }
 
-    GlobalConstDecl {
-        name,
-        data_type,
+    ConstDeclStatement {
+        ident,
+        data_type: Some(data_type),
         initializer: expr,
     }
 }

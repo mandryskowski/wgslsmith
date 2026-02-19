@@ -27,7 +27,7 @@ pub struct Module {
     pub requires: Vec<RequiresExtension>,
     pub aliases: Vec<AliasDecl>,
     pub structs: Vec<Rc<StructDecl>>,
-    pub consts: Vec<GlobalConstDecl>,
+    pub consts: Vec<ConstDeclStatement>,
     pub vars: Vec<GlobalVarDecl>,
     pub functions: Vec<FnDecl>,
 }
