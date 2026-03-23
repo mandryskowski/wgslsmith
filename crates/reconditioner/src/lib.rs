@@ -562,7 +562,17 @@ impl Reconditioner {
             None => {
                 let array_expr = array_expr.expect("runtime array needs expression");
                 let addr = UnOpExpr::new(UnOp::AddressOf, array_expr).into();
-                FnCallExpr::new("arrayLength", vec![addr]).into_node(ScalarType::U32)
+                match index.data_type.as_scalar().unwrap() {
+                    ScalarType::I32 => TypeConsExpr::new(
+                        ScalarType::I32.into(),
+                        vec![FnCallExpr::new("arrayLength", vec![addr]).into_node(ScalarType::U32)],
+                    )
+                    .into(),
+                    ScalarType::U32 => {
+                        FnCallExpr::new("arrayLength", vec![addr]).into_node(ScalarType::U32)
+                    }
+                    _ => unreachable!("index expression must be an integer"),
+                }
             }
         };
 
