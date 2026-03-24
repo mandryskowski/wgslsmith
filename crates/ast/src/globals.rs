@@ -23,6 +23,8 @@ pub enum StorageClass {
     Uniform,
     #[display("storage")]
     Storage,
+    #[display("handle")]
+    Handle,
 }
 
 impl StorageClass {
@@ -33,6 +35,7 @@ impl StorageClass {
             StorageClass::WorkGroup => AccessMode::ReadWrite,
             StorageClass::Uniform => AccessMode::Read,
             StorageClass::Storage => AccessMode::Read,
+            StorageClass::Handle => AccessMode::Read,
         }
     }
 }
@@ -84,9 +87,53 @@ impl GlobalVarDecl {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct GlobalConstDecl {
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    bincode::Encode,
+    bincode::Decode,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum EnableExtension {
+    F16,
+    Subgroups,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    bincode::Encode,
+    bincode::Decode,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum RequiresExtension {
+    TexelBuffers,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AliasDecl {
     pub name: String,
     pub data_type: DataType,
-    pub initializer: ExprNode,
+}
+
+impl std::fmt::Display for AliasDecl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "alias {} = {};", self.name, self.data_type)
+    }
 }

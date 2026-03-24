@@ -1,179 +1,295 @@
 use std::collections::HashSet;
 
 use ast::{
-    AssignmentLhs, Expr, ExprNode, ForLoopInit, ForLoopUpdate, LhsExpr, LhsExprNode, Module,
-    Postfix, Statement,
+    AssignmentLhs, Else, Expr, ExprNode, ForLoopInit, ForLoopUpdate, IfStatement, LhsExpr,
+    LhsExprNode, Module, Postfix, Statement,
 };
 
 pub fn remove_accessed_vars(vars: &mut HashSet<String>, module: &Module) {
+    let mut visitor = VarVisitor {
+        vars,
+        locals: vec![HashSet::new()],
+    };
+
     for decl in &module.functions {
+        visitor.visit_fn_decl(decl);
+    }
+}
+
+struct VarVisitor<'a> {
+    vars: &'a mut HashSet<String>,
+    locals: Vec<HashSet<String>>,
+}
+
+impl<'a> VarVisitor<'a> {
+    fn is_shadowed(&self, ident: &str) -> bool {
+        self.locals.iter().any(|scope| scope.contains(ident))
+    }
+
+    fn enter_scope(&mut self) {
+        self.locals.push(HashSet::new());
+    }
+
+    fn exit_scope(&mut self) {
+        self.locals.pop();
+    }
+
+    fn add_local(&mut self, ident: &str) {
+        if let Some(scope) = self.locals.last_mut() {
+            scope.insert(ident.to_string());
+        }
+    }
+
+    fn visit_fn_decl(&mut self, decl: &ast::FnDecl) {
+        self.enter_scope();
+        for param in &decl.inputs {
+            self.add_local(&param.name);
+        }
+
+        self.enter_scope();
         for stmt in &decl.body {
-            visit_stmt(vars, stmt);
+            self.visit_stmt(stmt);
         }
+        self.exit_scope();
+
+        self.exit_scope();
     }
-}
 
-fn visit_stmt(vars: &mut HashSet<String>, stmt: &Statement) {
-    match stmt {
-        Statement::LetDecl(decl) => visit_expr(vars, &decl.initializer),
-        Statement::VarDecl(decl) => {
-            if let Some(init) = &decl.initializer {
-                visit_expr(vars, init);
+    fn visit_stmt(&mut self, stmt: &Statement) {
+        match stmt {
+            Statement::LetDecl(s) => {
+                self.visit_expr_node(&s.initializer);
+                self.add_local(&s.ident);
             }
-        }
-        Statement::Assignment(stmt) => {
-            match &stmt.lhs {
-                AssignmentLhs::Phony => {}
-                AssignmentLhs::Expr(expr) => visit_lhs_expr(vars, expr),
+            Statement::ConstDecl(s) => {
+                self.visit_expr_node(&s.initializer);
+                self.add_local(&s.ident);
             }
-
-            visit_expr(vars, &stmt.rhs);
-        }
-        Statement::Compound(stmts) => {
-            for stmt in stmts {
-                visit_stmt(vars, stmt);
+            Statement::VarDecl(s) => {
+                if let Some(init) = &s.initializer {
+                    self.visit_expr_node(init);
+                }
+                self.add_local(&s.ident);
             }
-        }
-        Statement::If(stmt) => {
-            visit_expr(vars, &stmt.condition);
-
-            for stmt in &stmt.body {
-                visit_stmt(vars, stmt);
+            Statement::Assignment(s) => {
+                self.visit_assignment_lhs(&s.lhs);
+                self.visit_expr_node(&s.rhs);
             }
-
-            let mut else_ = stmt.else_.as_deref();
-            while let Some(e) = else_ {
-                match e {
-                    ast::Else::If(stmt) => {
-                        visit_expr(vars, &stmt.condition);
-
-                        for stmt in &stmt.body {
-                            visit_stmt(vars, stmt);
-                        }
-
-                        else_ = stmt.else_.as_deref();
-                    }
-                    ast::Else::Else(body) => {
-                        for stmt in body {
-                            visit_stmt(vars, stmt);
-                        }
-
-                        else_ = None;
-                    }
+            Statement::Compound(stmts) => {
+                self.enter_scope();
+                for s in stmts {
+                    self.visit_stmt(s);
+                }
+                self.exit_scope();
+            }
+            Statement::If(s) => {
+                self.visit_if(s);
+            }
+            Statement::Return(s) => {
+                if let Some(v) = &s.value {
+                    self.visit_expr_node(v);
                 }
             }
-        }
-        Statement::Return(stmt) => {
-            if let Some(e) = &stmt.value {
-                visit_expr(vars, e);
-            }
-        }
-        Statement::Loop(stmt) => {
-            for stmt in &stmt.body {
-                visit_stmt(vars, stmt);
-            }
-        }
-        Statement::Break => {}
-        Statement::Switch(stmt) => {
-            visit_expr(vars, &stmt.selector);
+            Statement::Loop(s) => {
+                self.enter_scope();
+                for stmt in &s.body {
+                    self.visit_stmt(stmt);
+                }
+                self.exit_scope();
 
-            for case in &stmt.cases {
-                for stmt in &case.body {
-                    visit_stmt(vars, stmt);
+                if let Some(c) = &s.continuing {
+                    self.enter_scope();
+                    for stmt in &c.stmts {
+                        self.visit_stmt(stmt);
+                    }
+                    if let Some(e) = &c.break_if {
+                        self.visit_expr_node(e);
+                    }
+                    self.exit_scope();
                 }
             }
-
-            for stmt in &stmt.default {
-                visit_stmt(vars, stmt);
+            Statement::While(s) => {
+                self.visit_expr_node(&s.condition);
+                self.enter_scope();
+                for stmt in &s.body {
+                    self.visit_stmt(stmt);
+                }
+                self.exit_scope();
             }
-        }
-        Statement::ForLoop(stmt) => {
-            if let Some(init) = &stmt.header.init {
-                match init {
-                    ForLoopInit::VarDecl(stmt) => {
-                        if let Some(init) = &stmt.initializer {
-                            visit_expr(vars, init);
+            Statement::Break | Statement::Continue | Statement::Fallthrough => {}
+            Statement::Switch(s) => {
+                self.visit_expr_node(&s.selector);
+                for case in &s.cases {
+                    self.visit_expr_node(&case.selector);
+                    self.enter_scope();
+                    for stmt in &case.body {
+                        self.visit_stmt(stmt);
+                    }
+                    self.exit_scope();
+                }
+                self.enter_scope();
+                for stmt in &s.default {
+                    self.visit_stmt(stmt);
+                }
+                self.exit_scope();
+            }
+            Statement::ForLoop(s) => {
+                self.enter_scope();
+
+                if let Some(init) = &s.header.init {
+                    match init {
+                        ForLoopInit::VarDecl(v) => {
+                            if let Some(i) = &v.initializer {
+                                self.visit_expr_node(i);
+                            }
+                            self.add_local(&v.ident);
                         }
                     }
                 }
-            }
 
-            if let Some(condition) = &stmt.header.condition {
-                visit_expr(vars, condition);
-            }
+                if let Some(cond) = &s.header.condition {
+                    self.visit_expr_node(cond);
+                }
 
-            if let Some(update) = &stmt.header.update {
-                match update {
-                    ForLoopUpdate::Assignment(stmt) => {
-                        match &stmt.lhs {
-                            AssignmentLhs::Phony => {}
-                            AssignmentLhs::Expr(expr) => visit_lhs_expr(vars, expr),
+                if let Some(upd) = &s.header.update {
+                    match upd {
+                        ForLoopUpdate::Assignment(a) => {
+                            self.visit_assignment_lhs(&a.lhs);
+                            self.visit_expr_node(&a.rhs);
                         }
-
-                        visit_expr(vars, &stmt.rhs);
+                        ForLoopUpdate::Increment(inc) => {
+                            self.visit_assignment_lhs(&inc.lhs);
+                        }
+                        ForLoopUpdate::Decrement(dec) => {
+                            self.visit_assignment_lhs(&dec.lhs);
+                        }
                     }
                 }
-            }
 
-            for stmt in &stmt.body {
-                visit_stmt(vars, stmt);
-            }
-        }
-        Statement::FnCall(stmt) => {
-            for arg in &stmt.args {
-                visit_expr(vars, arg);
-            }
-        }
-        Statement::Continue => {}
-        Statement::Fallthrough => {}
-    }
-}
+                self.enter_scope();
+                for stmt in &s.body {
+                    self.visit_stmt(stmt);
+                }
+                self.exit_scope();
 
-fn visit_lhs_expr(vars: &mut HashSet<String>, node: &LhsExprNode) {
-    match &node.expr {
-        LhsExpr::Ident(ident) => {
-            vars.remove(ident);
-        }
-        LhsExpr::Postfix(expr, postfix) => {
-            visit_lhs_expr(vars, expr);
-            visit_postfix(vars, postfix);
-        }
-        LhsExpr::Deref(expr) => visit_lhs_expr(vars, expr),
-        LhsExpr::AddressOf(expr) => visit_lhs_expr(vars, expr),
-    }
-}
-
-fn visit_expr(vars: &mut HashSet<String>, node: &ExprNode) {
-    match &node.expr {
-        Expr::Lit(_) => {}
-        Expr::TypeCons(expr) => {
-            for arg in &expr.args {
-                visit_expr(vars, arg);
+                self.exit_scope();
             }
-        }
-        Expr::Var(expr) => {
-            vars.remove(expr.ident.as_str());
-        }
-        Expr::Postfix(expr) => {
-            visit_expr(vars, &expr.inner);
-            visit_postfix(vars, &expr.postfix);
-        }
-        Expr::UnOp(expr) => visit_expr(vars, &expr.inner),
-        Expr::BinOp(expr) => {
-            visit_expr(vars, &expr.left);
-            visit_expr(vars, &expr.right);
-        }
-        Expr::FnCall(expr) => {
-            for arg in &expr.args {
-                visit_expr(vars, arg);
+            Statement::FnCall(s) => {
+                for arg in &s.args {
+                    self.visit_expr_node(arg);
+                }
+            }
+            Statement::Increment(s) => {
+                self.visit_assignment_lhs(&s.lhs);
+            }
+            Statement::Decrement(s) => {
+                self.visit_assignment_lhs(&s.lhs);
             }
         }
     }
-}
 
-fn visit_postfix(vars: &mut HashSet<String>, postfix: &Postfix) {
-    match postfix {
-        Postfix::Index(index) => visit_expr(vars, index),
-        Postfix::Member(_) => {}
+    fn visit_if(&mut self, s: &IfStatement) {
+        self.visit_expr_node(&s.condition);
+        self.enter_scope();
+        for stmt in &s.body {
+            self.visit_stmt(stmt);
+        }
+        self.exit_scope();
+        if let Some(e) = &s.else_ {
+            self.visit_else(e);
+        }
+    }
+
+    fn visit_else(&mut self, else_: &Else) {
+        match else_ {
+            Else::If(s) => {
+                self.visit_if(s);
+            }
+            Else::Else(stmts) => {
+                self.enter_scope();
+                for s in stmts {
+                    self.visit_stmt(s);
+                }
+                self.exit_scope();
+            }
+        }
+    }
+
+    fn visit_expr_node(&mut self, expr_node: &ExprNode) {
+        self.visit_expr(&expr_node.expr);
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Lit(_) => {}
+            Expr::TypeCons(e) => {
+                for arg in &e.args {
+                    self.visit_expr_node(arg);
+                }
+            }
+            Expr::Var(v) => {
+                if !self.is_shadowed(&v.ident) {
+                    self.vars.remove(&v.ident);
+                }
+            }
+            Expr::Postfix(e) => {
+                self.visit_expr_node(&e.inner);
+                self.visit_postfix(&e.postfix);
+            }
+            Expr::UnOp(e) => {
+                self.visit_expr_node(&e.inner);
+            }
+            Expr::BinOp(e) => {
+                self.visit_expr_node(&e.left);
+                self.visit_expr_node(&e.right);
+            }
+            Expr::FnCall(e) => {
+                for arg in &e.args {
+                    self.visit_expr_node(arg);
+                }
+            }
+        }
+    }
+
+    fn visit_lhs_expr_node(&mut self, lhs_expr_node: &LhsExprNode) {
+        self.visit_lhs_expr(&lhs_expr_node.expr);
+    }
+
+    fn visit_lhs_expr(&mut self, lhs_expr: &LhsExpr) {
+        match lhs_expr {
+            LhsExpr::Ident(ident) => {
+                if !self.is_shadowed(ident) {
+                    self.vars.remove(ident);
+                }
+            }
+            LhsExpr::Postfix(e, postfix) => {
+                self.visit_lhs_expr_node(e);
+                self.visit_postfix(postfix);
+            }
+            LhsExpr::Deref(e) => {
+                self.visit_lhs_expr_node(e);
+            }
+            LhsExpr::AddressOf(e) => {
+                self.visit_lhs_expr_node(e);
+            }
+        }
+    }
+
+    fn visit_assignment_lhs(&mut self, lhs: &AssignmentLhs) {
+        match lhs {
+            AssignmentLhs::Phony => {}
+            AssignmentLhs::Expr(e) => {
+                self.visit_lhs_expr_node(e);
+            }
+        }
+    }
+
+    fn visit_postfix(&mut self, postfix: &Postfix) {
+        match postfix {
+            Postfix::Index(e) => {
+                self.visit_expr_node(e);
+            }
+            Postfix::Member(_) => {}
+        }
     }
 }

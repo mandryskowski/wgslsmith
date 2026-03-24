@@ -21,11 +21,9 @@ pub struct Options {
     #[clap(long, action)]
     parallelism: Option<usize>,
 
-    /// Limit the number of parallel configurations executing a shader at once.
-    ///
-    /// If not provided, execution will spawn a thread for every configuration.
-    #[clap(long, short = 'j', action)]
-    config_parallelism: Option<usize>,
+    /// Specify the number of parallel configurations executing a shader at once.
+    #[clap(long, short = 'j', action, default_value = "1")]
+    config_parallelism: usize,
 
     #[clap(long, action, default_value = "false")]
     pub use_daemon: bool,
@@ -77,7 +75,7 @@ fn handle_run_request<W: io::Write + Send>(
     cmd: &HarnessCommand,
     req: RunRequest,
     writer: W,
-    config_parallelism: Option<usize>,
+    config_parallelism: usize,
 ) -> eyre::Result<()> {
     let writer = Mutex::new(writer);
 

@@ -10,6 +10,7 @@ pub enum Lit {
     I32(i32),
     U32(u32),
     F32(f32),
+    F16(half::f16),
 }
 
 impl Lit {
@@ -19,6 +20,7 @@ impl Lit {
             Lit::I32(_) => ScalarType::I32.into(),
             Lit::U32(_) => ScalarType::U32.into(),
             Lit::F32(_) => ScalarType::F32.into(),
+            Lit::F16(_) => ScalarType::F16.into(),
         }
     }
 }
@@ -38,6 +40,7 @@ impl Display for Lit {
             }
             Lit::U32(v) => write!(f, "{v}u"),
             Lit::F32(v) => write!(f, "{v}f"),
+            Lit::F16(v) => write!(f, "{v}h"),
         }
     }
 }
@@ -220,6 +223,7 @@ impl Postfix {
         match self {
             Postfix::Index(_) => match ty {
                 DataType::Vector(_, t) => DataType::Scalar(*t),
+                DataType::Matrix(_, r, t) => DataType::Vector(*r, *t),
                 DataType::Array(t, _) => (**t).clone(),
                 ty => panic!("index operator cannot be applied to type `{ty}`"),
             },
@@ -309,6 +313,7 @@ impl Display for UnOpExpr {
         if matches!(inner.expr, Expr::UnOp(_) | Expr::BinOp(_))
             || matches!(inner.expr, Expr::Lit(Lit::I32(v)) if v < 0)
             || matches!(inner.expr, Expr::Lit(Lit::F32(v)) if v < 0.0)
+            || matches!(inner.expr, Expr::Lit(Lit::F16(v)) if v < half::f16::from_f32(0.0))
         {
             write!(f, "{op}({inner})")
         } else {
@@ -370,10 +375,10 @@ impl Display for BinOpExpr {
     }
 }
 
-#[derive(Clone, Debug, Display, PartialEq)]
-#[display("{ident}({})", crate::FmtArgs(args))]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FnCallExpr {
     pub ident: String,
+    pub template_args: Vec<DataType>, // for bitcast
     pub args: Vec<ExprNode>,
 }
 
@@ -381,6 +386,7 @@ impl FnCallExpr {
     pub fn new(ident: impl Into<String>, args: Vec<ExprNode>) -> Self {
         Self {
             ident: ident.into(),
+            template_args: vec![],
             args,
         }
     }
@@ -390,6 +396,25 @@ impl FnCallExpr {
             data_type: return_type.into(),
             expr: self.into(),
         }
+    }
+}
+
+impl Display for FnCallExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.ident)?;
+
+        if !self.template_args.is_empty() {
+            write!(f, "<")?;
+            for (i, t) in self.template_args.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}", t)?;
+            }
+            write!(f, ">")?;
+        }
+
+        write!(f, "({})", crate::FmtArgs(&self.args))
     }
 }
 

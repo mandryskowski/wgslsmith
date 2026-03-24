@@ -92,7 +92,7 @@ pub fn execute(cmd: HarnessCommand, options: RunOptions) -> eyre::Result<()> {
             pipeline_desc: &PipelineDescription,
             configs: &[ConfigId],
             timeout: Option<Duration>,
-            parallelism: Option<usize>,
+            parallelism: usize,
             on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
         ) -> Result<(), ExecutionError> {
             crate::execute::<_>(

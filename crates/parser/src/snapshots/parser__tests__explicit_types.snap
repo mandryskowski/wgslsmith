@@ -1,0 +1,62 @@
+---
+source: crates/parser/src/lib.rs
+assertion_line: 1024
+expression: module
+---
+Module {
+    structs: [],
+    consts: [],
+    vars: [],
+    functions: [
+        FnDecl {
+            attrs: [],
+            name: "main",
+            inputs: [],
+            output: None,
+            body: [
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "x",
+                        data_type: Some(
+                            Scalar(
+                                I32,
+                            ),
+                        ),
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                I32,
+                            ),
+                            expr: Lit(
+                                I32(
+                                    0,
+                                ),
+                            ),
+                        },
+                    },
+                ),
+                VarDecl(
+                    VarDeclStatement {
+                        ident: "y",
+                        data_type: Some(
+                            Scalar(
+                                F32,
+                            ),
+                        ),
+                        initializer: Some(
+                            ExprNode {
+                                data_type: Scalar(
+                                    F32,
+                                ),
+                                expr: Lit(
+                                    F32(
+                                        1.0,
+                                    ),
+                                ),
+                            },
+                        ),
+                    },
+                ),
+            ],
+        },
+    ],
+}

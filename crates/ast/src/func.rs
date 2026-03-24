@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use derive_more::Display;
 
+use crate::builtins::BuiltinValue;
 use crate::stmt::Statement;
 use crate::types::DataType;
 
@@ -23,27 +24,20 @@ pub enum FnAttr {
     WorkgroupSize(u32),
 }
 
-#[derive(Debug, Display, PartialEq, Eq, strum::AsRefStr, strum::EnumIter, strum::EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum BuiltinValue {
-    LocalInvocationId,
-    LocalInvocationIndex,
-    GlobalInvocationId,
-    WorkgroupId,
-    NumWorkgroups,
-}
-#[derive(Debug, Display, PartialEq, Eq)]
-pub enum FnInputAttr {
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+pub enum FnParamReturnAttr {
+    #[display("builtin({_0})")]
     Builtin(BuiltinValue),
+    #[display("invariant")]
+    Invariant,
+    #[display("location({_0})")]
+    Location(u32),
 }
-
-#[derive(Debug, Display, PartialEq, Eq)]
-pub enum FnOutputAttr {}
 
 #[derive(Debug, Display, PartialEq, Eq)]
 #[display("{}{name}: {data_type}", InlineAttrs(attrs))]
 pub struct FnInput {
-    pub attrs: Vec<FnInputAttr>,
+    pub attrs: Vec<FnParamReturnAttr>,
     pub name: String,
     pub data_type: DataType,
 }
@@ -61,7 +55,7 @@ impl FnInput {
 #[derive(Debug, Display, PartialEq, Eq)]
 #[display("{}{data_type}", InlineAttrs(attrs))]
 pub struct FnOutput {
-    pub attrs: Vec<FnOutputAttr>,
+    pub attrs: Vec<FnParamReturnAttr>,
     pub data_type: DataType,
 }
 

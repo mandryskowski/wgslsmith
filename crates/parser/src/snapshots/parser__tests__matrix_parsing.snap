@@ -1,0 +1,44 @@
+---
+source: crates/parser/src/lib.rs
+assertion_line: 1015
+expression: module
+---
+Module {
+    structs: [],
+    consts: [],
+    vars: [
+        GlobalVarDecl {
+            attrs: [],
+            qualifier: Some(
+                VarQualifier {
+                    storage_class: Private,
+                    access_mode: None,
+                },
+            ),
+            name: "a",
+            data_type: Matrix(
+                2,
+                2,
+                F32,
+            ),
+            initializer: None,
+        },
+        GlobalVarDecl {
+            attrs: [],
+            qualifier: Some(
+                VarQualifier {
+                    storage_class: Private,
+                    access_mode: None,
+                },
+            ),
+            name: "b",
+            data_type: Matrix(
+                3,
+                3,
+                F32,
+            ),
+            initializer: None,
+        },
+    ],
+    functions: [],
+}

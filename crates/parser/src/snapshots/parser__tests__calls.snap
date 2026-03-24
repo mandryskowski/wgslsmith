@@ -1,8 +1,12 @@
 ---
 source: crates/parser/src/lib.rs
+assertion_line: 1593
 expression: module
 ---
 Module {
+    enables: [],
+    requires: [],
+    aliases: [],
     structs: [],
     consts: [],
     vars: [],
@@ -79,6 +83,7 @@ Module {
                 LetDecl(
                     LetDeclStatement {
                         ident: "x",
+                        data_type: None,
                         initializer: ExprNode {
                             data_type: Scalar(
                                 U32,
@@ -93,6 +98,7 @@ Module {
                                         expr: FnCall(
                                             FnCallExpr {
                                                 ident: "g",
+                                                template_args: [],
                                                 args: [],
                                             },
                                         ),

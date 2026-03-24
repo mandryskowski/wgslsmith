@@ -7,23 +7,67 @@ use crate::types::DataType;
 use crate::{ExprNode, Postfix};
 
 #[derive(Debug, Display, PartialEq)]
-#[display("let {ident} = {initializer}")]
+#[display("let {ident}{0} = {initializer}", data_type.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())]
 pub struct LetDeclStatement {
     pub ident: String,
+    pub data_type: Option<DataType>,
     pub initializer: ExprNode,
 }
 
 impl LetDeclStatement {
-    pub fn new(ident: impl Into<String>, initializer: impl Into<ExprNode>) -> Self {
+    pub fn new(
+        ident: impl Into<String>,
+        data_type: Option<DataType>,
+        initializer: impl Into<ExprNode>,
+    ) -> Self {
         Self {
             ident: ident.into(),
+            data_type,
             initializer: initializer.into(),
         }
     }
 
     pub fn inferred_type(&self) -> &DataType {
+        if let Some(ty) = &self.data_type {
+            return ty;
+        }
+
         // If the type of the initializer expression is a reference, then we infer the declaration
         // type to be the target type of the reference. Otherwise it is simply the type of the initializer.
+        if let DataType::Ref(view) = &self.initializer.data_type {
+            view.inner.as_ref()
+        } else {
+            &self.initializer.data_type
+        }
+    }
+}
+
+#[derive(Debug, Display, PartialEq)]
+#[display("const {ident}{0} = {initializer}", data_type.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())]
+pub struct ConstDeclStatement {
+    pub ident: String,
+    pub data_type: Option<DataType>,
+    pub initializer: ExprNode,
+}
+
+impl ConstDeclStatement {
+    pub fn new(
+        ident: impl Into<String>,
+        data_type: Option<DataType>,
+        initializer: impl Into<ExprNode>,
+    ) -> Self {
+        Self {
+            ident: ident.into(),
+            data_type,
+            initializer: initializer.into(),
+        }
+    }
+
+    pub fn inferred_type(&self) -> &DataType {
+        if let Some(ty) = &self.data_type {
+            return ty;
+        }
+
         if let DataType::Ref(view) = &self.initializer.data_type {
             view.inner.as_ref()
         } else {
@@ -226,6 +270,30 @@ impl AssignmentStatement {
     }
 }
 
+#[derive(Debug, Display, PartialEq)]
+#[display("{lhs}++")]
+pub struct IncrementStatement {
+    pub lhs: AssignmentLhs,
+}
+
+impl IncrementStatement {
+    pub fn new(lhs: AssignmentLhs) -> Self {
+        Self { lhs }
+    }
+}
+
+#[derive(Debug, Display, PartialEq)]
+#[display("{lhs}--")]
+pub struct DecrementStatement {
+    pub lhs: AssignmentLhs,
+}
+
+impl DecrementStatement {
+    pub fn new(lhs: AssignmentLhs) -> Self {
+        Self { lhs }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Else {
     If(IfStatement),
@@ -337,11 +405,12 @@ impl Display for ReturnStatement {
 #[derive(Debug, PartialEq)]
 pub struct LoopStatement {
     pub body: Vec<Statement>,
+    pub continuing: Option<ContinuingBlock>,
 }
 
 impl LoopStatement {
-    pub fn new(body: Vec<Statement>) -> Self {
-        Self { body }
+    pub fn new(body: Vec<Statement>, continuing: Option<ContinuingBlock>) -> Self {
+        Self { body, continuing }
     }
 }
 
@@ -350,6 +419,67 @@ impl Display for LoopStatement {
         writeln!(f, "loop {{")?;
 
         for stmt in &self.body {
+            writeln!(indented(f), "{}", stmt)?;
+        }
+
+        if let Some(continuing) = &self.continuing {
+            writeln!(indented(f), "{}", continuing)?;
+        }
+
+        write!(f, "}}")
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ContinuingBlock {
+    pub stmts: Vec<Statement>,
+    pub break_if: Option<ExprNode>,
+}
+
+impl ContinuingBlock {
+    pub fn new(stmts: Vec<Statement>, break_if: Option<impl Into<ExprNode>>) -> Self {
+        Self {
+            stmts,
+            break_if: break_if.map(|it| it.into()),
+        }
+    }
+}
+
+impl Display for ContinuingBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "continuing {{")?;
+
+        for stmt in &self.stmts {
+            writeln!(indented(f), "{}", stmt)?;
+        }
+
+        if let Some(break_if) = &self.break_if {
+            writeln!(indented(f), "break if {};", break_if)?;
+        }
+
+        write!(f, "}}")
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct WhileStatement {
+    pub condition: ExprNode,
+    pub body: Vec<Statement>,
+}
+
+impl WhileStatement {
+    pub fn new(condition: ExprNode, body: Vec<Statement>) -> Self {
+        Self { condition, body }
+    }
+}
+
+impl Display for WhileStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let WhileStatement { condition, body } = self;
+
+        writeln!(f, "while ({condition}) {{")?;
+
+        for stmt in body {
             writeln!(indented(f), "{}", stmt)?;
         }
 
@@ -420,6 +550,8 @@ pub enum ForLoopInit {
 #[derive(Debug, PartialEq)]
 pub enum ForLoopUpdate {
     Assignment(AssignmentStatement),
+    Increment(IncrementStatement),
+    Decrement(DecrementStatement),
 }
 
 #[derive(Debug, PartialEq)]
@@ -467,6 +599,8 @@ impl Display for ForLoopStatement {
         if let Some(update) = &header.update {
             match update {
                 ForLoopUpdate::Assignment(stmt) => stmt.fmt(f)?,
+                ForLoopUpdate::Increment(stmt) => stmt.fmt(f)?,
+                ForLoopUpdate::Decrement(stmt) => stmt.fmt(f)?,
             }
         }
 
@@ -510,12 +644,16 @@ impl Display for FnCallStatement {
 #[derive(Debug, PartialEq, From)]
 pub enum Statement {
     LetDecl(LetDeclStatement),
+    ConstDecl(ConstDeclStatement),
     VarDecl(VarDeclStatement),
     Assignment(AssignmentStatement),
+    Increment(IncrementStatement),
+    Decrement(DecrementStatement),
     Compound(Vec<Statement>),
     If(IfStatement),
     Return(ReturnStatement),
     Loop(LoopStatement),
+    While(WhileStatement),
     Break,
     Continue,
     Switch(SwitchStatement),
@@ -540,8 +678,11 @@ impl Display for Statement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Statement::LetDecl(stmt) => write!(f, "{stmt};"),
+            Statement::ConstDecl(stmt) => write!(f, "{stmt};"),
             Statement::VarDecl(stmt) => write!(f, "{stmt};"),
             Statement::Assignment(stmt) => write!(f, "{stmt};"),
+            Statement::Increment(stmt) => write!(f, "{stmt};"),
+            Statement::Decrement(stmt) => write!(f, "{stmt};"),
             Statement::Compound(stmts) => {
                 writeln!(f, "{{")?;
 
@@ -554,6 +695,7 @@ impl Display for Statement {
             Statement::If(stmt) => stmt.fmt(f),
             Statement::Return(stmt) => write!(f, "{stmt};"),
             Statement::Loop(stmt) => stmt.fmt(f),
+            Statement::While(stmt) => stmt.fmt(f),
             Statement::Break => write!(f, "break;"),
             Statement::Continue => write!(f, "continue;"),
             Statement::Fallthrough => write!(f, "fallthrough;"),

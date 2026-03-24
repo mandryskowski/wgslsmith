@@ -5,7 +5,6 @@ use clap::Parser;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::ops::Div;
-use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -186,7 +185,7 @@ pub fn daemon_exec(config: ConfigId) -> eyre::Result<()> {
         match bincode::decode_from_std_read(&mut reader, bincode::config::standard()) {
             Ok(res) => res,
             Err(e) => {
-                if let bincode::error::DecodeError::UnexpectedEnd = e {
+                if let bincode::error::DecodeError::UnexpectedEnd { .. } = e {
                     panic!("The harness daemon crashed or closed the connection unexpectedly.");
                 }
                 panic!("Unknown error {:?}", e);
@@ -207,51 +206,79 @@ pub fn daemon_exec(config: ConfigId) -> eyre::Result<()> {
 }
 
 fn spawn_daemon(addr: &str) -> std::io::Result<()> {
-    let log_file = std::fs::File::create(std::env::temp_dir().join("wgslsmith_daemon.log"))?;
-    let log_file_err =
-        std::fs::File::create(std::env::temp_dir().join("wgslsmith_daemon_err.log"))?;
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let safe_addr = addr.replace([':', '.'], "_");
+    let log_prefix = format!("wgslsmith_daemon_{}_{}", timestamp, safe_addr);
 
-    let mut command = std::process::Command::new(std::env::current_exe()?);
+    let log_file_path = std::env::temp_dir().join(format!("{}.log", log_prefix));
+    let log_file_err_path = std::env::temp_dir().join(format!("{}_err.log", log_prefix));
 
-    command
-        .arg("harness")
-        .arg("daemon")
-        .args(["--address", addr])
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(log_file_err));
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::process::Stdio;
+
+        let log_file = std::fs::File::create(&log_file_path)?;
+        let log_file_err = std::fs::File::create(&log_file_err_path)?;
+
+        let mut command = std::process::Command::new(std::env::current_exe()?);
+        command
+            .arg("harness")
+            .arg("daemon")
+            .args(["--address", addr])
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log_file))
+            .stderr(Stdio::from(log_file_err));
+
+        let child = command.spawn()?;
+        eprintln!("spawned {}", child.id());
+    }
 
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::io::AsRawHandle;
         use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x00000008;
+        use std::process::{Command, Stdio};
+
+        let exe_path = std::env::current_exe()?;
+
+        let inner_cmd = format!(
+            "\"{}\" harness daemon --address {} > \"{}\" 2> \"{}\"",
+            exe_path.display(),
+            addr,
+            log_file_path.display(),
+            log_file_err_path.display()
+        );
+
+        let cmd_line = format!("cmd.exe /c \"{}\"", inner_cmd);
+
+        let ps_command = format!(
+            "$startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly; \
+             $startup.ShowWindow = 0; \
+             Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{CommandLine='{}'; ProcessStartupInformation=$startup}}",
+            cmd_line.replace('\'', "''") // Escape single quotes for PowerShell
+        );
+
+        let mut command = Command::new("powershell");
+        command
+            .args([
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &ps_command,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        // Use DETACHED_PROCESS | CREATE_NO_WINDOW to ensure it runs backgrounded
-        // and doesn't die when the parent console interacts with it.
-        command.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+        command.creation_flags(CREATE_NO_WINDOW);
 
-        unsafe {
-            extern "system" {
-                fn SetHandleInformation(
-                    hObject: std::os::windows::io::RawHandle,
-                    dwMask: u32,
-                    dwFlags: u32,
-                ) -> i32;
-            }
-            const HANDLE_FLAG_INHERIT: u32 = 0x00000001;
+        let mut child = command.spawn()?;
+        child.wait()?;
 
-            let stdout_handle = std::io::stdout().as_raw_handle();
-            let stderr_handle = std::io::stderr().as_raw_handle();
-
-            SetHandleInformation(stdout_handle, HANDLE_FLAG_INHERIT, 0);
-            SetHandleInformation(stderr_handle, HANDLE_FLAG_INHERIT, 0);
-        }
+        eprintln!("spawned daemon invisibly via WMI at {}", addr);
     }
 
-    let child = command.spawn()?;
-
-    eprintln!("spawned {}", child.id());
     Ok(())
 }
 

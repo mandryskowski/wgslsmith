@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 bincode = "2.0.0-rc.1"
+bytemuck = "1.13.1"
 color-eyre = "0.6.1"
 crossbeam-channel = "0.5.5"
 crossterm = "0.23.2"
@@ -64,6 +65,7 @@ version = "0.3"
 features = ["env-filter"]
 
 [features]
-all = ["harness", "reducer"]
+all = ["harness", "reducer", "compiler"]
 harness = ["dep:harness"]
-reducer = ["dep:tint", "dep:naga"]
+compiler = ["dep:tint", "dep:naga"]
+reducer = ["compiler"]

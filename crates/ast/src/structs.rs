@@ -4,12 +4,59 @@ use std::rc::Rc;
 
 use derive_more::Display;
 
+use crate::builtins::BuiltinValue;
 use crate::types::DataType;
+
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Hash,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum InterpolationType {
+    Perspective,
+    Linear,
+    Flat,
+}
+
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Hash,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum InterpolationSampling {
+    Center,
+    Centroid,
+    Sample,
+}
 
 #[derive(Clone, Debug, Display, Hash, PartialEq, Eq)]
 pub enum StructMemberAttr {
     #[display("align({_0})")]
-    Align(u8),
+    Align(u32),
+    #[display("builtin({_0})")]
+    Builtin(BuiltinValue),
+    #[display("interpolate({_0}{})", _1.as_ref().map(|s| format!(", {s}")).unwrap_or_default())]
+    Interpolate(InterpolationType, Option<InterpolationSampling>),
+    #[display("location({_0})")]
+    Location(u32),
+    #[display("size({_0})")]
+    Size(u32),
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -117,6 +164,10 @@ fn collect_struct_accessors(
                     insert(&mut accessors, &DataType::Vector(i, *ty), member);
                 }
             }
+            DataType::Matrix(_, _, _) => {
+                // TODO
+            }
+
             DataType::Array(_, _) => {
                 // TODO
             }
@@ -127,6 +178,9 @@ fn collect_struct_accessors(
             }
             DataType::Ptr(_) => unreachable!("pointers are not storable"),
             DataType::Ref(_) => unreachable!("references are not storable"),
+            DataType::Texture(_) | DataType::Sampler(_) => {
+                unreachable!("textures and samplers are not storable")
+            }
         }
     }
 

@@ -1,4 +1,3 @@
-mod dot;
 mod extract_bits;
 mod float;
 mod float_divide;
@@ -11,7 +10,6 @@ use ast::{
     BinOp, BinOpExpr, DataType, ExprNode, FnCallExpr, Lit, Postfix, PostfixExpr, ScalarType,
 };
 
-pub use dot::dot;
 pub use extract_bits::extract_bits;
 pub use extract_bits::extract_bits_unsigned;
 pub use float::float;

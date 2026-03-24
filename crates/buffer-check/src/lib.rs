@@ -17,7 +17,7 @@ pub fn normalize_execution(
     {
         let buffer = &buffers[i];
 
-        for (offset, size) in type_descs[j].ranges() {
+        for (offset, size) in type_descs[j].ranges(Some(buffer.len() as u64)) {
             let range = offset..(offset + size);
             canonical_data.extend_from_slice(&buffer[range]);
         }

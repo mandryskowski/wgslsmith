@@ -2,7 +2,7 @@ use std::fmt::{Display, Result, Write};
 
 use indenter::indented;
 
-use crate::{FnAttr, FnDecl, GlobalConstDecl, GlobalVarDecl, Module, StructDecl};
+use crate::{FnAttr, FnDecl, GlobalVarDecl, Module, StructDecl};
 
 #[derive(Default)]
 pub struct Writer {
@@ -21,14 +21,31 @@ impl Writer {
     }
 
     pub fn write_module(&self, f: &mut dyn Write, module: &Module) -> Result {
+        for enable in &module.enables {
+            writeln!(f, "enable {enable};")?;
+        }
+        if !module.enables.is_empty() {
+            writeln!(f)?;
+        }
+
+        for require in &module.requires {
+            writeln!(f, "requires {require};")?;
+        }
+        if !module.requires.is_empty() {
+            writeln!(f)?;
+        }
+
         for decl in &module.structs {
             self.write_struct(f, decl)?;
             writeln!(f)?;
         }
 
+        for decl in &module.aliases {
+            writeln!(f, "{decl}")?;
+        }
+
         for decl in &module.consts {
-            self.write_global_const(f, decl)?;
-            writeln!(f)?;
+            writeln!(f, "{decl};")?;
         }
 
         for decl in &module.vars {
@@ -55,20 +72,6 @@ impl Writer {
         writeln!(f, "}}")?;
 
         Ok(())
-    }
-
-    pub fn write_global_const(&self, f: &mut dyn Write, decl: &GlobalConstDecl) -> Result {
-        if self.options.module_scope_constants {
-            write!(f, "const")?;
-        } else {
-            write!(f, "let")?;
-        }
-
-        writeln!(
-            f,
-            " {}: {} = {};",
-            decl.name, decl.data_type, decl.initializer
-        )
     }
 
     pub fn write_global_var(&self, f: &mut dyn Write, decl: &GlobalVarDecl) -> Result {

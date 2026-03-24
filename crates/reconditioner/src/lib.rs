@@ -2,7 +2,6 @@ mod safe_wrappers;
 
 pub mod analysis;
 pub mod cli;
-pub mod evaluator;
 
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -17,7 +16,6 @@ pub struct ReconditionResult {
 
 #[derive(Hash, PartialEq, Eq)]
 enum Wrapper {
-    Dot(DataType),
     ExtractBits(DataType),
     InsertBits(DataType),
     FloatOp(DataType),
@@ -31,7 +29,6 @@ impl Wrapper {
     fn gen_fn_decl(&self) -> FnDecl {
         let name = self.to_string();
         match self {
-            Wrapper::Dot(ty) => safe_wrappers::dot(name, ty),
             Wrapper::ExtractBits(ty) => {
                 if ty.is_signed_int() {
                     safe_wrappers::extract_bits(name, ty)
@@ -69,7 +66,6 @@ impl Display for Wrapper {
             }
             other => {
                 let (name, ty) = match other {
-                    Wrapper::Dot(ty) => ("dot", ty),
                     Wrapper::ExtractBits(ty) => ("extract_bits", ty),
                     Wrapper::InsertBits(ty) => ("insert_bits", ty),
                     Wrapper::FloatOp(ty) => ("f_op", ty),
@@ -99,7 +95,7 @@ pub fn recondition_with(mut ast: Module, options: Options) -> Module {
     let mut reconditioner = Reconditioner::new(options);
 
     // Abstract numerics
-    ast = evaluator::concretize(ast);
+    ast = concretizer::concretize(ast);
 
     let functions = ast
         .functions
@@ -176,8 +172,19 @@ impl Reconditioner {
 
     fn recondition_stmt(&mut self, stmt: Statement) -> Statement {
         match stmt {
-            Statement::LetDecl(LetDeclStatement { ident, initializer }) => {
-                LetDeclStatement::new(ident, self.recondition_expr(initializer)).into()
+            Statement::LetDecl(LetDeclStatement {
+                ident,
+                initializer,
+                data_type,
+            }) => {
+                LetDeclStatement::new(ident, data_type, self.recondition_expr(initializer)).into()
+            }
+            Statement::ConstDecl(ConstDeclStatement {
+                ident,
+                initializer,
+                data_type,
+            }) => {
+                ConstDeclStatement::new(ident, data_type, self.recondition_expr(initializer)).into()
             }
             Statement::VarDecl(VarDeclStatement {
                 ident,
@@ -214,9 +221,25 @@ impl Reconditioner {
                 value: value.map(|e| self.recondition_expr(e)),
             }
             .into(),
-            Statement::Loop(LoopStatement { body }) => {
-                LoopStatement::new(self.recondition_loop_body(body)).into()
-            }
+            Statement::Loop(LoopStatement { body, continuing }) => LoopStatement::new(
+                self.recondition_loop_body(body),
+                continuing.map(|ContinuingBlock { stmts, break_if }| ContinuingBlock {
+                    stmts: stmts
+                        .into_iter()
+                        .map(|s| self.recondition_stmt(s))
+                        .collect(),
+                    break_if: break_if.map(|e| self.recondition_expr(e)),
+                }),
+            )
+            .into(),
+            Statement::While(stmt) => Statement::While(WhileStatement {
+                condition: self.recondition_expr(stmt.condition),
+                body: stmt
+                    .body
+                    .into_iter()
+                    .map(|s| self.recondition_stmt(s))
+                    .collect(),
+            }),
             Statement::Break => Statement::Break,
             Statement::Switch(SwitchStatement {
                 selector,
@@ -260,7 +283,14 @@ impl Reconditioner {
                 ))
             }
             Statement::Continue => Statement::Continue,
+
             Statement::Fallthrough => Statement::Fallthrough,
+            Statement::Increment(IncrementStatement { lhs }) => {
+                IncrementStatement::new(self.recondition_assignment_lhs(lhs)).into()
+            }
+            Statement::Decrement(DecrementStatement { lhs }) => {
+                DecrementStatement::new(self.recondition_assignment_lhs(lhs)).into()
+            }
         }
     }
 
@@ -287,6 +317,12 @@ impl Reconditioner {
                     self.recondition_expr(rhs),
                 ))
             }
+            ForLoopUpdate::Increment(IncrementStatement { lhs }) => ForLoopUpdate::Increment(
+                IncrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
+            ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
+                DecrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
         }
     }
 
@@ -348,7 +384,11 @@ impl Reconditioner {
                 let postfix = match postfix {
                     Postfix::Index(index) => {
                         let index = self.recondition_expr(*index);
-                        Postfix::index(self.recondition_array_index(&expr.data_type, index))
+                        let array_expr = match expr.data_type.dereference() {
+                            DataType::Array(_, None) => Some(Self::lhs_to_expr(&expr)),
+                            _ => None,
+                        };
+                        Postfix::index(self.recondition_index(&expr.data_type, array_expr, index))
                     }
                     Postfix::Member(ident) => Postfix::Member(ident),
                 };
@@ -382,7 +422,10 @@ impl Reconditioner {
                     UnOp::Neg => {
                         let data_type = inner.data_type.dereference().clone();
                         let mut expr = UnOpExpr::new(UnOp::Neg, inner).into();
-                        if data_type.as_scalar().unwrap() == ScalarType::F32 {
+                        if matches!(
+                            data_type.as_scalar().unwrap(),
+                            ScalarType::F32 | ScalarType::F16
+                        ) {
                             expr = FnCallExpr::new(
                                 self.safe_wrapper(Wrapper::FloatOp(data_type.clone())),
                                 vec![ExprNode { data_type, expr }],
@@ -407,10 +450,6 @@ impl Reconditioner {
                     .collect();
 
                 let expr = match expr.ident.as_str() {
-                    "dot" if args[0].data_type.is_integer() => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::Dot(args[0].data_type.dereference().clone())),
-                        args,
-                    ),
                     "extractBits" => FnCallExpr::new(
                         self.safe_wrapper(Wrapper::ExtractBits(
                             args[0].data_type.dereference().clone(),
@@ -430,10 +469,17 @@ impl Reconditioner {
                         )),
                         args,
                     ),
-                    _ => FnCallExpr::new(expr.ident, args),
+                    _ => {
+                        let mut new_call = FnCallExpr::new(expr.ident, args);
+                        new_call.template_args = expr.template_args;
+                        new_call
+                    }
                 };
 
-                if matches!(node.data_type.as_scalar(), Some(ScalarType::F32)) {
+                if matches!(
+                    node.data_type.as_scalar(),
+                    Some(ScalarType::F32 | ScalarType::F16)
+                ) {
                     FnCallExpr::new(
                         self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
                         vec![expr.into_node(node.data_type.clone())],
@@ -448,7 +494,15 @@ impl Reconditioner {
                 let postfix = match expr.postfix {
                     Postfix::Index(index) => {
                         let index = self.recondition_expr(*index);
-                        Postfix::Index(Box::new(self.recondition_array_index(&e.data_type, index)))
+                        let array_expr = match e.data_type.dereference() {
+                            DataType::Array(_, None) => Some(e.clone()),
+                            _ => None,
+                        };
+                        Postfix::Index(Box::new(self.recondition_index(
+                            &e.data_type,
+                            array_expr,
+                            index,
+                        )))
                     }
                     Postfix::Member(n) => Postfix::Member(n),
                 };
@@ -464,26 +518,67 @@ impl Reconditioner {
         }
     }
 
-    fn recondition_array_index(&mut self, array_type: &DataType, index: ExprNode) -> ExprNode {
-        let size = match array_type.dereference() {
-            DataType::Array(_, Some(n)) => *n,
-            DataType::Array(_, None) => {
-                todo!("runtime-sized arrays are not currently supported")
+    fn lhs_to_expr(node: &LhsExprNode) -> ExprNode {
+        let expr = match &node.expr {
+            LhsExpr::Ident(ident) => Expr::Var(VarExpr::new(ident.clone())),
+            LhsExpr::Postfix(inner, postfix) => {
+                Expr::Postfix(PostfixExpr::new(Self::lhs_to_expr(inner), postfix.clone()))
             }
-            DataType::Vector(n, _) => *n as u32,
+            LhsExpr::Deref(inner) => {
+                Expr::UnOp(UnOpExpr::new(UnOp::Deref, Self::lhs_to_expr(inner)))
+            }
+            LhsExpr::AddressOf(inner) => {
+                Expr::UnOp(UnOpExpr::new(UnOp::AddressOf, Self::lhs_to_expr(inner)))
+            }
+        };
+
+        ExprNode {
+            data_type: node.data_type.clone(),
+            expr,
+        }
+    }
+
+    fn recondition_index(
+        &mut self,
+        array_type: &DataType,
+        array_expr: Option<ExprNode>,
+        index: ExprNode,
+    ) -> ExprNode {
+        let size = match array_type.dereference() {
+            DataType::Array(_, Some(n)) => Some(*n),
+            DataType::Array(_, None) => None,
+            DataType::Vector(n, _) => Some(*n as u32),
+            DataType::Matrix(c, _, _) => Some(*c as u32),
             _ => unreachable!("index operator cannot be applied to type `{array_type}`"),
         };
 
         let index_type = index.data_type.dereference().clone();
-        let size_expr = match index_type.as_scalar().unwrap() {
-            ScalarType::I32 => Lit::I32(size as i32),
-            ScalarType::U32 => Lit::U32(size),
-            _ => unreachable!("index expression must be an integer"),
+        let size_expr = match size {
+            Some(n) => match index_type.as_scalar().unwrap() {
+                ScalarType::I32 => Lit::I32(n as i32).into(),
+                ScalarType::U32 => Lit::U32(n).into(),
+                _ => unreachable!("index expression must be an integer"),
+            },
+            None => {
+                let array_expr = array_expr.expect("runtime array needs expression");
+                let addr = UnOpExpr::new(UnOp::AddressOf, array_expr).into();
+                match index.data_type.as_scalar().unwrap() {
+                    ScalarType::I32 => TypeConsExpr::new(
+                        ScalarType::I32.into(),
+                        vec![FnCallExpr::new("arrayLength", vec![addr]).into_node(ScalarType::U32)],
+                    )
+                    .into(),
+                    ScalarType::U32 => {
+                        FnCallExpr::new("arrayLength", vec![addr]).into_node(ScalarType::U32)
+                    }
+                    _ => unreachable!("index expression must be an integer"),
+                }
+            }
         };
 
         FnCallExpr::new(
             self.safe_wrapper(Wrapper::Index(index_type.clone())),
-            vec![index, size_expr.into()],
+            vec![index, size_expr],
         )
         .into_node(index_type)
     }
@@ -526,10 +621,12 @@ impl Reconditioner {
             ScalarType::I32 | ScalarType::U32 => {
                 self.recondition_integer_bin_op_expr(data_type, op, l, r)
             }
-            ScalarType::F32 if op == BinOp::Divide => {
+            ScalarType::F32 | ScalarType::F16 if op == BinOp::Divide => {
                 self.recondition_floating_point_div_expr(data_type, op, l, r)
             }
-            ScalarType::F32 => self.recondition_floating_point_bin_op_expr(data_type, op, l, r),
+            ScalarType::F32 | ScalarType::F16 => {
+                self.recondition_floating_point_bin_op_expr(data_type, op, l, r)
+            }
             ScalarType::Bool => BinOpExpr::new(op, l, r).into(),
         }
     }

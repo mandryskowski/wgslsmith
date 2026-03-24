@@ -21,16 +21,22 @@ pub struct WgpuState {
 impl WgpuState {
     pub(crate) fn new() -> Self {
         WgpuState {
-            instance: Instance::new(wgpu::InstanceDescriptor {
-                backends: Backends::all(),
-                backend_options: wgpu::BackendOptions {
-                    gl: Default::default(),
-                    dx12: Self::dx12_backend_options(),
-                    noop: Default::default(),
-                },
-                ..Default::default()
-            }),
+            instance: Instance::new(Self::instance_descriptor()),
             device_cache: HashMap::new(),
+        }
+    }
+
+    fn instance_descriptor() -> wgpu::InstanceDescriptor {
+        wgpu::InstanceDescriptor {
+            backends: Backends::all(),
+            backend_options: wgpu::BackendOptions {
+                gl: Default::default(),
+                dx12: Self::dx12_backend_options(),
+                noop: Default::default(),
+            },
+            flags: Default::default(),
+            display: Default::default(),
+            memory_budget_thresholds: Default::default(),
         }
     }
 
@@ -64,10 +70,8 @@ impl WgpuState {
 }
 
 pub fn get_adapters() -> Vec<types::Adapter> {
-    let instance = Instance::new(wgpu::InstanceDescriptor {
-        backends: Backends::all(),
-        ..Default::default()
-    });
+    let wgpu_state = WgpuState::new();
+    let instance = wgpu_state.instance;
 
     let adapters = futures::executor::block_on(instance.enumerate_adapters(Backends::all()));
     adapters
@@ -111,6 +115,7 @@ pub async fn run(
         }
     };
 
+    // move to WgpuState!
     let (device, queue) = {
         if let Some((d, q)) = wgpu_state.device_cache.get(config) {
             (d.clone(), q.clone())
@@ -125,12 +130,28 @@ pub async fn run(
                 })
                 .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
+            // let mut required_features = wgpu::Features::empty();
+            // for enable in &meta.enables {
+            //     match enable {
+            //         reflection::EnableExtension::F16 => {
+            //             required_features |= wgpu::Features::SHADER_F16;
+            //         }
+            //         reflection::EnableExtension::Subgroups => {
+            //             required_features |= wgpu::Features::SUBGROUP;
+            //         }
+            //     }
+            // }
+
+            let required_features =
+                (wgpu::Features::SHADER_F16 | wgpu::Features::SUBGROUP) & adapter.features();
+
             let device_descriptor = DeviceDescriptor {
                 required_limits: Limits {
                     // This is needed to support swiftshader
                     max_storage_textures_per_shader_stage: 4,
                     ..Default::default()
                 },
+                required_features,
                 ..Default::default()
             };
 
@@ -165,7 +186,7 @@ pub async fn run(
     )
     .execute(|| {
         device.create_compute_pipeline(&ComputePipelineDescriptor {
-            entry_point: Some("main"),
+            entry_point: Some(&meta.entry_point),
             label: None,
             module: &shader_module,
             layout: None,
@@ -179,12 +200,14 @@ pub async fn run(
 
     enum ResourceBuffer {
         Storage {
+            group: u32,
             binding: u32,
             size: u64,
             gpu_buffer: Buffer,
             staging_buffer: Buffer,
         },
         Uniform {
+            group: u32,
             binding: u32,
             buffer: Buffer,
         },
@@ -218,6 +241,7 @@ pub async fn run(
                 });
 
                 resource_buffers.push(ResourceBuffer::Storage {
+                    group: resource.group,
                     binding: resource.binding,
                     size,
                     gpu_buffer,
@@ -242,53 +266,70 @@ pub async fn run(
                 buffer.unmap();
 
                 resource_buffers.push(ResourceBuffer::Uniform {
+                    group: resource.group,
                     binding: resource.binding,
                     buffer,
                 });
             }
+            ResourceKind::Texture { .. } | ResourceKind::Sampler { .. } => todo!(),
         }
     }
 
-    let bind_group_entries = resource_buffers
-        .iter()
-        .map(|res| match res {
+    let mut bind_groups = HashMap::new();
+    let mut groups = std::collections::HashSet::new();
+
+    for res in &resource_buffers {
+        let (group, binding, resource) = match res {
             ResourceBuffer::Storage {
+                group,
                 binding,
                 gpu_buffer,
                 ..
-            } => BindGroupEntry {
-                binding: *binding,
-                resource: gpu_buffer.as_entire_binding(),
-            },
+            } => (*group, *binding, gpu_buffer.as_entire_binding()),
             ResourceBuffer::Uniform {
-                binding, buffer, ..
-            } => BindGroupEntry {
-                binding: *binding,
-                resource: buffer.as_entire_binding(),
-            },
-        })
-        .collect::<Vec<_>>();
+                group,
+                binding,
+                buffer,
+            } => (*group, *binding, buffer.as_entire_binding()),
+        };
 
-    let bind_group_layout = ErrorScope::new(&device, vec![ErrorFilter::Validation])
-        .execute(|| pipeline.get_bind_group_layout(0))
-        .await?;
+        groups.insert(group);
+        bind_groups
+            .entry(group)
+            .or_insert_with(Vec::new)
+            .push(BindGroupEntry { binding, resource });
+    }
 
-    let bind_group = ErrorScope::new(&device, vec![ErrorFilter::Validation])
-        .execute(|| {
-            device.create_bind_group(&BindGroupDescriptor {
-                layout: &bind_group_layout,
-                label: None,
-                entries: &bind_group_entries,
+    let mut final_bind_groups = HashMap::new();
+
+    for group in groups {
+        let bind_group_layout = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+            .execute(|| pipeline.get_bind_group_layout(group))
+            .await?;
+
+        let entries = bind_groups.get(&group).unwrap();
+
+        let bind_group = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+            .execute(|| {
+                device.create_bind_group(&BindGroupDescriptor {
+                    layout: &bind_group_layout,
+                    label: None,
+                    entries,
+                })
             })
-        })
-        .await?;
+            .await?;
+
+        final_bind_groups.insert(group, bind_group);
+    }
 
     let commands = {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
             pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
+            for (group, bind_group) in &final_bind_groups {
+                pass.set_bind_group(*group, bind_group, &[]);
+            }
             pass.dispatch_workgroups(1, 1, 1);
         }
 
@@ -304,7 +345,12 @@ pub async fn run(
             }
         }
 
-        encoder.finish()
+        ErrorScope::new(
+            &device,
+            vec![ErrorFilter::Internal, ErrorFilter::Validation],
+        )
+        .execute(|| encoder.finish())
+        .await?
     };
 
     let submission_index = queue.submit(std::iter::once(commands));

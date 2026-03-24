@@ -124,7 +124,7 @@ pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
     pipeline_desc: &PipelineDescription,
     configs: &[ConfigId],
     timeout: Option<Duration>,
-    parallelism: Option<usize>,
+    parallelism: usize,
     mut on_event: E,
 ) -> Result<(), ExecutionError> {
     let default_configs;
@@ -144,11 +144,7 @@ pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
 
     let on_event = Mutex::new(on_event);
     let configs_iter = Mutex::new(configs.iter());
-    let num_threads = if let Some(p) = parallelism {
-        p.min(configs.len())
-    } else {
-        configs.len()
-    };
+    let num_threads = parallelism.min(configs.len());
 
     std::thread::scope(|s| {
         let mut handles = vec![];

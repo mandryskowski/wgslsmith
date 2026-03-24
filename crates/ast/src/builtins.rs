@@ -1,4 +1,5 @@
-use crate::{DataType, ScalarType};
+use crate::types::{DataType, ScalarType};
+use crate::{TextureDimension, TextureType};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, strum::AsRefStr, strum::EnumIter, strum::EnumString,
@@ -65,7 +66,54 @@ pub enum BuiltinFn {
     Step,
     Tan,
     Tanh,
+    Transpose,
     Trunc,
+
+    // Texture
+    TextureDimensions,
+    TextureGather,
+    TextureGatherCompare,
+    TextureLoad,
+    TextureNumLayers,
+    TextureNumLevels,
+    TextureNumSamples,
+    TextureSample,
+    TextureSampleBias,
+    TextureSampleCompare,
+    TextureSampleCompareLevel,
+    TextureSampleGrad,
+    TextureSampleLevel,
+    TextureSampleBaseClampToEdge,
+    TextureStore,
+
+    // Subgroup
+    SubgroupAdd,
+    SubgroupAnd,
+    SubgroupExclusiveAdd,
+    SubgroupInclusiveAdd,
+    SubgroupAll,
+    SubgroupAny,
+    SubgroupBallot,
+    SubgroupBroadcast,
+    SubgroupBroadcastFirst,
+    SubgroupElect,
+    SubgroupMax,
+    SubgroupMin,
+    SubgroupMul,
+    SubgroupExclusiveMul,
+    SubgroupInclusiveMul,
+    SubgroupOr,
+    SubgroupShuffle,
+    SubgroupShuffleDown,
+    SubgroupShuffleUp,
+    SubgroupShuffleXor,
+    SubgroupXor,
+
+    // Quad
+    QuadBroadcast,
+    QuadSwapDiagonal,
+    QuadSwapX,
+    QuadSwapY,
 }
 
 impl BuiltinFn {
@@ -126,6 +174,7 @@ impl BuiltinFn {
             Mix => first_param()?,
             Normalize => first_param()?,
             Pow => first_param()?,
+            QuadBroadcast | QuadSwapX | QuadSwapY | QuadSwapDiagonal => first_param()?,
             QuantizeToF16 => first_param()?,
             Radians => first_param()?,
             Reflect => first_param()?,
@@ -144,9 +193,134 @@ impl BuiltinFn {
             Step => first_param()?,
             Tan => first_param()?,
             Tanh => first_param()?,
+            SubgroupBallot => DataType::Vector(4, U32),
+            SubgroupBroadcast
+            | SubgroupBroadcastFirst
+            | SubgroupShuffle
+            | SubgroupShuffleXor
+            | SubgroupShuffleUp
+            | SubgroupShuffleDown => first_param()?,
+            SubgroupAdd | SubgroupExclusiveAdd | SubgroupInclusiveAdd | SubgroupMul
+            | SubgroupExclusiveMul | SubgroupInclusiveMul | SubgroupMin | SubgroupMax
+            | SubgroupAnd | SubgroupOr | SubgroupXor => first_param()?,
+            SubgroupAll | SubgroupAny | SubgroupElect => Bool.into(),
+            Transpose => {
+                if let DataType::Matrix(c, r, s) = first_param()? {
+                    DataType::Matrix(r, c, s)
+                } else {
+                    return None;
+                }
+            }
             Trunc => first_param()?,
+            TextureDimensions => {
+                let ty = first_param()?;
+                if let DataType::Texture(t) = ty {
+                    let dim = match t {
+                        TextureType::Sampled { dim, .. } => dim,
+                        TextureType::Multisampled { dim, .. } => dim,
+                        TextureType::Storage { dim, .. } => dim,
+                        TextureType::Depth { dim, .. } => dim,
+                        TextureType::External => TextureDimension::D2,
+                    };
+
+                    match dim {
+                        TextureDimension::D1 => U32.into(),
+                        TextureDimension::D2
+                        | TextureDimension::D2Array
+                        | TextureDimension::Cube
+                        | TextureDimension::CubeArray => DataType::Vector(2, U32),
+                        TextureDimension::D3 => DataType::Vector(3, U32),
+                    }
+                } else {
+                    return None;
+                }
+            }
+            TextureGather => {
+                let _ = first_param()?;
+                let ty = params.next().map(DataType::dereference).cloned()?;
+                if let DataType::Texture(t) = ty {
+                    match t {
+                        TextureType::Sampled { derived_type, .. } => {
+                            DataType::Vector(4, derived_type)
+                        }
+                        TextureType::Multisampled { derived_type, .. } => {
+                            DataType::Vector(4, derived_type)
+                        }
+                        _ => todo!(),
+                    }
+                } else {
+                    DataType::Vector(4, F32)
+                }
+            }
+            TextureGatherCompare => DataType::Vector(4, F32),
+            TextureLoad => {
+                // Returns vec4<T> or f32 for depth
+                let ty = first_param()?;
+                if let DataType::Texture(t) = ty {
+                    match t {
+                        TextureType::Depth { .. } => F32.into(),
+                        TextureType::Sampled { derived_type, .. } => {
+                            DataType::Vector(4, derived_type)
+                        }
+                        TextureType::Multisampled { derived_type, .. } => {
+                            DataType::Vector(4, derived_type)
+                        }
+                        TextureType::Storage { .. } => DataType::Vector(4, F32),
+                        TextureType::External => DataType::Vector(4, F32),
+                    }
+                } else {
+                    return None;
+                }
+            }
+            TextureNumLayers | TextureNumLevels | TextureNumSamples => U32.into(),
+            TextureSample
+            | TextureSampleBias
+            | TextureSampleCompare
+            | TextureSampleCompareLevel
+            | TextureSampleGrad
+            | TextureSampleLevel
+            | TextureSampleBaseClampToEdge => {
+                let ty = first_param()?;
+                if let DataType::Texture(t) = ty {
+                    match t {
+                        TextureType::Depth { .. } => F32.into(),
+                        _ => DataType::Vector(4, F32),
+                    }
+                } else {
+                    return None;
+                }
+            }
+            TextureStore => return None,
         };
 
         Some(ret)
     }
+}
+
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Hash,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumIter,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum BuiltinValue {
+    VertexIndex,
+    InstanceIndex,
+    Position,
+    FrontFacing,
+    FragDepth,
+    LocalInvocationId,
+    LocalInvocationIndex,
+    GlobalInvocationId,
+    WorkgroupId,
+    NumWorkgroups,
+    SampleIndex,
+    SampleMask,
 }

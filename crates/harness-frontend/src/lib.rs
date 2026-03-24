@@ -75,13 +75,11 @@ pub fn read_shader_from_path(path: &str) -> eyre::Result<String> {
 
 pub fn reflect_shader(
     shader: &str,
-    mut input_data: HashMap<String, Vec<u8>>,
+    input_data: HashMap<String, Vec<u8>>,
 ) -> (PipelineDescription, Vec<common::Type>) {
     let module = parser::parse(shader);
 
-    let (mut pipeline_desc, type_descs) = reflection::reflect(&module, |resource| {
-        input_data.remove(&format!("{}:{}", resource.group, resource.binding))
-    });
+    let (mut pipeline_desc, mut type_descs) = reflection::reflect(&module, &input_data);
 
     let mut resource_vars = HashSet::new();
 
@@ -90,6 +88,13 @@ pub fn reflect_shader(
     }
 
     utils::remove_accessed_vars(&mut resource_vars, &module);
+
+    let mut i = 0;
+    type_descs.retain(|_| {
+        let keep = !resource_vars.contains(&pipeline_desc.resources[i].name);
+        i += 1;
+        keep
+    });
 
     pipeline_desc
         .resources
@@ -152,7 +157,7 @@ pub trait Executor {
         pipeline_desc: &PipelineDescription,
         configs: &[ConfigId],
         timeout: Option<Duration>,
-        parallelism: Option<usize>,
+        parallelism: usize,
         on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
     ) -> Result<(), ExecutionError>;
 }
@@ -194,11 +199,9 @@ pub mod cli {
         #[clap(long, action, default_value = "45")]
         pub timeout: u64,
 
-        /// Limit the number of parallel configurations executing at once.
-        ///
-        /// If not provided, execution will spawn a thread for every configuration.
-        #[clap(long, short = 'j', action)]
-        pub parallelism: Option<usize>,
+        /// Specify the number of parallel configurations executing at once.
+        #[clap(long, short = 'j', action, default_value = "1")]
+        pub parallelism: usize,
 
         /// Print all unique outputs, as well as their corresponding configurations.
         ///

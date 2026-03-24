@@ -1,4 +1,5 @@
-use crate::evaluator::value;
+use crate::concretizer::{in_float16_range, in_float_range};
+use crate::value;
 use ast::*;
 use value::Value;
 
@@ -8,6 +9,7 @@ pub enum Builtin {
     Clamp,
     All,
     Any,
+    Dot,
     Exp,
     Exp2,
     CountLeadingZeros,
@@ -35,6 +37,7 @@ impl Builtin {
             "countLeadingZeros" => Some(Builtin::CountLeadingZeros),
             "countTrailingZeros" => Some(Builtin::CountTrailingZeros),
             "countOneBits" => Some(Builtin::CountOneBits),
+            "dot" => Some(Builtin::Dot),
             "extractBits" => Some(Builtin::ExtractBits),
             "insertBits" => Some(Builtin::InsertBits),
             "reverseBits" => Some(Builtin::ReverseBits),
@@ -73,6 +76,13 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
             let arg2 = args[1].clone().unwrap();
 
             evaluate_two_arg_builtin(ident, arg1, arg2)
+        }
+
+        Builtin::Dot => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+
+            evaluate_dot(arg1, arg2)
         }
 
         // these are reductions (Vector -> Scalar), so we can't use evaluate_single_arg_builtin
@@ -362,6 +372,12 @@ fn clamp(e: Lit, low: Lit, high: Lit) -> Option<Value> {
             }
             Some(e_val.clamp(low_val, high_val).into())
         }
+        (Lit::F16(e_val), Lit::F16(low_val), Lit::F16(high_val)) => {
+            if low_val > high_val {
+                return None;
+            }
+            Some(e_val.clamp(low_val, high_val).into())
+        }
         _ => None,
     }
 }
@@ -420,6 +436,7 @@ fn abs(val: Lit) -> Option<Value> {
     match val {
         Lit::I32(v) => Value::from_i32(Some(v.wrapping_abs())),
         Lit::F32(v) => Value::from_f32(Some(v.abs())),
+        Lit::F16(v) => Value::from_f16(Some(half::f16::from_f32(v.to_f32().abs()))),
         Lit::U32(v) => Value::from_u32(Some(v)),
         _ => None,
     }
@@ -437,6 +454,14 @@ fn exp(val: Lit) -> Option<Value> {
 
             let result = in_float_range(v.exp());
             Value::from_f32(result)
+        }
+        Lit::F16(v) => {
+            // max f16 is 65504. ln(65504) approx 11.09
+            if v.to_f32() > 11.09_f32 {
+                return None;
+            }
+            let result = in_float16_range(half::f16::from_f32(v.to_f32().exp()));
+            Value::from_f16(result)
         }
         _ => None,
     }
@@ -466,24 +491,25 @@ fn exp2(val: Lit) -> Option<Value> {
 
             Value::from_f32(result)
         }
+        Lit::F16(v) => {
+            // max f16 is 65504. log2(65504) approx 15.99
+            if v.to_f32() > 15.99_f32 {
+                return None;
+            }
+            let result = in_float16_range(half::f16::from_f32(2.0_f32.powf(v.to_f32())));
+            Value::from_f16(result)
+        }
         _ => None,
     }
 }
-
-//TODO: remove duplication of float range check
-fn in_float_range(f: f32) -> Option<f32> {
-    if f.abs() <= 0.1_f32 || f.abs() >= (16777216_f32) {
-        None
-    } else {
-        Some(f)
-    }
-}
+// TODO: move min/max/select etc to evaluator.rs or elsewhere?
 
 fn min(val1: Lit, val2: Lit) -> Option<Value> {
     match (val1, val2) {
         (Lit::I32(v1), Lit::I32(v2)) => Some(v1.min(v2).into()),
         (Lit::U32(v1), Lit::U32(v2)) => Some(v1.min(v2).into()),
         (Lit::F32(v1), Lit::F32(v2)) => Some(v1.min(v2).into()),
+        (Lit::F16(v1), Lit::F16(v2)) => Some(v1.min(v2).into()),
         _ => None,
     }
 }
@@ -493,6 +519,7 @@ fn max(val1: Lit, val2: Lit) -> Option<Value> {
         (Lit::I32(v1), Lit::I32(v2)) => Some(v1.max(v2).into()),
         (Lit::U32(v1), Lit::U32(v2)) => Some(v1.max(v2).into()),
         (Lit::F32(v1), Lit::F32(v2)) => Some(v1.max(v2).into()),
+        (Lit::F16(v1), Lit::F16(v2)) => Some(v1.max(v2).into()),
         _ => None,
     }
 }
@@ -508,6 +535,7 @@ fn select(val1: Lit, val2: Lit, val3: Lit) -> Option<Value> {
         (Lit::I32(v1), Lit::I32(v2)) => Some(if cond { v2 } else { v1 }.into()),
         (Lit::U32(v1), Lit::U32(v2)) => Some(if cond { v2 } else { v1 }.into()),
         (Lit::F32(v1), Lit::F32(v2)) => Some(if cond { v2 } else { v1 }.into()),
+        (Lit::F16(v1), Lit::F16(v2)) => Some(if cond { v2 } else { v1 }.into()),
         // (Lit::Bool(v1), Lit::Bool(v2)) => Some(if cond { v2 } else { v1 }.into()),
         _ => None,
     }
@@ -576,6 +604,61 @@ fn first_trailing_bit(val: Lit) -> Option<Value> {
 
             let index = v.trailing_zeros();
             Some(index.into())
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_dot(arg1: Value, arg2: Value) -> Option<Value> {
+    // Naga uses checked_mul, tint uses wrapping_mul.
+    // Could change this to wrapping_mul if this gets answered https://github.com/gfx-rs/wgpu/issues/8900#issuecomment-3850412118
+    match (arg1, arg2) {
+        (Value::Vector(v1), Value::Vector(v2)) => {
+            if v1.len() != v2.len() || v1.is_empty() {
+                return None;
+            }
+
+            match (&v1[0], &v2[0]) {
+                (Value::Lit(Lit::I32(_)), Value::Lit(Lit::I32(_))) => {
+                    let mut sum = 0i32;
+                    for (x, y) in v1.iter().zip(v2.iter()) {
+                        if let (Value::Lit(Lit::I32(xv)), Value::Lit(Lit::I32(yv))) = (x, y) {
+                            let product = xv.checked_mul(*yv)?;
+                            sum = sum.checked_add(product)?;
+                        } else {
+                            return None;
+                        }
+                    }
+                    Some(sum.into())
+                }
+                (Value::Lit(Lit::U32(_)), Value::Lit(Lit::U32(_))) => {
+                    let mut sum = 0u32;
+                    for (x, y) in v1.iter().zip(v2.iter()) {
+                        if let (Value::Lit(Lit::U32(xv)), Value::Lit(Lit::U32(yv))) = (x, y) {
+                            let product = xv.checked_mul(*yv)?;
+                            sum = sum.checked_add(product)?;
+                        } else {
+                            return None;
+                        }
+                    }
+                    Some(sum.into())
+                }
+                (Value::Lit(Lit::F32(_)), Value::Lit(Lit::F32(_))) => {
+                    let mut sum = 0.0f32;
+                    for (x, y) in v1.iter().zip(v2.iter()) {
+                        if let (Value::Lit(Lit::F32(xv)), Value::Lit(Lit::F32(yv))) = (x, y) {
+                            let product = xv * yv;
+                            in_float_range(product)?;
+                            sum += product;
+                            in_float_range(sum)?;
+                        } else {
+                            return None;
+                        }
+                    }
+                    Some(sum.into())
+                }
+                _ => None,
+            }
         }
         _ => None,
     }

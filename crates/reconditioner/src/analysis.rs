@@ -201,6 +201,7 @@ fn visit_stmt<'a>(
 ) {
     match stmt {
         Statement::LetDecl(stmt) => visit_expr(analysis, scope, cx, &stmt.initializer),
+        Statement::ConstDecl(stmt) => visit_expr(analysis, scope, cx, &stmt.initializer),
         Statement::VarDecl(stmt) => {
             if let Some(initializer) = &stmt.initializer {
                 visit_expr(analysis, scope, cx, initializer);
@@ -221,7 +222,19 @@ fn visit_stmt<'a>(
                 visit_expr(analysis, scope, cx, value);
             }
         }
-        Statement::Loop(stmt) => visit_stmt_block(analysis, scope, cx, &stmt.body),
+        Statement::Loop(stmt) => {
+            visit_stmt_block(analysis, scope, cx, &stmt.body);
+            if let Some(continuing) = &stmt.continuing {
+                visit_stmt_block(analysis, scope, cx, &continuing.stmts);
+                if let Some(break_if) = &continuing.break_if {
+                    visit_expr(analysis, scope, cx, break_if);
+                }
+            }
+        }
+        Statement::While(stmt) => {
+            visit_expr(analysis, scope, cx, &stmt.condition);
+            visit_stmt_block(analysis, scope, cx, &stmt.body);
+        }
         Statement::Break => {}
         Statement::Switch(stmt) => {
             visit_expr(analysis, scope, cx, &stmt.selector);
@@ -259,6 +272,12 @@ fn visit_stmt<'a>(
                         visit_lhs(analysis, &mut scope, cx, &stmt.lhs);
                         visit_expr(analysis, &mut scope, cx, &stmt.rhs);
                     }
+                    ForLoopUpdate::Increment(stmt) => {
+                        handle_inc_dec(analysis, &mut scope, cx, &stmt.lhs);
+                    }
+                    ForLoopUpdate::Decrement(stmt) => {
+                        handle_inc_dec(analysis, &mut scope, cx, &stmt.lhs);
+                    }
                 }
             }
 
@@ -269,6 +288,23 @@ fn visit_stmt<'a>(
         }
         Statement::Continue => {}
         Statement::Fallthrough => {}
+        Statement::Increment(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
+        Statement::Decrement(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
+    }
+}
+
+fn handle_inc_dec<'a>(
+    analysis: &mut Analysis<'a>,
+    scope: &mut Scope<'a>,
+    cx: &mut FnContext<'a>,
+    lhs: &'a AssignmentLhs,
+) {
+    visit_lhs(analysis, scope, cx, lhs);
+    if let AssignmentLhs::Expr(lhs) = lhs {
+        let ident = find_lhs_ident(lhs);
+        if let Some(root_ident) = scope.idents.get(ident) {
+            cx.accesses.insert((AccessType::Read, *root_ident));
+        }
     }
 }
 

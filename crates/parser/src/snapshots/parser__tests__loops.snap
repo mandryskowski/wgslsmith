@@ -1,8 +1,12 @@
 ---
 source: crates/parser/src/lib.rs
+assertion_line: 1595
 expression: module
 ---
 Module {
+    enables: [],
+    requires: [],
+    aliases: [],
     structs: [],
     consts: [],
     vars: [],
@@ -36,6 +40,7 @@ Module {
                             ),
                             Break,
                         ],
+                        continuing: None,
                     },
                 ),
             ],

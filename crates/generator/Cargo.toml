@@ -19,6 +19,7 @@ tracing = "0.1"
 ast = { path = "../ast" }
 common = { path = "../common" }
 reconditioner = { path = "../reconditioner" }
+half = { version = "2.7.1", features = ["std"] }
 
 [dependencies.clap]
 version = "3.0"

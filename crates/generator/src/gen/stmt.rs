@@ -90,10 +90,10 @@ impl super::Generator<'_> {
             let (ident, ty) = self.scope.choose_mutable(self.rng);
             let initializer =
                 UnOpExpr::new(UnOp::AddressOf, VarExpr::new(ident).into_node(ty.clone()));
-            LetDeclStatement::new(self.scope.next_name(), initializer).into()
+            LetDeclStatement::new(self.scope.next_name(), None, initializer).into()
         } else {
             let ty = self.cx.types.select(self.rng);
-            LetDeclStatement::new(self.scope.next_name(), self.gen_expr(&ty)).into()
+            LetDeclStatement::new(self.scope.next_name(), None, self.gen_expr(&ty)).into()
         }
     }
 
@@ -163,7 +163,7 @@ impl super::Generator<'_> {
         let body = self.gen_stmt_block(max_count).1;
         self.fn_state.is_loop = is_loop;
 
-        LoopStatement::new(body).into()
+        LoopStatement::new(body, None).into()
     }
 
     fn gen_switch_stmt(&mut self) -> Statement {

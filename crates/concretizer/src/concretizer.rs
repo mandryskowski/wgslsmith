@@ -1,10 +1,8 @@
-mod builtin;
-mod helper;
-mod value;
-
+use crate::builtin::*;
+use crate::helper;
+use crate::value::*;
 use ast::*;
-use builtin::*;
-use value::*;
+use std::cmp::PartialEq;
 
 /* Concretized node struct contains a concretized node and
    the value from evaluating that node. The value is None
@@ -15,11 +13,26 @@ use value::*;
 macro_rules! binop_int_arith {
     ($op:expr, $l:expr, $r:expr) => {
         match $op {
-            BinOp::Plus => ($l).checked_add($r),
-            BinOp::Minus => ($l).checked_sub($r),
-            BinOp::Times => ($l).checked_mul($r),
-            BinOp::Divide => ($l).checked_div($r),
-            BinOp::Mod => ($l).checked_rem($r),
+            BinOp::Plus => Some(($l).wrapping_add($r)),
+            BinOp::Minus => Some(($l).wrapping_sub($r)),
+            BinOp::Times => Some(($l).wrapping_mul($r)),
+
+            // For Div and Mod, check for zero first, then use wrapping for overflow cases
+            // (e.g., i32::MIN / -1)
+            BinOp::Divide => {
+                if $r == 0 {
+                    None
+                } else {
+                    Some(($l).wrapping_div($r))
+                }
+            }
+            BinOp::Mod => {
+                if $r == 0 {
+                    None
+                } else {
+                    Some(($l).wrapping_rem($r))
+                }
+            }
             _ => None,
         }
     };
@@ -46,6 +59,28 @@ fn binop_int_shift(op: &BinOp, l: Lit, r: Lit) -> Option<Value> {
             BinOp::RShift => Value::from_u32(l.checked_shr(r)),
             _ => None,
         },
+        (Lit::I32(l), Lit::I32(r)) => {
+            if r < 0 {
+                return None;
+            }
+            let r = r as u32;
+            match op {
+                BinOp::LShift => Value::from_i32(l.checked_shl(r)),
+                BinOp::RShift => Value::from_i32(l.checked_shr(r)),
+                _ => None,
+            }
+        }
+        (Lit::U32(l), Lit::I32(r)) => {
+            if r < 0 {
+                return None;
+            }
+            let r = r as u32;
+            match op {
+                BinOp::LShift => Value::from_u32(l.checked_shl(r)),
+                BinOp::RShift => Value::from_u32(l.checked_shr(r)),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -65,8 +100,32 @@ fn binop_float(op: &BinOp, l: f32, r: f32) -> Option<f32> {
     // TODO: add float division and mod check
 }
 
-fn in_float_range(f: f32) -> Option<f32> {
-    if f.abs() <= 0.1_f32 || f.abs() >= (16777216_f32) {
+fn binop_float16(op: &BinOp, l: half::f16, r: half::f16) -> Option<half::f16> {
+    let l_f = l.to_f32();
+    let r_f = r.to_f32();
+    let result = match op {
+        BinOp::Plus => l_f + r_f,
+        BinOp::Minus => l_f - r_f,
+        BinOp::Times => l_f * r_f,
+        BinOp::Divide => l_f / r_f,
+        BinOp::Mod => l_f % r_f,
+        _ => todo!(),
+    };
+
+    in_float16_range(half::f16::from_f32(result))
+}
+
+pub(super) fn in_float_range(f: f32) -> Option<f32> {
+    if !(0.1_f32..=16777216_f32).contains(&f.abs()) {
+        None
+    } else {
+        Some(f)
+    }
+}
+
+pub(super) fn in_float16_range(f: half::f16) -> Option<half::f16> {
+    let abs_f = f.to_f32().abs();
+    if f.is_nan() || f.is_infinite() || !(0.1_f32..=65000.0_f32).contains(&abs_f) {
         None
     } else {
         Some(f)
@@ -76,7 +135,7 @@ fn in_float_range(f: f32) -> Option<f32> {
 #[derive(Clone)]
 pub struct ConNode {
     node: ExprNode,
-    value: Option<Value>,
+    pub value: Option<Value>,
 }
 
 // from ExprNode to ConNode (for passing into concretize fns)
@@ -98,58 +157,110 @@ impl From<ConNode> for ExprNode {
 
 #[derive(Default)]
 pub struct Options {
-    pub _placeholder: bool,
+    pub error_handling: ErrorHandling,
 }
 
-pub fn concretize(ast: Module) -> Module {
-    concretize_with(ast, Options::default())
+#[derive(Default, PartialEq)]
+pub enum ErrorHandling {
+    #[default]
+    ReplaceWithDefault,
+    Panic,
 }
 
-pub fn concretize_with(mut ast: Module, options: Options) -> Module {
-    let evaluator = Evaluator::new(options);
+use std::collections::HashMap;
 
-    // Concretize the functions
-    let functions = ast
-        .functions
-        .into_iter()
-        .map(|f| evaluator.concretize_fn(f))
-        .collect::<Vec<_>>();
-
-    // Reassign the concretized functions to ast
-    ast.functions = functions;
-
-    ast
-}
-
-struct Evaluator {
+#[derive(Default)]
+pub struct Concretizer {
     // keep track of which internal variables are concretizable
     // as we traverse the AST
-    _placeholder: bool,
+    error_handling: ErrorHandling,
+    global_constants: HashMap<String, Value>,
+    local_scopes: Vec<HashMap<String, Value>>,
 }
 
-impl Evaluator {
-    fn new(options: Options) -> Evaluator {
-        Evaluator {
-            _placeholder: options._placeholder,
+impl Concretizer {
+    pub fn new(options: Options) -> Concretizer {
+        Concretizer {
+            error_handling: options.error_handling,
+            global_constants: HashMap::new(),
+            local_scopes: Vec::new(),
         }
     }
 
-    fn concretize_fn(&self, mut decl: FnDecl) -> FnDecl {
+    pub fn register_global_consts(&mut self, consts: &[ConstDeclStatement]) {
+        for decl in consts {
+            let con_node = self.concretize_expr(decl.initializer.clone());
+            if let Some(val) = con_node.value {
+                self.global_constants.insert(decl.ident.clone(), val);
+            }
+        }
+    }
+
+    pub fn register_const(&mut self, name: String, val: Value) {
+        self.global_constants.insert(name, val);
+    }
+
+    fn enter_scope(&mut self) {
+        self.local_scopes.push(HashMap::new());
+    }
+
+    fn exit_scope(&mut self) {
+        self.local_scopes.pop();
+    }
+
+    fn insert_const(&mut self, name: String, val: Value) {
+        if let Some(scope) = self.local_scopes.last_mut() {
+            scope.insert(name, val);
+        }
+    }
+
+    fn lookup_const(&self, name: &str) -> Option<Value> {
+        for scope in self.local_scopes.iter().rev() {
+            if let Some(val) = scope.get(name) {
+                return Some(val.clone());
+            }
+        }
+        self.global_constants.get(name).cloned()
+    }
+
+    pub(crate) fn concretize_fn(&mut self, mut decl: FnDecl) -> FnDecl {
+        self.local_scopes.clear(); // Ensure fresh start for function
+        self.enter_scope(); // Function scope
+
         decl.body = decl
             .body
             .into_iter()
             .map(|s| self.concretize_stmt(s))
             .collect();
 
+        self.exit_scope();
+
         decl
     }
 
-    fn concretize_stmt(&self, stmt: Statement) -> Statement {
-        //TODO: if stmt contains var, return (since not concretizable)
-
+    fn concretize_stmt(&mut self, stmt: Statement) -> Statement {
         match stmt {
-            Statement::LetDecl(LetDeclStatement { ident, initializer }) => {
-                LetDeclStatement::new(ident, self.concretize_expr(initializer)).into()
+            Statement::LetDecl(LetDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => {
+                let con_init = self.concretize_expr(initializer);
+                if let Some(val) = &con_init.value {
+                    self.insert_const(ident.clone(), val.clone());
+                }
+                LetDeclStatement::new(ident, data_type, con_init).into()
+            }
+            Statement::ConstDecl(ConstDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => {
+                let con_init = self.concretize_expr(initializer);
+                if let Some(val) = &con_init.value {
+                    self.insert_const(ident.clone(), val.clone());
+                }
+                ConstDeclStatement::new(ident, data_type, con_init).into()
             }
             Statement::VarDecl(VarDeclStatement {
                 ident,
@@ -165,18 +276,41 @@ impl Evaluator {
                 AssignmentStatement::new(lhs, op, self.concretize_expr(rhs)).into()
             }
             Statement::Compound(s) => {
-                Statement::Compound(s.into_iter().map(|s| self.concretize_stmt(s)).collect())
+                self.enter_scope();
+                let stmts = s.into_iter().map(|s| self.concretize_stmt(s)).collect();
+                self.exit_scope();
+                Statement::Compound(stmts)
             }
             Statement::If(IfStatement {
                 condition,
                 body,
                 else_,
-            }) => IfStatement::new(
-                self.concretize_expr(condition),
-                body.into_iter().map(|s| self.concretize_stmt(s)).collect(),
-            )
-            .with_else(else_.map(|els| *els))
-            .into(),
+            }) => {
+                let cond = self.concretize_expr(condition);
+                self.enter_scope();
+                let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
+                self.exit_scope();
+
+                let new_else = else_
+                    .map(|els| match *els {
+                        Else::If(stmt) => Else::If(match self.concretize_stmt(stmt.into()) {
+                            Statement::If(s) => s,
+                            _ => unreachable!(),
+                        }),
+                        Else::Else(stmts) => {
+                            self.enter_scope();
+                            let new_stmts =
+                                stmts.into_iter().map(|s| self.concretize_stmt(s)).collect();
+                            self.exit_scope();
+                            Else::Else(new_stmts)
+                        }
+                    })
+                    .map(Box::new);
+
+                IfStatement::new(cond, new_body)
+                    .with_else(new_else.map(|e| *e))
+                    .into()
+            }
             Statement::Return(ReturnStatement { value }) => ReturnStatement {
                 value: value.map(|e| self.concretize_expr(e).into()),
             }
@@ -191,10 +325,15 @@ impl Evaluator {
                     .into_iter()
                     .map(|c| self.concretize_switch_case(c))
                     .collect(),
-                default
-                    .into_iter()
-                    .map(|s| self.concretize_stmt(s))
-                    .collect(),
+                {
+                    self.enter_scope();
+                    let def = default
+                        .into_iter()
+                        .map(|s| self.concretize_stmt(s))
+                        .collect();
+                    self.exit_scope();
+                    def
+                },
             )
             .into(),
             Statement::FnCall(FnCallStatement { ident, args }) => FnCallStatement::new(
@@ -204,28 +343,55 @@ impl Evaluator {
                     .collect(),
             )
             .into(),
-            Statement::Loop(LoopStatement { body }) => {
-                LoopStatement::new(body.into_iter().map(|s| self.concretize_stmt(s)).collect())
-                    .into()
+            Statement::Loop(LoopStatement { body, continuing }) => {
+                self.enter_scope();
+                let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
+                let new_continuing = continuing.map(|c| ContinuingBlock {
+                    stmts: c
+                        .stmts
+                        .into_iter()
+                        .map(|s| self.concretize_stmt(s))
+                        .collect(),
+                    break_if: c.break_if.map(|e| self.concretize_expr(e).into()),
+                });
+                self.exit_scope();
+                LoopStatement::new(new_body, new_continuing).into()
             }
-            Statement::ForLoop(ForLoopStatement { header, body }) => ForLoopStatement::new(
-                ForLoopHeader {
+            Statement::While(WhileStatement { condition, body }) => {
+                let new_condition = self.concretize_expr(condition).into();
+                self.enter_scope();
+                let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
+                self.exit_scope();
+                WhileStatement::new(new_condition, new_body).into()
+            }
+            Statement::ForLoop(ForLoopStatement { header, body }) => {
+                self.enter_scope();
+                let new_header = ForLoopHeader {
                     init: header.init.map(|init| self.concretize_for_init(init)),
                     condition: header.condition.map(|e| self.concretize_expr(e).into()),
                     update: header
                         .update
                         .map(|update| self.concretize_for_update(update)),
-                },
-                body.into_iter().map(|s| self.concretize_stmt(s)).collect(),
-            )
-            .into(),
+                };
+                let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
+                self.exit_scope();
+
+                ForLoopStatement::new(new_header, new_body).into()
+            }
             Statement::Break => Statement::Break,
             Statement::Continue => Statement::Continue,
+
             Statement::Fallthrough => Statement::Fallthrough,
+            Statement::Increment(IncrementStatement { lhs }) => {
+                Statement::Increment(IncrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
+            Statement::Decrement(DecrementStatement { lhs }) => {
+                Statement::Decrement(DecrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
         }
     }
 
-    fn concretize_for_init(&self, init: ForLoopInit) -> ForLoopInit {
+    fn concretize_for_init(&mut self, init: ForLoopInit) -> ForLoopInit {
         match init {
             ForLoopInit::VarDecl(VarDeclStatement {
                 ident,
@@ -239,7 +405,7 @@ impl Evaluator {
         }
     }
 
-    fn concretize_for_update(&self, update: ForLoopUpdate) -> ForLoopUpdate {
+    fn concretize_for_update(&mut self, update: ForLoopUpdate) -> ForLoopUpdate {
         match update {
             ForLoopUpdate::Assignment(AssignmentStatement { lhs, op, rhs }) => {
                 ForLoopUpdate::Assignment(AssignmentStatement::new(
@@ -248,17 +414,23 @@ impl Evaluator {
                     self.concretize_expr(rhs),
                 ))
             }
+            ForLoopUpdate::Increment(IncrementStatement { lhs }) => ForLoopUpdate::Increment(
+                IncrementStatement::new(self.concretize_assignment_lhs(lhs)),
+            ),
+            ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
+                DecrementStatement::new(self.concretize_assignment_lhs(lhs)),
+            ),
         }
     }
 
-    fn concretize_assignment_lhs(&self, lhs: AssignmentLhs) -> AssignmentLhs {
+    fn concretize_assignment_lhs(&mut self, lhs: AssignmentLhs) -> AssignmentLhs {
         match lhs {
             AssignmentLhs::Phony => AssignmentLhs::Phony,
             AssignmentLhs::Expr(expr) => AssignmentLhs::Expr(self.concretize_lhs_expr(expr)),
         }
     }
 
-    fn concretize_lhs_expr(&self, node: LhsExprNode) -> LhsExprNode {
+    fn concretize_lhs_expr(&mut self, node: LhsExprNode) -> LhsExprNode {
         let expr = match node.expr {
             LhsExpr::Ident(ident) => LhsExpr::Ident(ident),
             LhsExpr::Postfix(expr, postfix) => LhsExpr::Postfix(
@@ -280,14 +452,16 @@ impl Evaluator {
         }
     }
 
-    fn concretize_switch_case(&self, case: SwitchCase) -> SwitchCase {
+    fn concretize_switch_case(&mut self, case: SwitchCase) -> SwitchCase {
         let concretized_selector = self.concretize_expr(case.selector);
 
+        self.enter_scope();
         let concretized_body = case
             .body
             .into_iter()
             .map(|s| self.concretize_stmt(s))
             .collect();
+        self.exit_scope();
 
         SwitchCase {
             selector: concretized_selector.into(),
@@ -295,7 +469,7 @@ impl Evaluator {
         }
     }
 
-    fn concretize_expr(&self, node: ExprNode) -> ConNode {
+    pub fn concretize_expr(&mut self, node: ExprNode) -> ConNode {
         //TODO: if expr contains var, return (since not concretizable)
 
         match node.expr {
@@ -319,7 +493,12 @@ impl Evaluator {
                     .map(|e| self.concretize_expr(e))
                     .collect();
 
-                self.concretize_fncall(node.data_type, expr.ident, concrete_args)
+                self.concretize_fncall(
+                    node.data_type,
+                    expr.ident,
+                    concrete_args,
+                    expr.template_args,
+                )
             }
             Expr::Postfix(expr) => {
                 let concrete_inner = self.concretize_expr(*expr.inner);
@@ -337,18 +516,25 @@ impl Evaluator {
                 }
             }
             Expr::Var(expr) => {
+                let value = self.lookup_const(&expr.ident);
                 ConNode {
                     node: ExprNode {
                         data_type: node.data_type,
-                        expr: expr.into(),
+                        expr: Expr::Var(expr),
                     },
-                    value: None, //TODO
+                    value,
                 }
             }
         }
     }
 
-    fn concretize_fncall(&self, data_type: DataType, ident: String, args: Vec<ConNode>) -> ConNode {
+    fn concretize_fncall(
+        &self,
+        data_type: DataType,
+        ident: String,
+        args: Vec<ConNode>,
+        template_args: Vec<DataType>,
+    ) -> ConNode {
         // nodes : Vec<ExprNode>, vals : Option<Value>
         let (nodes, vals) = self.decompose_vec_con(args);
 
@@ -367,7 +553,12 @@ impl Evaluator {
             }
 
             return ConNode {
-                node: FnCallExpr::new(ident, nodes).into_node(data_type),
+                node: FnCallExpr {
+                    ident,
+                    template_args,
+                    args: nodes,
+                }
+                .into_node(data_type),
                 value: None,
             };
         }
@@ -375,14 +566,17 @@ impl Evaluator {
         let function = Builtin::convert(ident.clone());
 
         match function {
-            // Evaluate function result and determine whether the node must
-            // be replaced with a default
             Some(f) => {
                 let evaluated_val = evaluate_builtin(&f, vals);
 
                 match evaluated_val {
                     Some(_) => ConNode {
-                        node: FnCallExpr::new(ident, nodes).into_node(data_type),
+                        node: FnCallExpr {
+                            ident,
+                            args: nodes,
+                            template_args,
+                        }
+                        .into_node(data_type),
                         value: evaluated_val,
                     },
                     None => self.default_node(data_type),
@@ -391,7 +585,12 @@ impl Evaluator {
             // If the function ident is not implemented in eval_builtin, then
             // simply return the same node with a None value
             None => ConNode {
-                node: FnCallExpr::new(ident, nodes).into_node(data_type),
+                node: FnCallExpr {
+                    ident,
+                    args: nodes,
+                    template_args,
+                }
+                .into_node(data_type),
                 value: None,
             },
         }
@@ -401,7 +600,7 @@ impl Evaluator {
         vals.iter().any(|v| v.is_none())
     }
 
-    fn concretize_typecons(&self, data_type: DataType, expr: TypeConsExpr) -> ConNode {
+    fn concretize_typecons(&mut self, data_type: DataType, expr: TypeConsExpr) -> ConNode {
         let concrete_args: Vec<ConNode> = expr
             .args
             .into_iter()
@@ -413,9 +612,16 @@ impl Evaluator {
         let new_val = if self.contains_none(&new_val) {
             None
         } else {
-            Some(Value::Vector(
-                new_val.into_iter().map(|v| v.unwrap()).collect(),
-            ))
+            let mut values: Vec<Value> = new_val.into_iter().map(|v| v.unwrap()).collect();
+
+            // Handle vector splat constructor: vecN<T>(scalar)
+            if let DataType::Vector(size, _) = data_type {
+                if values.len() == 1 && size > 1 {
+                    values = vec![values[0].clone(); size as usize];
+                }
+            }
+
+            Some(Value::Vector(values))
         };
 
         ConNode {
@@ -503,6 +709,9 @@ impl Evaluator {
     }
 
     fn default_node(&self, data_type: DataType) -> ConNode {
+        if self.error_handling == ErrorHandling::Panic {
+            panic!("Invalid expression of type {data_type}")
+        }
         match data_type {
             DataType::Scalar(ty) => match ty {
                 ScalarType::U32 => ConNode {
@@ -516,6 +725,10 @@ impl Evaluator {
                 ScalarType::F32 => ConNode {
                     node: Lit::F32(1_f32).into(),
                     value: Value::from_f32(Some(1_f32)),
+                },
+                ScalarType::F16 => ConNode {
+                    node: Lit::F16(half::f16::from_f32(1.0)).into(),
+                    value: Value::from_f16(Some(half::f16::from_f32(1.0))),
                 },
                 ScalarType::Bool => ConNode {
                     node: Lit::Bool(true).into(),
@@ -537,6 +750,20 @@ impl Evaluator {
                     node: TypeConsExpr::new(data_type, vec![Lit::F32(1_f32).into(); size.into()])
                         .into(),
                     value: Some(Value::Vector(vec![1_f32.into(); size.into()])),
+                },
+                ScalarType::F16 => ConNode {
+                    node: TypeConsExpr::new(
+                        data_type,
+                        vec![Lit::F16(half::f16::from_f32(1.0)).into(); size.into()],
+                    )
+                    .into(),
+                    value: Some(Value::Vector(vec![
+                        Value::from_f16(Some(
+                            half::f16::from_f32(1.0)
+                        ))
+                        .unwrap();
+                        size.into()
+                    ])),
                 },
                 ScalarType::Bool => ConNode {
                     node: TypeConsExpr::new(data_type, vec![Lit::Bool(true).into(); size.into()])
@@ -584,6 +811,12 @@ impl Evaluator {
             BinOp::Plus | BinOp::Minus | BinOp::Times | BinOp::Divide | BinOp::Mod => {
                 match (lv, rv) {
                     (Lit::I32(l_lit), Lit::I32(r_lit)) => {
+                        if l_lit == i32::MIN
+                            && r_lit == -1
+                            && (*op == BinOp::Divide || *op == BinOp::Mod)
+                        {
+                            return None;
+                        }
                         let result = binop_int_arith!(op, l_lit, r_lit);
                         Value::from_i32(result)
                     }
@@ -594,6 +827,10 @@ impl Evaluator {
                     (Lit::F32(l_lit), Lit::F32(r_lit)) => {
                         let result = binop_float(op, l_lit, r_lit);
                         Value::from_f32(result)
+                    }
+                    (Lit::F16(l_lit), Lit::F16(r_lit)) => {
+                        let result = binop_float16(op, l_lit, r_lit);
+                        Value::from_f16(result)
                     }
                     _ => None,
                 }
@@ -612,12 +849,26 @@ impl Evaluator {
         match (lv, rv) {
             (Lit::I32(l), Lit::U32(r)) => {
                 if op == &BinOp::LShift
-                    && (l.leading_zeros() < (r + 1) || l.leading_ones() < (r + 1))
+                    && (l.leading_zeros() < (r + 1) && l.leading_ones() < (r + 1))
                 {
                     return None;
                 }
             }
             (Lit::U32(l), Lit::U32(r)) => {
+                if op == &BinOp::LShift && l.leading_zeros() < r {
+                    return None;
+                }
+            }
+            (Lit::I32(l), Lit::I32(r)) => {
+                let r = r as u32;
+                if op == &BinOp::LShift
+                    && (l.leading_zeros() < (r + 1) && l.leading_ones() < (r + 1))
+                {
+                    return None;
+                }
+            }
+            (Lit::U32(l), Lit::I32(r)) => {
+                let r = r as u32;
                 if op == &BinOp::LShift && l.leading_zeros() < r {
                     return None;
                 }
@@ -707,8 +958,9 @@ impl Evaluator {
                         }
                     }
                     Lit::F32(f) => Value::from_f32(Some(-f)),
+                    Lit::F16(f) => Value::from_f16(Some(-f)),
                     _ => {
-                        panic!(); // can't negate other types
+                        panic!("cannot negate {:?}", inner); // can't negate other types
                     }
                 }
             }

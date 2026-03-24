@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use derive_more::Display;
 
-use crate::{AccessMode, StorageClass, StructDecl};
+use crate::{AccessMode, SamplerType, StorageClass, StructDecl, TextureType};
 
 #[derive(Clone, Copy, Debug, Display, Hash, PartialEq, Eq)]
 pub enum ScalarType {
@@ -15,6 +15,8 @@ pub enum ScalarType {
     U32,
     #[display("f32")]
     F32,
+    #[display("f16")]
+    F16,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -55,8 +57,11 @@ impl Display for MemoryViewType {
 pub enum DataType {
     Scalar(ScalarType),
     Vector(u8, ScalarType),
+    Matrix(u8, u8, ScalarType),
     Array(Rc<DataType>, Option<u32>),
     Struct(Rc<StructDecl>),
+    Texture(TextureType),
+    Sampler(SamplerType),
     Ptr(MemoryViewType),
     Ref(MemoryViewType),
 }
@@ -118,6 +123,11 @@ impl DataType {
         matches!(self, Self::Vector(..))
     }
 
+    #[must_use]
+    pub fn is_matrix(&self) -> bool {
+        matches!(self, Self::Matrix(..))
+    }
+
     /// Returns `true` if the data type is a scalar or vector of integers.
     pub fn is_integer(&self) -> bool {
         matches!(self.as_scalar(), Some(ScalarType::I32 | ScalarType::U32))
@@ -134,8 +144,11 @@ impl fmt::Debug for DataType {
         match self {
             Self::Scalar(arg0) => f.debug_tuple("Scalar").field(arg0).finish(),
             Self::Vector(arg0, arg1) => f.debug_tuple("Vector").field(arg0).field(arg1).finish(),
+            Self::Matrix(c, r, t) => f.debug_tuple("Matrix").field(c).field(r).field(t).finish(),
             Self::Array(arg0, arg1) => f.debug_tuple("Array").field(arg0).field(arg1).finish(),
             Self::Struct(arg0) => f.debug_tuple("Struct").field(&arg0.name).finish(),
+            Self::Texture(arg0) => f.debug_tuple("Texture").field(arg0).finish(),
+            Self::Sampler(arg0) => f.debug_tuple("Sampler").field(arg0).finish(),
             Self::Ptr(arg0) => f.debug_tuple("Ptr").field(arg0).finish(),
             Self::Ref(arg0) => f.debug_tuple("Ref").field(arg0).finish(),
         }
@@ -147,6 +160,7 @@ impl Display for DataType {
         match self {
             DataType::Scalar(t) => write!(f, "{}", t),
             DataType::Vector(n, t) => write!(f, "vec{}<{}>", n, t),
+            DataType::Matrix(c, r, t) => write!(f, "mat{}x{}<{}>", c, r, t),
             DataType::Array(inner, n) => {
                 write!(f, "array<{inner}")?;
                 if let Some(n) = n {
@@ -155,6 +169,8 @@ impl Display for DataType {
                 write!(f, ">")
             }
             DataType::Struct(decl) => write!(f, "{}", decl.name),
+            DataType::Texture(t) => write!(f, "{}", t),
+            DataType::Sampler(s) => write!(f, "{}", s),
             DataType::Ptr(view) => write!(f, "ptr<{view}>"),
             DataType::Ref(view) => write!(f, "ref<{view}>"),
         }

@@ -26,10 +26,12 @@ impl super::Generator<'_> {
         match ty {
             DataType::Scalar(_) => allowed.push(ExprType::Lit),
             DataType::Vector(_, _) => allowed.push(ExprType::TypeCons),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => allowed.push(ExprType::TypeCons),
             DataType::Struct(_) => allowed.push(ExprType::TypeCons),
             DataType::Ptr(view) => return self.gen_pointer_expr(view),
             DataType::Ref(_) => panic!("explicit request to generate ref expression: `{ty}`"),
+            DataType::Texture(_) | DataType::Sampler(_) => {}
         }
 
         if self.fn_state.expression_depth < 5 {
@@ -42,19 +44,17 @@ impl super::Generator<'_> {
             if matches!(
                 ty,
                 DataType::Scalar(_)
-                    | DataType::Vector(_, ScalarType::I32 | ScalarType::U32 | ScalarType::F32)
+                    | DataType::Vector(
+                        _,
+                        ScalarType::I32 | ScalarType::U32 | ScalarType::F32 | ScalarType::F16,
+                    )
             ) {
                 allowed.push(ExprType::BinOp);
             }
 
             // Function calls are available if we have a function that returns the target type,
             // or we are able to generate a new function.
-            // TODO: naga currently has issues with functions that return arrays:
-            // https://github.com/gfx-rs/naga/issues/1930
-            // https://github.com/gfx-rs/naga/issues/1910
-            if !matches!(ty, DataType::Array(_, _))
-                && (self.cx.fns.contains_type(ty) || self.can_gen_fn(ty))
-            {
+            if self.cx.fns.contains_type(ty) || self.can_gen_fn(ty) {
                 allowed.push(ExprType::FnCall);
             }
         }
@@ -127,6 +127,7 @@ impl super::Generator<'_> {
             DataType::Vector(n, t) => (0..*n)
                 .map(|_| self.gen_expr(&DataType::Scalar(*t)))
                 .collect(),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => vec![],
             DataType::Struct(decl) => decl
                 .members
@@ -134,6 +135,7 @@ impl super::Generator<'_> {
                 .map(|it| self.gen_expr(&it.data_type))
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         self.fn_state.expression_depth -= 1;
@@ -147,6 +149,7 @@ impl super::Generator<'_> {
             DataType::Vector(n, t) => (0..*n)
                 .map(|_| self.gen_const_expr(&DataType::Scalar(*t)))
                 .collect(),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(ty, Some(n)) => (0..*n).map(|_| self.gen_const_expr(ty)).collect(),
             DataType::Array(_, None) => panic!("runtime sized array is not constructable"),
             DataType::Struct(decl) => decl
@@ -155,6 +158,7 @@ impl super::Generator<'_> {
                 .map(|it| self.gen_const_expr(&it.data_type))
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         TypeConsExpr::new(ty.clone(), args).into()
@@ -198,10 +202,15 @@ impl super::Generator<'_> {
             // The number of components in the result type depends on the operands, but the
             // actual type does not.
             BinOp::Less | BinOp::LessEqual | BinOp::Greater | BinOp::GreaterEqual => ty.map(
-                [ScalarType::I32, ScalarType::U32, ScalarType::F32]
-                    .choose(&mut self.rng)
-                    .copied()
-                    .unwrap(),
+                [
+                    ScalarType::I32,
+                    ScalarType::U32,
+                    ScalarType::F32,
+                    ScalarType::F16,
+                ]
+                .choose(&mut self.rng)
+                .copied()
+                .unwrap(),
             ),
 
             // These operators work on scalar/vector integers and bools.
@@ -212,6 +221,7 @@ impl super::Generator<'_> {
                     ScalarType::I32,
                     ScalarType::U32,
                     ScalarType::F32,
+                    ScalarType::F16,
                     ScalarType::Bool,
                 ]
                 .choose(&mut self.rng)
@@ -331,10 +341,11 @@ impl super::Generator<'_> {
         match expr.data_type.dereference() {
             DataType::Scalar(_) => unreachable!(),
             DataType::Vector(n, _) => self.gen_vector_accessor(*n, target, expr),
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => self.gen_array_accessor(target, expr),
             DataType::Struct(decl) => self.gen_struct_accessor(&decl.clone(), target, expr),
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
-            DataType::Ref(_) => todo!(),
+            DataType::Ref(_) | DataType::Texture(_) | DataType::Sampler(_) => todo!(),
         }
     }
 
@@ -390,6 +401,7 @@ impl super::Generator<'_> {
                 ScalarType::I32 => Lit::I32(self.gen_i32()),
                 ScalarType::U32 => Lit::U32(self.gen_u32()),
                 ScalarType::F32 => Lit::F32(self.gen_f32()),
+                ScalarType::F16 => Lit::F16(half::f16::from_f32(self.gen_f32())),
             },
             _ => unreachable!(),
         }
@@ -402,10 +414,12 @@ impl super::Generator<'_> {
         let scalar_ty = match ty {
             DataType::Scalar(ty) => ty,
             DataType::Vector(_, ty) => ty,
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => unreachable!(),
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),
             DataType::Ref(_) => todo!(),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         match scalar_ty {
@@ -415,7 +429,7 @@ impl super::Generator<'_> {
                 .choose(&mut self.rng)
                 .copied()
                 .unwrap(),
-            ScalarType::F32 => UnOp::Neg,
+            ScalarType::F32 | ScalarType::F16 => UnOp::Neg,
         }
     }
 
@@ -424,10 +438,12 @@ impl super::Generator<'_> {
         let scalar_ty = match ty {
             DataType::Scalar(ty) => ty,
             DataType::Vector(_, ty) => ty,
+            DataType::Matrix(_, _, _) => todo!(),
             DataType::Array(_, _) => unreachable!(),
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),
             DataType::Ref(_) => todo!(),
+            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
         };
 
         let allowed: &[BinOp] = match scalar_ty {
@@ -453,7 +469,9 @@ impl super::Generator<'_> {
                 BinOp::LShift,
                 BinOp::RShift,
             ],
-            ScalarType::F32 => &[BinOp::Plus, BinOp::Minus, BinOp::Times, BinOp::Divide],
+            ScalarType::F32 | ScalarType::F16 => {
+                &[BinOp::Plus, BinOp::Minus, BinOp::Times, BinOp::Divide]
+            }
         };
 
         let mut allowed = allowed.to_vec();

@@ -7,6 +7,7 @@ mod func;
 mod globals;
 mod stmt;
 mod structs;
+mod texture;
 
 pub use builtins::*;
 pub use expr::*;
@@ -14,6 +15,7 @@ pub use func::*;
 pub use globals::*;
 pub use stmt::*;
 pub use structs::*;
+pub use texture::*;
 
 use std::rc::Rc;
 
@@ -21,8 +23,11 @@ pub use types::{DataType, ScalarType};
 
 #[derive(Debug, PartialEq)]
 pub struct Module {
+    pub enables: Vec<EnableExtension>,
+    pub requires: Vec<RequiresExtension>,
+    pub aliases: Vec<AliasDecl>,
     pub structs: Vec<Rc<StructDecl>>,
-    pub consts: Vec<GlobalConstDecl>,
+    pub consts: Vec<ConstDeclStatement>,
     pub vars: Vec<GlobalVarDecl>,
     pub functions: Vec<FnDecl>,
 }

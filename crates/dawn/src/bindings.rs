@@ -65,10 +65,24 @@ impl Instance {
         adapters
     }
 
-    pub fn create_device(&self, backend: WGPUBackendType, device_id: u32) -> Option<Device<'_>> {
+    pub fn create_device(
+        &self,
+        backend: WGPUBackendType,
+        device_id: u32,
+        enables: &[WGPUFeatureName],
+    ) -> Option<Device<'_>> {
         let callback: WGPUUncapturedErrorCallback = Some(default_error_callback);
-        let handle =
-            unsafe { dawn::create_device(self.0, backend, device_id, callback, null_mut()) };
+        let handle = unsafe {
+            dawn::create_device(
+                self.0,
+                backend,
+                device_id,
+                callback,
+                null_mut(),
+                enables.as_ptr(),
+                enables.len(),
+            )
+        };
 
         if handle.is_null() {
             panic!("failed to create dawn device");
@@ -209,10 +223,51 @@ impl Device<'_> {
         })
     }
 
-    pub fn create_command_encoder(&self) -> Result<CommandEncoder> {
+    pub fn create_command_encoder(&self) -> Result<CommandEncoder<'_>> {
         ErrorScope::new(self, "command encoder creation failed").execute(|| unsafe {
             CommandEncoder {
+                device: self,
                 handle: wgpuDeviceCreateCommandEncoder(self.handle, &zeroed()).assert_not_null(),
+            }
+        })
+    }
+
+    pub fn create_texture(
+        &self,
+        format: WGPUTextureFormat,
+        usage: DeviceTextureUsage,
+        dimension: WGPUTextureDimension,
+        size: WGPUExtent3D,
+    ) -> Result<DeviceTexture> {
+        ErrorScope::new(self, "texture creation failed").execute(|| unsafe {
+            DeviceTexture {
+                handle: wgpuDeviceCreateTexture(
+                    self.handle,
+                    &WGPUTextureDescriptor {
+                        label: WGPUStringView {
+                            data: null(),
+                            length: 0,
+                        },
+                        nextInChain: null_mut(),
+                        usage: usage.bits as _,
+                        dimension,
+                        size,
+                        format,
+                        mipLevelCount: 1,
+                        sampleCount: 1,
+                        viewFormatCount: 0,
+                        viewFormats: null(),
+                    },
+                )
+                .assert_not_null(),
+            }
+        })
+    }
+
+    pub fn create_sampler(&self, descriptor: &WGPUSamplerDescriptor) -> Result<DeviceSampler> {
+        ErrorScope::new(self, "sampler creation failed").execute(|| unsafe {
+            DeviceSampler {
+                handle: wgpuDeviceCreateSampler(self.handle, descriptor).assert_not_null(),
             }
         })
     }
@@ -227,7 +282,9 @@ impl Device<'_> {
 impl Drop for Device<'_> {
     fn drop(&mut self) {
         unsafe {
-            wgpuDeviceRelease(self.handle);
+            eprintln!("Dropping device");
+            wgpuDeviceDestroy(self.handle);
+            self._instance.process_events()
         }
     }
 }
@@ -240,6 +297,25 @@ impl DeviceQueue {
     pub fn submit(&self, commands: &CommandBuffer) {
         unsafe {
             wgpuQueueSubmit(self.handle, 1, &commands.handle);
+        }
+    }
+
+    pub fn write_texture(
+        &self,
+        destination: &WGPUTexelCopyTextureInfo,
+        data: &[u8],
+        data_layout: &WGPUTexelCopyBufferLayout,
+        write_size: &WGPUExtent3D,
+    ) {
+        unsafe {
+            wgpuQueueWriteTexture(
+                self.handle,
+                destination,
+                data.as_ptr() as _,
+                data.len(),
+                data_layout,
+                write_size,
+            );
         }
     }
 }
@@ -311,13 +387,30 @@ impl DeviceBuffer {
         unsafe {
             unsafe extern "C" fn map_callback(
                 res: WGPUMapAsyncStatus,
-                _message: WGPUStringView,
+                message: WGPUStringView,
                 userdata1: *mut c_void,
                 _userdata2: *mut c_void,
             ) {
-                assert_eq!(res, WGPUMapAsyncStatus_WGPUMapAsyncStatus_Success);
                 let mut tx = Box::from_raw(userdata1 as *mut Option<oneshot::Sender<()>>);
-                (*tx).take().unwrap().send(()).unwrap();
+
+                if res == WGPUMapAsyncStatus_WGPUMapAsyncStatus_Success {
+                    if let Some(sender) = (*tx).take() {
+                        let _ = sender.send(());
+                    }
+                } else {
+                    let msg_str = if !message.data.is_null() {
+                        let slice =
+                            std::slice::from_raw_parts(message.data as *const u8, message.length);
+                        String::from_utf8_lossy(slice)
+                    } else {
+                        "Unknown error".into()
+                    };
+
+                    eprintln!(
+                        "wgpuBufferMapAsync failed status: {} message: {}",
+                        res, msg_str
+                    );
+                }
             }
 
             let (tx, rx) = oneshot::channel::<()>();
@@ -366,6 +459,62 @@ impl Drop for DeviceBuffer {
     }
 }
 
+pub struct DeviceTexture {
+    pub handle: WGPUTexture,
+}
+
+impl DeviceTexture {
+    pub fn create_view(&self) -> DeviceTextureView {
+        unsafe {
+            DeviceTextureView {
+                handle: wgpuTextureCreateView(self.handle, null()).assert_not_null(),
+            }
+        }
+    }
+}
+
+impl Drop for DeviceTexture {
+    fn drop(&mut self) {
+        unsafe {
+            wgpuTextureRelease(self.handle);
+        }
+    }
+}
+
+pub struct DeviceTextureView {
+    pub handle: WGPUTextureView,
+}
+
+impl Drop for DeviceTextureView {
+    fn drop(&mut self) {
+        unsafe {
+            wgpuTextureViewRelease(self.handle);
+        }
+    }
+}
+
+pub struct DeviceSampler {
+    pub handle: WGPUSampler,
+}
+
+impl Drop for DeviceSampler {
+    fn drop(&mut self) {
+        unsafe {
+            wgpuSamplerRelease(self.handle);
+        }
+    }
+}
+
+bitflags::bitflags! {
+    pub struct DeviceTextureUsage: WGPUTextureUsage {
+        const COPY_SRC = WGPUTextureUsage_CopySrc;
+        const COPY_DST = WGPUTextureUsage_CopyDst;
+        const TEXTURE_BINDING = WGPUTextureUsage_TextureBinding;
+        const STORAGE_BINDING = WGPUTextureUsage_StorageBinding;
+        const RENDER_ATTACHMENT = WGPUTextureUsage_RenderAttachment;
+    }
+}
+
 pub struct BindGroupLayout {
     handle: WGPUBindGroupLayout,
 }
@@ -382,19 +531,30 @@ impl Drop for BindGroupLayout {
 
 pub struct BindGroupEntry<'a> {
     pub binding: u32,
-    pub buffer: &'a DeviceBuffer,
+    pub resource: BindGroupEntryResource<'a>,
     pub size: usize,
+}
+
+pub enum BindGroupEntryResource<'a> {
+    Buffer(&'a DeviceBuffer),
+    TextureView(&'a DeviceTextureView),
+    Sampler(&'a DeviceSampler),
 }
 
 impl<'a> From<&BindGroupEntry<'a>> for WGPUBindGroupEntry {
     fn from(entry: &BindGroupEntry<'a>) -> Self {
+        let (buffer, texture_view, sampler) = match entry.resource {
+            BindGroupEntryResource::Buffer(b) => (b.handle, null_mut(), null_mut()),
+            BindGroupEntryResource::TextureView(t) => (null_mut(), t.handle, null_mut()),
+            BindGroupEntryResource::Sampler(s) => (null_mut(), null_mut(), s.handle),
+        };
         WGPUBindGroupEntry {
             binding: entry.binding,
-            buffer: entry.buffer.handle,
+            buffer,
             offset: 0,
             size: entry.size as _,
-            sampler: null_mut(),
-            textureView: null_mut(),
+            sampler,
+            textureView: texture_view,
             nextInChain: null_mut(),
         }
     }
@@ -414,11 +574,12 @@ impl Drop for BindGroup {
     }
 }
 
-pub struct CommandEncoder {
+pub struct CommandEncoder<'a> {
+    device: &'a Device<'a>,
     handle: WGPUCommandEncoder,
 }
 
-impl CommandEncoder {
+impl<'a> CommandEncoder<'a> {
     pub fn begin_compute_pass(&self) -> ComputePassEncoder {
         unsafe {
             ComputePassEncoder {
@@ -441,16 +602,16 @@ impl CommandEncoder {
         }
     }
 
-    pub fn finish(self) -> CommandBuffer {
-        unsafe {
+    pub fn finish(self) -> Result<CommandBuffer> {
+        ErrorScope::new(self.device, "command buffer finish failed").execute(|| unsafe {
             CommandBuffer {
                 handle: wgpuCommandEncoderFinish(self.handle, &zeroed()).assert_not_null(),
             }
-        }
+        })
     }
 }
 
-impl Drop for CommandEncoder {
+impl Drop for CommandEncoder<'_> {
     fn drop(&mut self) {
         unsafe {
             wgpuCommandEncoderRelease(self.handle);
