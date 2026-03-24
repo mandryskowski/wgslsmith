@@ -1,8 +1,12 @@
 ---
 source: crates/parser/src/lib.rs
+assertion_line: 1600
 expression: module
 ---
 Module {
+    enables: [],
+    requires: [],
+    aliases: [],
     structs: [
         StructDecl {
             name: "Buffer",
@@ -104,6 +108,7 @@ Module {
                 LetDecl(
                     LetDeclStatement {
                         ident: "var_0",
+                        data_type: None,
                         initializer: ExprNode {
                             data_type: Vector(
                                 2,
@@ -215,6 +220,7 @@ Module {
                 LetDecl(
                     LetDeclStatement {
                         ident: "var_1",
+                        data_type: None,
                         initializer: ExprNode {
                             data_type: Vector(
                                 2,
@@ -400,6 +406,7 @@ Module {
                 LetDecl(
                     LetDeclStatement {
                         ident: "var_3",
+                        data_type: None,
                         initializer: ExprNode {
                             data_type: Vector(
                                 2,
@@ -745,6 +752,7 @@ Module {
                 LetDecl(
                     LetDeclStatement {
                         ident: "var_6",
+                        data_type: None,
                         initializer: ExprNode {
                             data_type: Scalar(
                                 Bool,

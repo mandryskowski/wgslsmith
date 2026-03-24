@@ -1,8 +1,12 @@
 ---
 source: crates/parser/src/lib.rs
+assertion_line: 1596
 expression: module
 ---
 Module {
+    enables: [],
+    requires: [],
+    aliases: [],
     structs: [],
     consts: [],
     vars: [
@@ -93,6 +97,7 @@ Module {
                 LetDecl(
                     LetDeclStatement {
                         ident: "p",
+                        data_type: None,
                         initializer: ExprNode {
                             data_type: Ptr(
                                 MemoryViewType {
@@ -256,6 +261,7 @@ Module {
                 LetDecl(
                     LetDeclStatement {
                         ident: "q",
+                        data_type: None,
                         initializer: ExprNode {
                             data_type: Ptr(
                                 MemoryViewType {
@@ -465,6 +471,7 @@ Module {
                         LetDecl(
                             LetDeclStatement {
                                 ident: "p",
+                                data_type: None,
                                 initializer: ExprNode {
                                     data_type: Ptr(
                                         MemoryViewType {
@@ -572,6 +579,7 @@ Module {
                         LetDecl(
                             LetDeclStatement {
                                 ident: "p",
+                                data_type: None,
                                 initializer: ExprNode {
                                     data_type: Ptr(
                                         MemoryViewType {
@@ -679,6 +687,7 @@ Module {
                         LetDecl(
                             LetDeclStatement {
                                 ident: "p",
+                                data_type: None,
                                 initializer: ExprNode {
                                     data_type: Ptr(
                                         MemoryViewType {
@@ -786,6 +795,7 @@ Module {
                         LetDecl(
                             LetDeclStatement {
                                 ident: "p",
+                                data_type: None,
                                 initializer: ExprNode {
                                     data_type: Ptr(
                                         MemoryViewType {

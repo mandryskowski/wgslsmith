@@ -1,8 +1,12 @@
 ---
 source: crates/parser/src/lib.rs
+assertion_line: 1597
 expression: module
 ---
 Module {
+    enables: [],
+    requires: [],
+    aliases: [],
     structs: [
         StructDecl {
             name: "MyStruct",
