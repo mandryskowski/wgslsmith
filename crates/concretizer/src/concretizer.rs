@@ -287,10 +287,6 @@ impl Concretizer {
                 else_,
             }) => {
                 let cond = self.concretize_expr(condition);
-                // Body is a block, but If usually has implicit scope?
-                // AST `body` is Vec<Statement>.
-                // `concretize_stmt(Statement::If)` handles the statements.
-                // We should probably wrap body in scope.
                 self.enter_scope();
                 let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
                 self.exit_scope();
@@ -369,8 +365,6 @@ impl Concretizer {
                 WhileStatement::new(new_condition, new_body).into()
             }
             Statement::ForLoop(ForLoopStatement { header, body }) => {
-                // For loop scope covers init, cond, update, and body?
-                // Usually init is in a scope enclosing the body.
                 self.enter_scope();
                 let new_header = ForLoopHeader {
                     init: header.init.map(|init| self.concretize_for_init(init)),
@@ -379,10 +373,6 @@ impl Concretizer {
                         .update
                         .map(|update| self.concretize_for_update(update)),
                 };
-                // Body likely nested scope or same scope?
-                // WGSL spec says for loop creates a scope.
-                // And the body is a block.
-                // Implementation-wise, let's keep it simple: one scope for the loop.
                 let new_body = body.into_iter().map(|s| self.concretize_stmt(s)).collect();
                 self.exit_scope();
 
@@ -576,8 +566,6 @@ impl Concretizer {
         let function = Builtin::convert(ident.clone());
 
         match function {
-            // Evaluate function result and determine whether the node must
-            // be replaced with a default
             Some(f) => {
                 let evaluated_val = evaluate_builtin(&f, vals);
 
@@ -823,6 +811,12 @@ impl Concretizer {
             BinOp::Plus | BinOp::Minus | BinOp::Times | BinOp::Divide | BinOp::Mod => {
                 match (lv, rv) {
                     (Lit::I32(l_lit), Lit::I32(r_lit)) => {
+                        if l_lit == i32::MIN
+                            && r_lit == -1
+                            && (*op == BinOp::Divide || *op == BinOp::Mod)
+                        {
+                            return None;
+                        }
                         let result = binop_int_arith!(op, l_lit, r_lit);
                         Value::from_i32(result)
                     }
