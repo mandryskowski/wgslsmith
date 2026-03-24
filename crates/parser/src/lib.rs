@@ -870,7 +870,7 @@ fn parse_lhs_expression(pair: Pair<Rule>, env: &Environment) -> LhsExprNode {
                 LhsExprNode {
                     data_type: env
                         .var(&ident)
-                        .expect(format!("variable {ident} must be defined before use").as_str())
+                        .unwrap_or_else(|| panic!("variable {ident} must be defined before use"))
                         .clone(),
                     expr: LhsExpr::Ident(ident),
                 }
