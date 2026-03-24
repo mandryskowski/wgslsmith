@@ -9,8 +9,8 @@ use wgpu::wgt::PollType::Wait;
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, Device,
-    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, DxcShaderModel, ErrorFilter,
-    ErrorScopeGuard, Instance, Limits, MapMode, Queue, ShaderModuleDescriptor, ShaderSource,
+    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, ErrorFilter, ErrorScopeGuard, Instance,
+    Limits, MapMode, Queue, ShaderModuleDescriptor, ShaderSource,
 };
 
 pub struct WgpuState {
@@ -21,16 +21,22 @@ pub struct WgpuState {
 impl WgpuState {
     pub(crate) fn new() -> Self {
         WgpuState {
-            instance: Instance::new(wgpu::InstanceDescriptor {
-                backends: Backends::all(),
-                backend_options: wgpu::BackendOptions {
-                    gl: Default::default(),
-                    dx12: Self::dx12_backend_options(),
-                    noop: Default::default(),
-                },
-                ..Default::default()
-            }),
+            instance: Instance::new(Self::instance_descriptor()),
             device_cache: HashMap::new(),
+        }
+    }
+
+    fn instance_descriptor() -> wgpu::InstanceDescriptor {
+        wgpu::InstanceDescriptor {
+            backends: Backends::all(),
+            backend_options: wgpu::BackendOptions {
+                gl: Default::default(),
+                dx12: Self::dx12_backend_options(),
+                noop: Default::default(),
+            },
+            flags: Default::default(),
+            display: Default::default(),
+            memory_budget_thresholds: Default::default(),
         }
     }
 
@@ -41,7 +47,6 @@ impl WgpuState {
             Dx12BackendOptions {
                 shader_compiler: Dx12Compiler::DynamicDxc {
                     dxc_path: dxc_path.to_string_lossy().into_owned(),
-                    max_shader_model: DxcShaderModel::V6_7,
                 },
                 ..Default::default()
             }
@@ -64,10 +69,8 @@ impl WgpuState {
 }
 
 pub fn get_adapters() -> Vec<types::Adapter> {
-    let instance = Instance::new(wgpu::InstanceDescriptor {
-        backends: Backends::all(),
-        ..Default::default()
-    });
+    let wgpu_state = WgpuState::new();
+    let instance = wgpu_state.instance;
 
     let adapters = futures::executor::block_on(instance.enumerate_adapters(Backends::all()));
     adapters
@@ -111,6 +114,7 @@ pub async fn run(
         }
     };
 
+    // move to WgpuState!
     let (device, queue) = {
         if let Some((d, q)) = wgpu_state.device_cache.get(config) {
             (d.clone(), q.clone())
@@ -126,16 +130,18 @@ pub async fn run(
                 .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
             let mut required_features = wgpu::Features::empty();
-            for enable in &meta.enables {
-                match enable {
-                    reflection::EnableExtension::F16 => {
-                        required_features |= wgpu::Features::SHADER_F16;
-                    }
-                    reflection::EnableExtension::Subgroups => {
-                        required_features |= wgpu::Features::SUBGROUP;
-                    }
-                }
-            }
+            // for enable in &meta.enables {
+            //     match enable {
+            //         reflection::EnableExtension::F16 => {
+            //             required_features |= wgpu::Features::SHADER_F16;
+            //         }
+            //         reflection::EnableExtension::Subgroups => {
+            //             required_features |= wgpu::Features::SUBGROUP;
+            //         }
+            //     }
+            // }
+            required_features |= wgpu::Features::SHADER_F16;
+            required_features |= wgpu::Features::SUBGROUP;
 
             let device_descriptor = DeviceDescriptor {
                 required_limits: Limits {

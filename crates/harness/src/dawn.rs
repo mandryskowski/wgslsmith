@@ -90,18 +90,22 @@ pub async fn run(
             (cached_device.clone(), cached_queue.clone())
         } else {
             let mut required_features = vec![];
-            for enable in &meta.enables {
-                match enable {
-                    reflection::EnableExtension::F16 => {
-                        required_features
-                            .push(dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16);
-                    }
-                    reflection::EnableExtension::Subgroups => {
-                        required_features
-                            .push(dawn::webgpu::WGPUFeatureName_WGPUFeatureName_Subgroups);
-                    }
-                }
-            }
+            // for enable in &meta.enables {
+            //     match enable {
+            //         reflection::EnableExtension::F16 => {
+            //             required_features
+            //                 .push(dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16);
+            //         }
+            //         reflection::EnableExtension::Subgroups => {
+            //             required_features
+            //                 .push(dawn::webgpu::WGPUFeatureName_WGPUFeatureName_Subgroups);
+            //         }
+            //     }
+            // }
+            required_features = vec![
+                dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16,
+                dawn::webgpu::WGPUFeatureName_WGPUFeatureName_Subgroups,
+            ];
 
             let device = dawn_state
                 .instance

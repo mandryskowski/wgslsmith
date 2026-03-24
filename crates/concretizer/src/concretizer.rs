@@ -966,7 +966,7 @@ impl Concretizer {
                     Lit::F32(f) => Value::from_f32(Some(-f)),
                     Lit::F16(f) => Value::from_f16(Some(-f)),
                     _ => {
-                        panic!(); // can't negate other types
+                        panic!("cannot negate {:?}", inner); // can't negate other types
                     }
                 }
             }
