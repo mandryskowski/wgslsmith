@@ -2,7 +2,7 @@ use std::fmt::{Display, Result, Write};
 
 use indenter::indented;
 
-use crate::{ConstDeclStatement, FnAttr, FnDecl, GlobalVarDecl, Module, StructDecl};
+use crate::{FnAttr, FnDecl, GlobalVarDecl, Module, StructDecl};
 
 #[derive(Default)]
 pub struct Writer {

@@ -4,7 +4,7 @@ use concretizer::concretizer::{Concretizer, ErrorHandling, Options};
 use concretizer::value::Value;
 use peeking_take_while::PeekableExt;
 use pest::iterators::Pair;
-use pest::prec_climber::{Assoc, Operator, PrecClimber};
+use pest::pratt_parser::{Assoc, Op, PrattParser};
 use pest::Parser;
 use rpds::HashTrieMap;
 use std::hash::Hash;
@@ -911,32 +911,31 @@ fn parse_lhs_expression(pair: Pair<Rule>, env: &Environment) -> LhsExprNode {
     })
 }
 
-fn precedence_table() -> PrecClimber<Rule> {
-    PrecClimber::new(vec![
+fn precedence_table() -> PrattParser<Rule> {
+    PrattParser::new()
         // Level 1: bitwise operators
-        Operator::new(Rule::op_bit_and, Assoc::Left)
-            | Operator::new(Rule::op_bit_or, Assoc::Left)
-            | Operator::new(Rule::op_bit_xor, Assoc::Left),
+        .op(Op::infix(Rule::op_bit_and, Assoc::Left)
+            | Op::infix(Rule::op_bit_or, Assoc::Left)
+            | Op::infix(Rule::op_bit_xor, Assoc::Left))
         // Level 2: short-circuiting or operator
-        Operator::new(Rule::op_log_or, Assoc::Left),
+        .op(Op::infix(Rule::op_log_or, Assoc::Left))
         // Level 3: short-circuiting and operator
-        Operator::new(Rule::op_log_and, Assoc::Left),
+        .op(Op::infix(Rule::op_log_and, Assoc::Left))
         // Level 4: comparison operators
-        Operator::new(Rule::op_less, Assoc::Left)
-            | Operator::new(Rule::op_less_eq, Assoc::Left)
-            | Operator::new(Rule::op_greater, Assoc::Left)
-            | Operator::new(Rule::op_greater_eq, Assoc::Left)
-            | Operator::new(Rule::op_equal, Assoc::Left)
-            | Operator::new(Rule::op_nequal, Assoc::Left),
+        .op(Op::infix(Rule::op_less, Assoc::Left)
+            | Op::infix(Rule::op_less_eq, Assoc::Left)
+            | Op::infix(Rule::op_greater, Assoc::Left)
+            | Op::infix(Rule::op_greater_eq, Assoc::Left)
+            | Op::infix(Rule::op_equal, Assoc::Left)
+            | Op::infix(Rule::op_nequal, Assoc::Left))
         // Level 5: shift operators
-        Operator::new(Rule::op_lshift, Assoc::Left) | Operator::new(Rule::op_rshift, Assoc::Left),
+        .op(Op::infix(Rule::op_lshift, Assoc::Left) | Op::infix(Rule::op_rshift, Assoc::Left))
         // Level 6: additive operators
-        Operator::new(Rule::op_plus, Assoc::Left) | Operator::new(Rule::op_minus, Assoc::Left),
+        .op(Op::infix(Rule::op_plus, Assoc::Left) | Op::infix(Rule::op_minus, Assoc::Left))
         // Level 7: multiplicative operators
-        Operator::new(Rule::op_times, Assoc::Left)
-            | Operator::new(Rule::op_divide, Assoc::Left)
-            | Operator::new(Rule::op_mod, Assoc::Left),
-    ])
+        .op(Op::infix(Rule::op_times, Assoc::Left)
+            | Op::infix(Rule::op_divide, Assoc::Left)
+            | Op::infix(Rule::op_mod, Assoc::Left))
 }
 
 fn parse_expression(
@@ -952,7 +951,10 @@ fn parse_expression(
         BinOpExpr::new(op.as_rule().into(), l, r).into()
     };
 
-    precedence_table().climb(pairs, primary, infix)
+    precedence_table()
+        .map_primary(primary)
+        .map_infix(infix)
+        .parse(pairs)
 }
 
 fn parse_unary_expression(
@@ -1297,7 +1299,7 @@ fn parse_call_expression(pair: Pair<Rule>, env: &Environment) -> ExprNode {
             .clone();
         return TypeConsExpr {
             data_type: ty,
-            args: args,
+            args,
         }
         .into();
     }
