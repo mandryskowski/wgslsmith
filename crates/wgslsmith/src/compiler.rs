@@ -1,8 +1,12 @@
-use std::fmt::Display;
-
 use clap::{Parser, ValueEnum};
 use eyre::{eyre, Context};
 use rspirv::binary::Disassemble;
+use std::env;
+use std::fmt::Display;
+use std::fs;
+use std::io::Write;
+use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 pub struct Options {
@@ -15,6 +19,9 @@ pub struct Options {
 
     #[clap(long, value_enum, action)]
     pub(crate) backend: Backend,
+
+    #[clap(long, action)]
+    pub validate_output: bool,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -61,10 +68,15 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&self, source: &str, backend: Backend) -> eyre::Result<String> {
+    pub fn compile(
+        &self,
+        source: &str,
+        backend: Backend,
+        validate_output: bool,
+    ) -> eyre::Result<String> {
         match self {
-            Compiler::Tint => compile_tint(source, backend),
-            Compiler::Naga => compile_naga(source, backend),
+            Compiler::Tint => compile_tint(source, backend, validate_output),
+            Compiler::Naga => compile_naga(source, backend, validate_output),
         }
     }
 }
@@ -83,7 +95,7 @@ fn validate_tint(source: &str) -> eyre::Result<()> {
         .ok_or_else(|| eyre!("invalid wgsl"))
 }
 
-fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
+fn compile_naga(source: &str, backend: Backend, validate_output: bool) -> eyre::Result<String> {
     use naga::back::{hlsl, msl, spv};
     use naga::front::wgsl;
     use naga::valid::{Capabilities, ValidationFlags, Validator};
@@ -116,6 +128,10 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
                 &validation,
                 None,
             )?;
+
+            if validate_output {
+                validate_hlsl(&out)?;
+            }
         }
         Backend::Msl => {
             msl::Writer::new(&mut out).write(
@@ -124,11 +140,19 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
                 &msl::Options::default(),
                 &msl::PipelineOptions::default(),
             )?;
+
+            if validate_output {
+                validate_msl(&out)?;
+            }
         }
         Backend::Spirv => {
             let options = spv::Options::default();
 
             let binary = spv::write_vec(&module, &validation, &options, None)?;
+
+            if validate_output {
+                validate_spirv(&binary)?;
+            }
 
             out = disassemble_spirv(binary)
         }
@@ -137,12 +161,27 @@ fn compile_naga(source: &str, backend: Backend) -> eyre::Result<String> {
     Ok(out)
 }
 
-fn compile_tint(source: &str, backend: Backend) -> eyre::Result<String> {
+fn compile_tint(source: &str, backend: Backend, validate_output: bool) -> eyre::Result<String> {
     let out = match backend {
-        Backend::Hlsl => tint::compile_shader_to_hlsl(source),
-        Backend::Msl => tint::compile_shader_to_msl(source),
+        Backend::Hlsl => {
+            let hlsl = tint::compile_shader_to_hlsl(source);
+            if validate_output {
+                validate_hlsl(&hlsl)?;
+            }
+            hlsl
+        }
+        Backend::Msl => {
+            let msl = tint::compile_shader_to_msl(source);
+            if validate_output {
+                validate_msl(&msl)?;
+            }
+            msl
+        }
         Backend::Spirv => {
             let binary = tint::compile_shader_to_spirv(source);
+            if validate_output {
+                validate_spirv(&binary)?;
+            }
             disassemble_spirv(binary)
         }
     };
@@ -155,4 +194,113 @@ fn disassemble_spirv(binary: Vec<u32>) -> String {
     let module = loader.module();
 
     module.disassemble()
+}
+
+fn validate_spirv(binary: &[u32]) -> eyre::Result<()> {
+    let bytes: &[u8] = bytemuck::cast_slice(binary);
+
+    let mut child = Command::new("spirv-val")
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .wrap_err("Failed to spawn `spirv-val`. Is SPIRV-Tools installed in your PATH?")?;
+
+    child.stdin.as_mut().unwrap().write_all(bytes)?;
+    let output = child.wait_with_output()?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let out = String::from_utf8_lossy(&output.stdout);
+        return Err(eyre!(
+            "Invalid SPIR-V produced:\nStdout: {}\nStderr: {}",
+            out,
+            err
+        ));
+    }
+    Ok(())
+}
+
+fn validate_hlsl(source: &str) -> eyre::Result<()> {
+    let pid = std::process::id();
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
+
+    let temp_file_path = env::temp_dir().join(format!("wgslsmith_{}_{}.hlsl", pid, time));
+
+    fs::write(&temp_file_path, source).wrap_err("Failed to write temporary HLSL file")?;
+
+    let child = Command::new("dxc")
+        .args(["-T", "lib_6_3", temp_file_path.to_str().unwrap()])
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .wrap_err("Failed to spawn `dxc`. Is it installed and in your PATH?")?;
+
+    let output_result = child.wait_with_output();
+
+    let _ = fs::remove_file(&temp_file_path);
+
+    let output = output_result?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let out = String::from_utf8_lossy(&output.stdout);
+        return Err(eyre::eyre!("Invalid HLSL produced:\n{}\n{}", err, out));
+    }
+
+    Ok(())
+}
+
+fn validate_msl(source: &str) -> eyre::Result<()> {
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = Command::new("xcrun");
+        c.args([
+            "-sdk",
+            "macosx",
+            "metal",
+            "-x",
+            "metal",
+            "-c",
+            "-",
+            "-o",
+            "/dev/null",
+        ]);
+        c
+    } else if cfg!(target_os = "windows") {
+        let mut c = Command::new("metal.exe");
+        c.args(["-x", "metal", "-c", "-", "-o", "NUL"]);
+        c
+    } else {
+        let mut c = Command::new("wine");
+        c.args(["metal.exe", "-x", "metal", "-c", "-", "-o", "/dev/null"]);
+        c
+    };
+
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .wrap_err_with(|| {
+            if cfg!(target_os = "macos") {
+                "Failed to spawn `xcrun metal`. Are you on macOS with Xcode installed?"
+            } else if cfg!(target_os = "windows") {
+                "Failed to spawn `metal.exe`. Is 'Metal Developer Tools for Windows' installed and in your PATH?"
+            } else {
+                "Failed to spawn `wine metal.exe`. Make sure Wine is installed and `metal.exe` is in your PATH."
+            }
+        })?;
+
+    child.stdin.as_mut().unwrap().write_all(source.as_bytes())?;
+    let output = child.wait_with_output()?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(eyre::eyre!("Invalid MSL produced:\n{}", err));
+    }
+
+    Ok(())
 }

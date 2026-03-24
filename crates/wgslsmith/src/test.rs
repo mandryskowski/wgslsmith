@@ -167,7 +167,7 @@ fn reduce_crash(
     } else {
         let compiler = options.compiler.unwrap();
         let backend = options.backend.unwrap();
-        let compiled = compiler.compile(&source, backend)?;
+        let compiled = compiler.compile(&source, backend, false)?;
 
         match backend {
             Backend::Hlsl => {

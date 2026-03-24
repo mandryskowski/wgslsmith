@@ -1,4 +1,4 @@
-#[cfg(all(target_family = "unix", feature = "reducer"))]
+#[cfg(feature = "compiler")]
 mod compiler;
 mod config;
 mod fmt;
@@ -35,7 +35,7 @@ struct Options {
 #[derive(Parser)]
 enum Cmd {
     /// Compile WGSL to an intermediate representation (HSL/SPIR-V/MSL)
-    #[cfg(all(target_family = "unix", feature = "reducer"))]
+    #[cfg(feature = "compiler")]
     Compile(compiler::Options),
     /// Open the wgslsmith config file in the default text editor.
     Config,
@@ -96,10 +96,15 @@ fn main() -> eyre::Result<()> {
     let harness_cmd = HarnessCommand::new(std::env::current_exe().unwrap()).arg("harness");
 
     match options.cmd {
-        #[cfg(all(target_family = "unix", feature = "reducer"))]
+        #[cfg(feature = "compiler")]
         Cmd::Compile(options) => {
             let shader = read_shader_from_path(&options.shader)?;
-            println!("{}", options.compiler.compile(&shader, options.backend)?);
+            println!(
+                "{}",
+                options
+                    .compiler
+                    .compile(&shader, options.backend, options.validate_output)?
+            );
             Ok(())
         }
         Cmd::Config => {
@@ -154,7 +159,7 @@ fn main() -> eyre::Result<()> {
                             pipeline_desc: &PipelineDescription,
                             configs: &[ConfigId],
                             timeout: Option<Duration>,
-                            parallelism: usize,
+                            _parallelism: usize,
                             on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>
                                       + Send),
                         ) -> Result<(), ExecutionError> {
