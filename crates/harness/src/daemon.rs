@@ -5,7 +5,6 @@ use clap::Parser;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::ops::Div;
-use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -208,7 +207,7 @@ pub fn daemon_exec(config: ConfigId) -> eyre::Result<()> {
 
 fn spawn_daemon(addr: &str) -> std::io::Result<()> {
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-    let safe_addr = addr.replace(':', "_").replace('.', "_");
+    let safe_addr = addr.replace([':', '.'], "_");
     let log_prefix = format!("wgslsmith_daemon_{}_{}", timestamp, safe_addr);
 
     let log_file_path = std::env::temp_dir().join(format!("{}.log", log_prefix));

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <memory>
+#include <vector>
 
 #include <dawn/dawn_proc.h>
 #include <dawn/webgpu.h>
@@ -86,6 +87,15 @@ extern "C" WGPUDevice create_device(
         wgpuAdapterGetInfo(adapter_handle, &info);
 
         if (info.backendType == backendType && info.deviceID == deviceID) {
+            std::vector<WGPUFeatureName> supportedFeatures;
+            for (size_t i = 0; i < requiredFeatureCount; ++i) {
+                if (wgpuAdapterHasFeature(adapter_handle, requiredFeatures[i])) {
+                    supportedFeatures.push_back(requiredFeatures[i]);
+                } else {
+                    fprintf(stderr, "[Dawn Info] Filtering out unsupported feature: %d\n", (int)requiredFeatures[i]);
+                }
+            }
+
             const char* enabledToggles[] = {
 //                "dump_shaders", "disable_symbol_renaming",
                 "use_dxc"
@@ -107,8 +117,8 @@ extern "C" WGPUDevice create_device(
             errorCallbackInfo.callback = errorCallback;
             errorCallbackInfo.userdata1 = errorUserdata;
 
-            descriptor.requiredFeatures = requiredFeatures;
-            descriptor.requiredFeatureCount = requiredFeatureCount;
+            descriptor.requiredFeatures = supportedFeatures.data();
+            descriptor.requiredFeatureCount = supportedFeatures.size();
 
             descriptor.uncapturedErrorCallbackInfo = errorCallbackInfo;
 
