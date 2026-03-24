@@ -1,0 +1,160 @@
+---
+source: crates/parser/src/lib.rs
+assertion_line: 1423
+expression: module
+---
+Module {
+    enables: [],
+    aliases: [],
+    structs: [
+        StructDecl {
+            name: "IO",
+            members: [
+                StructMember {
+                    attrs: [
+                        Builtin(
+                            Position,
+                        ),
+                    ],
+                    name: "pos",
+                    data_type: Vector(
+                        4,
+                        F32,
+                    ),
+                },
+                StructMember {
+                    attrs: [
+                        Location(
+                            0,
+                        ),
+                    ],
+                    name: "color",
+                    data_type: Vector(
+                        4,
+                        F32,
+                    ),
+                },
+            ],
+            accessors: {
+                Vector(
+                    2,
+                    F32,
+                ): [
+                    StructMember {
+                        attrs: [
+                            Builtin(
+                                Position,
+                            ),
+                        ],
+                        name: "pos",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                    StructMember {
+                        attrs: [
+                            Location(
+                                0,
+                            ),
+                        ],
+                        name: "color",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                ],
+                Vector(
+                    4,
+                    F32,
+                ): [
+                    StructMember {
+                        attrs: [
+                            Location(
+                                0,
+                            ),
+                        ],
+                        name: "color",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                    StructMember {
+                        attrs: [
+                            Builtin(
+                                Position,
+                            ),
+                        ],
+                        name: "pos",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                ],
+                Vector(
+                    3,
+                    F32,
+                ): [
+                    StructMember {
+                        attrs: [
+                            Location(
+                                0,
+                            ),
+                        ],
+                        name: "color",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                    StructMember {
+                        attrs: [
+                            Builtin(
+                                Position,
+                            ),
+                        ],
+                        name: "pos",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                ],
+                Scalar(
+                    F32,
+                ): [
+                    StructMember {
+                        attrs: [
+                            Builtin(
+                                Position,
+                            ),
+                        ],
+                        name: "pos",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                    StructMember {
+                        attrs: [
+                            Location(
+                                0,
+                            ),
+                        ],
+                        name: "color",
+                        data_type: Vector(
+                            4,
+                            F32,
+                        ),
+                    },
+                ],
+            },
+        },
+    ],
+    consts: [],
+    vars: [],
+    functions: [],
+}

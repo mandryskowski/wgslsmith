@@ -1,0 +1,1069 @@
+---
+source: crates/parser/src/lib.rs
+assertion_line: 1604
+expression: module
+---
+Module {
+    enables: [
+        Subgroups,
+    ],
+    requires: [],
+    aliases: [],
+    structs: [],
+    consts: [],
+    vars: [],
+    functions: [
+        FnDecl {
+            attrs: [
+                Stage(
+                    Compute,
+                ),
+                WorkgroupSize(
+                    64,
+                ),
+            ],
+            name: "main",
+            inputs: [],
+            output: None,
+            body: [
+                FnCall(
+                    FnCallStatement {
+                        ident: "test_subgroup",
+                        args: [],
+                    },
+                ),
+                FnCall(
+                    FnCallStatement {
+                        ident: "test_quad",
+                        args: [],
+                    },
+                ),
+            ],
+        },
+        FnDecl {
+            attrs: [],
+            name: "test_subgroup",
+            inputs: [],
+            output: None,
+            body: [
+                VarDecl(
+                    VarDeclStatement {
+                        ident: "val_f32",
+                        data_type: None,
+                        initializer: Some(
+                            ExprNode {
+                                data_type: Scalar(
+                                    F32,
+                                ),
+                                expr: Lit(
+                                    F32(
+                                        1.0,
+                                    ),
+                                ),
+                            },
+                        ),
+                    },
+                ),
+                VarDecl(
+                    VarDeclStatement {
+                        ident: "val_u32",
+                        data_type: None,
+                        initializer: Some(
+                            ExprNode {
+                                data_type: Scalar(
+                                    U32,
+                                ),
+                                expr: Lit(
+                                    U32(
+                                        1,
+                                    ),
+                                ),
+                            },
+                        ),
+                    },
+                ),
+                VarDecl(
+                    VarDeclStatement {
+                        ident: "val_i32",
+                        data_type: None,
+                        initializer: Some(
+                            ExprNode {
+                                data_type: Scalar(
+                                    I32,
+                                ),
+                                expr: Lit(
+                                    I32(
+                                        1,
+                                    ),
+                                ),
+                            },
+                        ),
+                    },
+                ),
+                VarDecl(
+                    VarDeclStatement {
+                        ident: "val_bool",
+                        data_type: None,
+                        initializer: Some(
+                            ExprNode {
+                                data_type: Scalar(
+                                    Bool,
+                                ),
+                                expr: Lit(
+                                    Bool(
+                                        true,
+                                    ),
+                                ),
+                            },
+                        ),
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_add",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupAdd",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_ex_add",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupExclusiveAdd",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_in_add",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupInclusiveAdd",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_all",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                Bool,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupAll",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        Bool,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_bool",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_and",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                U32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupAnd",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        U32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_u32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_any",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                Bool,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupAny",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        Bool,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_bool",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_ballot",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Vector(
+                                4,
+                                U32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupBallot",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        Bool,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_bool",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_bcast",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupBroadcast",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                        ExprNode {
+                                            data_type: Scalar(
+                                                U32,
+                                            ),
+                                            expr: Lit(
+                                                U32(
+                                                    0,
+                                                ),
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_bcast_first",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupBroadcastFirst",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_elect",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                Bool,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupElect",
+                                    template_args: [],
+                                    args: [],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_max",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupMax",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_min",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupMin",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_mul",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupMul",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_ex_mul",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupExclusiveMul",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_in_mul",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupInclusiveMul",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_or",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                U32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupOr",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        U32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_u32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_shuffle",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupShuffle",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                        ExprNode {
+                                            data_type: Scalar(
+                                                U32,
+                                            ),
+                                            expr: Lit(
+                                                U32(
+                                                    1,
+                                                ),
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_shuffle_down",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupShuffleDown",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                        ExprNode {
+                                            data_type: Scalar(
+                                                U32,
+                                            ),
+                                            expr: Lit(
+                                                U32(
+                                                    1,
+                                                ),
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_shuffle_up",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupShuffleUp",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                        ExprNode {
+                                            data_type: Scalar(
+                                                U32,
+                                            ),
+                                            expr: Lit(
+                                                U32(
+                                                    1,
+                                                ),
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_shuffle_xor",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupShuffleXor",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                        ExprNode {
+                                            data_type: Scalar(
+                                                U32,
+                                            ),
+                                            expr: Lit(
+                                                U32(
+                                                    1,
+                                                ),
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_xor",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                U32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "subgroupXor",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        U32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_u32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+            ],
+        },
+        FnDecl {
+            attrs: [],
+            name: "test_quad",
+            inputs: [],
+            output: None,
+            body: [
+                VarDecl(
+                    VarDeclStatement {
+                        ident: "val_f32",
+                        data_type: None,
+                        initializer: Some(
+                            ExprNode {
+                                data_type: Scalar(
+                                    F32,
+                                ),
+                                expr: Lit(
+                                    F32(
+                                        1.0,
+                                    ),
+                                ),
+                            },
+                        ),
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_quad_bcast",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "quadBroadcast",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                        ExprNode {
+                                            data_type: Scalar(
+                                                U32,
+                                            ),
+                                            expr: Lit(
+                                                U32(
+                                                    0,
+                                                ),
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_quad_swap_diag",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "quadSwapDiagonal",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_quad_swap_x",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "quadSwapX",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+                LetDecl(
+                    LetDeclStatement {
+                        ident: "r_quad_swap_y",
+                        data_type: None,
+                        initializer: ExprNode {
+                            data_type: Scalar(
+                                F32,
+                            ),
+                            expr: FnCall(
+                                FnCallExpr {
+                                    ident: "quadSwapY",
+                                    template_args: [],
+                                    args: [
+                                        ExprNode {
+                                            data_type: Ref(
+                                                MemoryViewType {
+                                                    inner: Scalar(
+                                                        F32,
+                                                    ),
+                                                    storage_class: Function,
+                                                    access_mode: ReadWrite,
+                                                },
+                                            ),
+                                            expr: Var(
+                                                VarExpr {
+                                                    ident: "val_f32",
+                                                },
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                        },
+                    },
+                ),
+            ],
+        },
+    ],
+}
