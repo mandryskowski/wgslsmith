@@ -79,7 +79,7 @@ pub fn reflect_shader(
 ) -> (PipelineDescription, Vec<common::Type>) {
     let module = parser::parse(shader);
 
-    let (mut pipeline_desc, type_descs) = reflection::reflect(&module, &input_data);
+    let (mut pipeline_desc, mut type_descs) = reflection::reflect(&module, &input_data);
 
     let mut resource_vars = HashSet::new();
 
@@ -88,6 +88,13 @@ pub fn reflect_shader(
     }
 
     utils::remove_accessed_vars(&mut resource_vars, &module);
+
+    let mut i = 0;
+    type_descs.retain(|_| {
+        let keep = !resource_vars.contains(&pipeline_desc.resources[i].name);
+        i += 1;
+        keep
+    });
 
     pipeline_desc
         .resources
