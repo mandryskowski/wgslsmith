@@ -129,7 +129,7 @@ pub async fn run(
                 })
                 .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
-            let mut required_features = wgpu::Features::empty();
+            // let mut required_features = wgpu::Features::empty();
             // for enable in &meta.enables {
             //     match enable {
             //         reflection::EnableExtension::F16 => {
@@ -140,8 +140,9 @@ pub async fn run(
             //         }
             //     }
             // }
-            required_features |= wgpu::Features::SHADER_F16;
-            required_features |= wgpu::Features::SUBGROUP;
+
+            let required_features =
+                (wgpu::Features::SHADER_F16 | wgpu::Features::SUBGROUP) & adapter.features();
 
             let device_descriptor = DeviceDescriptor {
                 required_limits: Limits {
