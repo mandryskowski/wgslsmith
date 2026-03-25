@@ -304,10 +304,6 @@ def build_wgslsmith():
         features.append("harness")
     cargo_build("wgslsmith", target=args.target, features=features)
 
-def build_spe():
-    print("> building spe")
-    cargo_build("spe", target=args.target)
-
 
 def build_dawn():
     print(f"> building dawn (target={build_target})")
@@ -354,8 +350,6 @@ if not use_prebuilt_dawn:
     ]
 else:
     print(f"> Using prebuilt Dawn from: {os.environ['DAWN_BUILD_DIR']}")
-
-tasks += [build_spe]
 
 if args.task == "wgslsmith":
     if not args.no_reducer and not use_prebuilt_dawn:
