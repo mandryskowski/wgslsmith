@@ -188,7 +188,6 @@ jobs:
           echo "DAWN_SRC_DIR=${{ github.workspace }}/external/dawn" >> $GITHUB_ENV
           echo "CARGO_BUILD_TARGET=${{ matrix.rust-target }}" >> $GITHUB_ENV
           
-          # Compute target specific RUSTFLAGS & Env Vars
           if [ "${{ matrix.target }}" == "win64" ]; then
              BASE_MSVC_FLAGS="-C linker=lld-link-19 -Lnative=${{ github.workspace }}/.xwin-cache/splat/crt/lib/x86_64 -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/ucrt/x86_64 -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/um/x86_64"
              
@@ -316,8 +315,7 @@ jobs:
         run: |
           release_tag=`gh release view --json tagName -q '.tagName' -R mandryskowski/swiftshader-build`
           gh release download $release_tag -p swiftshader-${{ matrix.artifact }}.tar.gz -R mandryskowski/swiftshader-build
-          mkdir swiftshader
-          tar -xvf swiftshader-${{ matrix.artifact }}.tar.gz -C swiftshader
+          tar -xvf swiftshader-${{ matrix.artifact }}.tar.gz
 
       - name: Download harness
         uses: actions/download-artifact@v4
@@ -327,7 +325,7 @@ jobs:
 
       - name: Copy vulkan loader
         if: matrix.os == 'windows-latest'
-        run: cp swiftshader/vulkan-1.dll harness-staging/
+        run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll harness-staging/
 
       - name: Install Vulkan SDK (macOS)
         if: matrix.os == 'macos-latest'
@@ -339,7 +337,7 @@ jobs:
 
       - name: Run test shaders
         env:
-          VK_ICD_FILENAMES: ${{ github.workspace }}/swiftshader/vk_swiftshader_icd.json
+          VK_ICD_FILENAMES: ${{ github.workspace }}/swiftshader-${{ matrix.artifact }}/vk_swiftshader_icd.json
         shell: bash
         run: |
           chmod +x ./harness-staging/wgslsmith-harness
