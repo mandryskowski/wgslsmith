@@ -216,6 +216,7 @@ jobs:
           
           if [ "${{ matrix.target }}" == "android" ]; then
             cp target/${{ matrix.rust-target }}/release/wgslsmith-harness staging_harness/
+            cp target/${{ matrix.rust-target }}/release/wgslsmith staging_wgslsmith/
             cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so staging_harness/
           else
             cp cross-target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }} staging_harness/
