@@ -108,7 +108,7 @@ def cargo_build(package, target=None, cwd=None, features=[]):
     if len(features) > 0:
         cmd += ["--features", ",".join(features)]
 
-    cmd += ["--config", f'env.DAWN_SRC_DIR="{dawn_src_dir}"']
+    cmd += ["--config", f'env.DAWN_SRC_DIR="{dawn_src_dir.absolute()}"']
 
     env = os.environ.copy()
 
