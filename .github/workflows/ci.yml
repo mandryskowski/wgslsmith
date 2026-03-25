@@ -208,7 +208,20 @@ jobs:
              if [ "${{ matrix.target }}" == "android" ]; then
                echo "RUSTFLAGS=-C link-arg=-fsanitize=address -C link-arg=-fsanitize=undefined" >> $GITHUB_ENV
              elif [ "${{ matrix.target }}" == "macos64" ]; then
-               echo "RUSTFLAGS=-C linker=clang++ -C link-arg=-fsanitize=address -C link-arg=-fsanitize=undefined -C link-arg=-lc++" >> $GITHUB_ENV
+               # rustc passes -nodefaultlibs on macOS which disables clang's sanitizer runtime injection.
+               # We use a wrapper to strip it.
+               cat << 'EOF' > clang++-wrapper
+          #!/bin/bash
+          args=()
+          for arg in "$@"; do
+            if [ "$arg" != "-nodefaultlibs" ]; then
+              args+=("$arg")
+            fi
+          done
+          exec clang++ "${args[@]}"
+          EOF
+               chmod +x clang++-wrapper
+               echo "RUSTFLAGS=-C linker=$PWD/clang++-wrapper -C link-arg=-fsanitize=address -C link-arg=-fsanitize=undefined -C link-arg=-lc++" >> $GITHUB_ENV
              else
                echo "RUSTFLAGS=-C linker=clang++ -C link-arg=-fsanitize=address -C link-arg=-fsanitize=undefined -C link-arg=-lstdc++" >> $GITHUB_ENV
              fi
