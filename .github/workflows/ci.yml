@@ -285,14 +285,14 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - windows-latest
+          - windows-2022  # windows-latest breaks ASan
           - ubuntu-latest
           - macos-latest
         sanitizer:
           - none
           - asan-ubsan
         include:
-          - os: windows-latest
+          - os: windows-2022
             artifact: win64
           - os: ubuntu-latest
             artifact: linux64
@@ -324,7 +324,7 @@ jobs:
           path: harness-staging
 
       - name: Copy vulkan loader
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll harness-staging/
 
       - name: Install Vulkan SDK (macOS)
@@ -338,7 +338,7 @@ jobs:
       - name: Run test shaders
         env:
           VK_ICD_FILENAMES: ${{ github.workspace }}/swiftshader-${{ matrix.artifact }}/vk_swiftshader_icd.json
-          ASAN_OPTIONS: "detect_odr_violation=0:detect_leaks=0:windows_hook_rtl_allocators=false:suppressions=tools/asan_suppressions.txt"
+          ASAN_OPTIONS: "detect_odr_violation=0:detect_leaks=0:suppressions=tools/asan_suppressions.txt"
         shell: bash
         run: |
           chmod +x ./harness-staging/wgslsmith-harness
