@@ -6,7 +6,7 @@ use indenter::indented;
 use crate::types::DataType;
 use crate::{ExprNode, Postfix};
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("let {ident}{0} = {initializer}", data_type.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())]
 pub struct LetDeclStatement {
     pub ident: String,
@@ -42,7 +42,7 @@ impl LetDeclStatement {
     }
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("const {ident}{0} = {initializer}", data_type.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())]
 pub struct ConstDeclStatement {
     pub ident: String,
@@ -76,7 +76,7 @@ impl ConstDeclStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct VarDeclStatement {
     pub ident: String,
     pub data_type: Option<DataType>,
@@ -130,7 +130,7 @@ impl Display for VarDeclStatement {
     }
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 pub enum AssignmentLhs {
     #[display("_")]
     Phony,
@@ -157,7 +157,7 @@ impl AssignmentLhs {
     }
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 pub enum LhsExpr {
     Ident(String),
     #[display("({_0}){_1}")]
@@ -174,7 +174,7 @@ impl From<LhsExprNode> for AssignmentLhs {
     }
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("{expr}")]
 pub struct LhsExprNode {
     pub data_type: DataType,
@@ -241,7 +241,7 @@ impl LhsExprNode {
     }
 }
 
-#[derive(Debug, Display, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 pub enum AssignmentOp {
     #[display("=")]
     Simple,
@@ -263,7 +263,7 @@ pub enum AssignmentOp {
     Xor,
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("{lhs} {op} {rhs}")]
 pub struct AssignmentStatement {
     pub lhs: AssignmentLhs,
@@ -281,7 +281,7 @@ impl AssignmentStatement {
     }
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("{lhs}++")]
 pub struct IncrementStatement {
     pub lhs: AssignmentLhs,
@@ -293,7 +293,7 @@ impl IncrementStatement {
     }
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("{lhs}--")]
 pub struct DecrementStatement {
     pub lhs: AssignmentLhs,
@@ -305,7 +305,7 @@ impl DecrementStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Else {
     If(IfStatement),
     Else(Vec<Statement>),
@@ -332,7 +332,7 @@ impl Display for Else {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct IfStatement {
     pub condition: ExprNode,
     pub body: Vec<Statement>,
@@ -378,7 +378,7 @@ impl Display for IfStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ReturnStatement {
     pub value: Option<ExprNode>,
 }
@@ -413,7 +413,7 @@ impl Display for ReturnStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct LoopStatement {
     pub body: Vec<Statement>,
     pub continuing: Option<ContinuingBlock>,
@@ -441,7 +441,7 @@ impl Display for LoopStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ContinuingBlock {
     pub stmts: Vec<Statement>,
     pub break_if: Option<ExprNode>,
@@ -472,7 +472,7 @@ impl Display for ContinuingBlock {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct WhileStatement {
     pub condition: ExprNode,
     pub body: Vec<Statement>,
@@ -498,7 +498,7 @@ impl Display for WhileStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct SwitchStatement {
     pub selector: ExprNode,
     pub cases: Vec<SwitchCase>,
@@ -547,32 +547,32 @@ impl Display for SwitchStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct SwitchCase {
     pub selector: ExprNode,
     pub body: Vec<Statement>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ForLoopInit {
     VarDecl(VarDeclStatement),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ForLoopUpdate {
     Assignment(AssignmentStatement),
     Increment(IncrementStatement),
     Decrement(DecrementStatement),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ForLoopHeader {
     pub init: Option<ForLoopInit>,
     pub condition: Option<ExprNode>,
     pub update: Option<ForLoopUpdate>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ForLoopStatement {
     pub header: Box<ForLoopHeader>,
     pub body: Vec<Statement>,
@@ -625,7 +625,7 @@ impl Display for ForLoopStatement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct FnCallStatement {
     pub ident: String,
     pub args: Vec<ExprNode>,
@@ -652,7 +652,7 @@ impl Display for FnCallStatement {
     }
 }
 
-#[derive(Debug, PartialEq, From)]
+#[derive(Debug, PartialEq, From, Clone)]
 pub enum Statement {
     LetDecl(LetDeclStatement),
     ConstDecl(ConstDeclStatement),

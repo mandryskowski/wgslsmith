@@ -6,7 +6,7 @@ use crate::builtins::BuiltinValue;
 use crate::stmt::Statement;
 use crate::types::DataType;
 
-#[derive(Debug, Display, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 pub enum ShaderStage {
     #[display("compute")]
     Compute,
@@ -16,7 +16,7 @@ pub enum ShaderStage {
     Fragment,
 }
 
-#[derive(Debug, Display, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 pub enum FnAttr {
     #[display("stage({_0})")]
     Stage(ShaderStage),
@@ -34,7 +34,7 @@ pub enum FnParamReturnAttr {
     Location(u32),
 }
 
-#[derive(Debug, Display, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq, Clone)]
 #[display("{}{name}: {data_type}", InlineAttrs(attrs))]
 pub struct FnInput {
     pub attrs: Vec<FnParamReturnAttr>,
@@ -52,7 +52,7 @@ impl FnInput {
     }
 }
 
-#[derive(Debug, Display, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq, Clone)]
 #[display("{}{data_type}", InlineAttrs(attrs))]
 pub struct FnOutput {
     pub attrs: Vec<FnParamReturnAttr>,
@@ -68,7 +68,7 @@ impl FnOutput {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct FnDecl {
     pub attrs: Vec<FnAttr>,
     pub name: String,

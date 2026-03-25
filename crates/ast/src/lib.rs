@@ -21,7 +21,7 @@ use std::rc::Rc;
 
 pub use types::{DataType, ScalarType};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     pub enables: Vec<EnableExtension>,
     pub requires: Vec<RequiresExtension>,
