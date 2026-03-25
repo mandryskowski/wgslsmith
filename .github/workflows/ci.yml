@@ -185,74 +185,27 @@ jobs:
       - name: Setup build environment
         shell: bash
         run: |
-          echo "DAWN_SRC_DIR=${{ github.workspace }}/external/dawn" >> $GITHUB_ENV
-          echo "CARGO_BUILD_TARGET=${{ matrix.rust-target }}" >> $GITHUB_ENV
-          
           if [ "${{ matrix.target }}" == "win64" ]; then
-             BASE_MSVC_FLAGS="-C linker=lld-link-19 -Lnative=${{ github.workspace }}/.xwin-cache/splat/crt/lib/x86_64 -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/ucrt/x86_64 -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/um/x86_64"
-             
-             if [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
-                WIN_LIB_DIR="/usr/lib/llvm-19/lib/clang/19/lib/windows"
-                # Add /NODEFAULTLIB overrides for Visual Studio proprietary ASan libraries
-                BASE_MSVC_FLAGS="$BASE_MSVC_FLAGS -Lnative=$WIN_LIB_DIR -C link-arg=clang_rt.asan_dynamic-x86_64.lib -C link-arg=clang_rt.asan_dynamic_runtime_thunk-x86_64.lib -C link-arg=-include:__asan_seh_interceptor -C link-arg=-wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib -C link-arg=clang_rt.ubsan_standalone-x86_64.lib -C link-arg=/NODEFAULTLIB:stl_asan.lib -C link-arg=/NODEFAULTLIB:vcasan.lib"
-                echo "DAWN_ASAN=1" >> $GITHUB_ENV
-                echo "DAWN_UBSAN=1" >> $GITHUB_ENV
-             fi
-             echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS=$BASE_MSVC_FLAGS" >> $GITHUB_ENV
-             
-          elif [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
-             echo "DAWN_ASAN=1" >> $GITHUB_ENV
-             echo "DAWN_UBSAN=1" >> $GITHUB_ENV
-             
-             if [ "${{ matrix.target }}" == "android" ]; then
-               echo "RUSTFLAGS=-C link-arg=-fsanitize=address -C link-arg=-fsanitize=undefined" >> $GITHUB_ENV
-             elif [ "${{ matrix.target }}" == "macos64" ]; then
-               # rustc passes -nodefaultlibs on macOS which disables clang's sanitizer runtime injection.
-               # We use a wrapper to strip it.
-               cat << 'EOF' > clang++-wrapper
-          #!/bin/bash
-          args=()
-          for arg in "$@"; do
-            if [ "$arg" != "-nodefaultlibs" ]; then
-              args+=("$arg")
-            fi
-          done
-          exec clang++ "${args[@]}"
-          EOF
-               chmod +x clang++-wrapper
-               echo "RUSTFLAGS=-C linker=$PWD/clang++-wrapper -C link-arg=-fsanitize=address -C link-arg=-fsanitize=undefined -C link-arg=-lc++" >> $GITHUB_ENV
-             else
-               echo "RUSTFLAGS=-C linker=clang++ -C link-arg=-fsanitize=address -C link-arg=-fsanitize=undefined -C link-arg=-lstdc++" >> $GITHUB_ENV
-             fi
+             echo "LLVM_NATIVE_TOOLCHAIN=/usr/lib/llvm-19" >> $GITHUB_ENV
+             echo "XWIN_CACHE=${{ github.workspace }}/.xwin-cache" >> $GITHUB_ENV
           fi
 
       - name: Build harness
-        if: matrix.target != 'android'
         env:
-          CXX_x86_64_pc_windows_msvc: clang-cl-19
-          CXXFLAGS_x86_64_pc_windows_msvc: >-
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/crt/include
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/ucrt
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/um
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/shared
-            /D_HAS_ASAN=0
-          BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc: >-
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/crt/include
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/sdk/include/ucrt
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/sdk/include/um
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/sdk/include/shared
-            --target=x86_64-pc-windows-msvc
-          AR_x86_64_pc_windows_msvc: llvm-lib-19
           MACOSX_DEPLOYMENT_TARGET: "11.0"
-        run: cargo build -p harness --release
-
-      - name: Build harness (Android)
-        if: matrix.target == 'android'
-        env:
-          BINDGEN_EXTRA_CLANG_ARGS: >-
-             --sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-             --target=aarch64-linux-android
-        run: cargo ndk -t aarch64-linux-android --platform 30 build -p harness --release
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" == "android" ]; then
+            export BINDGEN_EXTRA_CLANG_ARGS="--sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot --target=aarch64-linux-android"
+          fi
+          
+          BUILD_ARGS="--target ${{ matrix.rust-target }}"
+          
+          if [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
+            BUILD_ARGS="$BUILD_ARGS --asan --ubsan"
+          fi
+          
+          ./build.py harness $BUILD_ARGS
 
       - name: Stage artifacts
         shell: bash
@@ -263,7 +216,8 @@ jobs:
             cp target/${{ matrix.rust-target }}/release/wgslsmith-harness staging/
             cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so staging/
           else
-            cp target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }} staging/
+            # The bash wrapper './cargo' redirects all non-ndk targets into cross-target
+            cp cross-target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }} staging/
           fi
           
           # If Windows + ASan, ship the dynamic compiler-rt library next to the executable

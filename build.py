@@ -98,15 +98,18 @@ def cmake_build(build_dir: Path, targets=[]):
 
 
 def cargo_build(package, target=None, cwd=None, features=[]):
-    cmd = ["./cargo", "build", "-p", package, "--release"]
-    if target:
-        cmd += ["--target", target]
+    if target and "android" in target:
+        cmd = ["cargo", "ndk", "-t", target, "--platform", "30", "build", "-p", package, "--release"]
+    else:
+        cmd = ["./cargo", "build", "-p", package, "--release"]
+        if target:
+            cmd += ["--target", target]
+            
     if len(features) > 0:
         cmd += ["--features", ",".join(features)]
 
     cmd += ["--config", f'env.DAWN_SRC_DIR="{dawn_src_dir}"']
 
-    # We need to add extra flags if we are cross-compiling for Windows MSVC
     env = os.environ.copy()
 
     if args.asan:
@@ -127,14 +130,9 @@ def cargo_build(package, target=None, cwd=None, features=[]):
 
     if args.asan or args.ubsan:
         if target and "msvc" in target:
-            # For MSVC cross-compilation, the ./cargo wrapper already sets
-            # CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS with lld-link
-            # as the linker and xwin library paths. We append ASan/UBSan
-            # runtime libraries using lld-link-compatible flags.
             msvc_rustflags_key = "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS"
             msvc_flags = env.get(msvc_rustflags_key, "")
 
-            # Add the compiler-rt windows lib path
             clang_bin = f"{os.environ['LLVM_NATIVE_TOOLCHAIN']}/bin/clang"
             resource_dir = subprocess.check_output([clang_bin, "-print-resource-dir"]).decode().strip()
             win_lib_dir = f"{resource_dir}/lib/windows"
@@ -145,10 +143,28 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 msvc_flags += " -C link-arg=clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
                 msvc_flags += " -C link-arg=-include:__asan_seh_interceptor"
                 msvc_flags += " -C link-arg=-wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
+                msvc_flags += " -C link-arg=/NODEFAULTLIB:stl_asan.lib"
+                msvc_flags += " -C link-arg=/NODEFAULTLIB:vcasan.lib"
+                # Suppress Visual Studio STL ASan detection since we lack stl_asan.lib
+                env["CXXFLAGS"] = f"{env.get('CXXFLAGS', '')} /D_HAS_ASAN=0".strip()
             if args.ubsan:
                 msvc_flags += " -C link-arg=clang_rt.ubsan_standalone-x86_64.lib"
 
             env[msvc_rustflags_key] = msvc_flags.strip()
+        elif target and "apple" in target:
+            wrapper_path = Path(cwd if cwd else ".").absolute().joinpath("clang++-wrapper")
+            if not wrapper_path.exists():
+                wrapper_path.write_text("#!/bin/bash\nargs=()\nfor arg in \"$@\"; do\n  if [ \"$arg\" != \"-nodefaultlibs\" ]; then\n    args+=(\"$arg\")\n  fi\ndone\nexec clang++ \"${args[@]}\"\n")
+                wrapper_path.chmod(0o755)
+
+            rustflags = env.get("RUSTFLAGS", "")
+            rustflags += f" -C linker={wrapper_path}"
+            if args.asan:
+                rustflags += " -C link-arg=-fsanitize=address"
+            if args.ubsan:
+                rustflags += " -C link-arg=-fsanitize=undefined"
+            rustflags += " -C link-arg=-lc++"
+            env["RUSTFLAGS"] = rustflags.strip()
         else:
             # For native (Linux) targets, use clang++ as linker driver
             rustflags = env.get("RUSTFLAGS", "")
@@ -157,7 +173,10 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 rustflags += " -C link-arg=-fsanitize=address"
             if args.ubsan:
                 rustflags += " -C link-arg=-fsanitize=undefined"
-            rustflags += " -C link-arg=-lstdc++"
+            if target and "android" in target:
+                pass
+            else:
+                rustflags += " -C link-arg=-lstdc++"
             env["RUSTFLAGS"] = rustflags.strip()
 
     if target and "msvc" in target:
@@ -341,4 +360,3 @@ elif args.task == "harness":
 
 for task in tasks:
     task()
-
