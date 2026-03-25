@@ -341,22 +341,32 @@ if args.task == "install":
 
     exit(0)
 
-tasks = [
-    bootstrap_gclient_config,
-    gclient_sync,
-    dawn_gen_cmake,
-]
+# CI/CD Detection: skip dawn build if pre-built libraries are provided
+use_prebuilt_dawn = "DAWN_BUILD_DIR" in os.environ
+
+tasks = []
+
+if not use_prebuilt_dawn:
+    tasks += [
+        bootstrap_gclient_config,
+        gclient_sync,
+        dawn_gen_cmake,
+    ]
+else:
+    print(f"> Using prebuilt Dawn from: {os.environ['DAWN_BUILD_DIR']}")
 
 tasks += [build_spe]
 
 if args.task == "wgslsmith":
-    if not args.no_reducer:
+    if not args.no_reducer and not use_prebuilt_dawn:
         tasks += [build_tint]
-    if not args.no_harness:
+    if not args.no_harness and not use_prebuilt_dawn:
         tasks += [build_dawn]
     tasks += [build_wgslsmith]
 elif args.task == "harness":
-    tasks += [build_dawn, build_harness]
+    if not use_prebuilt_dawn:
+        tasks += [build_dawn]
+    tasks += [build_harness]
 
 for task in tasks:
     task()
