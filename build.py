@@ -165,6 +165,14 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 rustflags += " -C link-arg=-fsanitize=undefined"
             rustflags += " -C link-arg=-lc++"
             env["RUSTFLAGS"] = rustflags.strip()
+        elif target and "android" in target:
+            # Let cargo-ndk handle the linker and sysroot. We just supply the sanitizer flags.
+            rustflags = env.get("RUSTFLAGS", "")
+            if args.asan:
+                rustflags += " -C link-arg=-fsanitize=address"
+            if args.ubsan:
+                rustflags += " -C link-arg=-fsanitize=undefined"
+            env["RUSTFLAGS"] = rustflags.strip()
         else:
             # For native (Linux) targets, use clang++ as linker driver
             rustflags = env.get("RUSTFLAGS", "")
@@ -173,10 +181,7 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 rustflags += " -C link-arg=-fsanitize=address"
             if args.ubsan:
                 rustflags += " -C link-arg=-fsanitize=undefined"
-            if target and "android" in target:
-                pass
-            else:
-                rustflags += " -C link-arg=-lstdc++"
+            rustflags += " -C link-arg=-lstdc++"
             env["RUSTFLAGS"] = rustflags.strip()
 
     if target and "msvc" in target:
