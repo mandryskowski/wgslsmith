@@ -286,9 +286,13 @@ jobs:
           name: harness-${{ matrix.artifact }}${{ env.ARTIFACT_SUFFIX }}
           path: harness-staging
 
-      - name: Copy vulkan loader
+      - name: Copy dependencies (Windows)
         if: matrix.os == 'windows-2022'
-        run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll harness-staging/
+        shell: bash
+        run: |
+          cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll harness-staging/
+          cp tools/dxcompiler.dll harness-staging/
+          cp tools/dxil.dll harness-staging/
 
       - name: Install Vulkan SDK (macOS)
         if: matrix.os == 'macos-latest'
