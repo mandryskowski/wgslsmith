@@ -181,17 +181,19 @@ def cargo_build(package, target=None, cwd=None, features=[]):
 
     if target and "msvc" in target:
         xwin_dir = os.environ.get("XWIN_CACHE")
-
-        # For some reason bindgen needs these to find math.h (and possibly others)
-        includes = [
-            f"-I{xwin_dir}/crt/include",
-            f"-I{xwin_dir}/sdk/include/ucrt",
-            f"-I{xwin_dir}/sdk/include/shared",
-            f"-I{xwin_dir}/sdk/include/um",
-            f"-I{xwin_dir}/sdk/include/winrt",
-        ]
-
-        env["BINDGEN_EXTRA_CLANG_ARGS"] = " ".join(includes)
+        if xwin_dir:
+            # For some reason bindgen needs these to find math.h (and possibly others)
+            includes = [
+                f"-isystem {xwin_dir}/crt/include",
+                f"-isystem {xwin_dir}/sdk/include/ucrt",
+                f"-isystem {xwin_dir}/sdk/include/shared",
+                f"-isystem {xwin_dir}/sdk/include/um",
+                f"-isystem {xwin_dir}/sdk/include/winrt",
+                f"--target={target}"
+            ]
+            # Merge with any existing bindgen args from the environment
+            existing_bindgen_args = env.get("BINDGEN_EXTRA_CLANG_ARGS", "")
+            env["BINDGEN_EXTRA_CLANG_ARGS"] = f"{existing_bindgen_args} {' '.join(includes)}".strip()
 
     print(f">> {' '.join(cmd)}")
     subprocess.run(cmd, cwd=cwd, env=env).check_returncode()
@@ -304,6 +306,10 @@ def build_wgslsmith():
         features.append("harness")
     cargo_build("wgslsmith", target=args.target, features=features)
 
+def build_spe():
+    print("> building spe")
+    cargo_build("spe", target=args.target)
+
 
 def build_dawn():
     print(f"> building dawn (target={build_target})")
@@ -350,6 +356,8 @@ if not use_prebuilt_dawn:
     ]
 else:
     print(f"> Using prebuilt Dawn from: {os.environ['DAWN_BUILD_DIR']}")
+
+tasks += [build_spe]
 
 if args.task == "wgslsmith":
     if not args.no_reducer and not use_prebuilt_dawn:
