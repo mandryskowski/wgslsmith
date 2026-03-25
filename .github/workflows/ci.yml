@@ -34,7 +34,7 @@ jobs:
           release_tag="${{ steps.read_versions.outputs['dawn'] }}"
           gh release download $release_tag -p dawn-static-linux64.tar.gz -R mandryskowski/dawn-build
           mkdir dawn-static-linux64
-          tar -xvf dawn-static-linux64.tar.gz
+          tar -xvf dawn-static-linux64.tar.gz -C dawn-static-linux64 --strip-components=1
           echo "DAWN_BUILD_DIR=${{ github.workspace }}/dawn-static-linux64" >> $GITHUB_ENV
 
       - name: Run clippy
@@ -63,7 +63,7 @@ jobs:
           release_tag="${{ steps.read_versions.outputs['dawn'] }}"
           gh release download $release_tag -p dawn-static-linux64.tar.gz -R mandryskowski/dawn-build
           mkdir dawn-static-linux64
-          tar -xvf dawn-static-linux64.tar.gz
+          tar -xvf dawn-static-linux64.tar.gz -C dawn-static-linux64 --strip-components=1
           echo "DAWN_BUILD_DIR=${{ github.workspace }}/dawn-static-linux64" >> $GITHUB_ENV
 
       - name: Install dependencies
@@ -76,12 +76,16 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
         target:
           - win64
           - macos64
           - linux64
           - android
+        sanitizer:
+          - none
+          - asan-ubsan
         include:
           - target: win64
             os: ubuntu-latest
@@ -99,6 +103,9 @@ jobs:
             os: ubuntu-latest
             rust-target: aarch64-linux-android
             exe_suffix: "" 
+
+    env:
+      ARTIFACT_SUFFIX: ${{ matrix.sanitizer == 'asan-ubsan' && '-asan-ubsan' || '' }}
 
     steps:
       - name: Checkout git repo
@@ -140,13 +147,21 @@ jobs:
         if: matrix.target == 'win64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-19 clang-tools-19 llvm-19 lld-19
+          sudo apt-get install -y clang-19 clang-tools-19 llvm-19 lld-19 p7zip-full
+
+      - name: Fetch Windows compiler-rt for ASan
+        if: matrix.target == 'win64' && matrix.sanitizer == 'asan-ubsan'
+        run: |
+          curl -L "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/LLVM-19.1.0-win64.exe" -o llvm.exe
+          7z x llvm.exe -o"$HOME/llvm-win"
+          sudo mkdir -p /usr/lib/llvm-19/lib/clang/19/lib/windows
+          find "$HOME/llvm-win" -type d -name "windows" | grep "lib/clang" | xargs -I {} sudo cp -r {}/. /usr/lib/llvm-19/lib/clang/19/lib/windows/
 
       - name: Install linux dependencies
         if: matrix.target == 'linux64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev
+          sudo apt-get install -y clang libx11-dev
 
       - uses: pietrobolcato/action-read-yaml@1.1.0
         id: read_versions
@@ -159,76 +174,87 @@ jobs:
         shell: bash
         run: |
           release_tag="${{ steps.read_versions.outputs['dawn'] }}"
-          gh release download $release_tag -p dawn-static-${{ matrix.target }}.tar.gz -R mandryskowski/dawn-build
-          mkdir dawn-static-${{ matrix.target }}
-          tar -xvf dawn-static-${{ matrix.target }}.tar.gz
+          dawn_folder="dawn-static-${{ matrix.target }}${{ env.ARTIFACT_SUFFIX }}"
+          
+          gh release download $release_tag -p ${dawn_folder}.tar.gz -R mandryskowski/dawn-build
+          mkdir $dawn_folder
+          tar -xvf ${dawn_folder}.tar.gz -C $dawn_folder --strip-components=1
+          
+          echo "DAWN_BUILD_DIR=${{ github.workspace }}/$dawn_folder" >> $GITHUB_ENV
+
+      - name: Setup build environment
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" == "win64" ]; then
+             echo "LLVM_NATIVE_TOOLCHAIN=/usr/lib/llvm-19" >> $GITHUB_ENV
+             echo "XWIN_CACHE=${{ github.workspace }}/.xwin-cache/splat" >> $GITHUB_ENV
+          fi
 
       - name: Build harness
-        if: matrix.target != 'android'
         env:
-          DAWN_BUILD_DIR: ${{ github.workspace }}/dawn-static-${{ matrix.target }}
-          DAWN_SRC_DIR: ${{ github.workspace }}/external/dawn
-          CARGO_BUILD_TARGET: ${{ matrix.rust-target }}
-          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: >-
-            -C linker=lld-link-19
-            -Lnative=${{ github.workspace }}/.xwin-cache/splat/crt/lib/x86_64
-            -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/ucrt/x86_64
-            -Lnative=${{ github.workspace }}/.xwin-cache/splat/sdk/lib/um/x86_64
-          CXX_x86_64_pc_windows_msvc: clang-cl-19
-          CXXFLAGS_x86_64_pc_windows_msvc: >-
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/crt/include
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/ucrt
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/um
-            /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/shared
-          BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc: >-
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/crt/include
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/sdk/include/ucrt
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/sdk/include/um
-            -isystem ${{ github.workspace }}/.xwin-cache/splat/sdk/include/shared
-            --target=x86_64-pc-windows-msvc
-          AR_x86_64_pc_windows_msvc: llvm-lib-19
           MACOSX_DEPLOYMENT_TARGET: "11.0"
-        run: cargo build -p harness --release
-
-      - name: Build harness (Android)
-        if: matrix.target == 'android'
-        env:
-          DAWN_BUILD_DIR: ${{ github.workspace }}/dawn-static-${{ matrix.target }}
-          DAWN_SRC_DIR: ${{ github.workspace }}/external/dawn
-          BINDGEN_EXTRA_CLANG_ARGS: >-
-             --sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-             --target=aarch64-linux-android
+        shell: bash
         run: |
-          cargo ndk -t aarch64-linux-android --platform 30 build -p harness --release
-          mkdir -p android-staging
-          cp target/${{ matrix.rust-target }}/release/wgslsmith-harness android-staging/
-          cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so android-staging/
+          if [ "${{ matrix.target }}" == "android" ]; then
+            export BINDGEN_EXTRA_CLANG_ARGS="--sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot --target=aarch64-linux-android"
+          fi
+          
+          BUILD_ARGS="--target ${{ matrix.rust-target }}"
+          
+          if [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
+            BUILD_ARGS="$BUILD_ARGS --asan --ubsan"
+          fi
+          
+          ./build.py harness $BUILD_ARGS
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p staging
+          
+          if [ "${{ matrix.target }}" == "android" ]; then
+            cp target/${{ matrix.rust-target }}/release/wgslsmith-harness staging/
+            cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so staging/
+          else
+            # The bash wrapper './cargo' redirects all non-ndk targets into cross-target
+            cp cross-target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }} staging/
+          fi
+          
+          # If Windows + ASan, ship the dynamic compiler-rt library next to the executable
+          if [ "${{ matrix.target }}" == "win64" ] && [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
+            cp /usr/lib/llvm-19/lib/clang/19/lib/windows/clang_rt.asan_dynamic-x86_64.dll staging/
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: harness-${{ matrix.target }}
-          path: ${{ matrix.target == 'android' && 'android-staging/*' || format('target/{0}/release/wgslsmith-harness{1}', matrix.rust-target, matrix.exe_suffix) }}
+          name: harness-${{ matrix.target }}${{ env.ARTIFACT_SUFFIX }}
+          path: staging/*
 
   test_harness:
     runs-on: ${{ matrix.os }}
-
     needs: build_harness
 
     strategy:
       fail-fast: false
       matrix:
         os:
-          - windows-latest
+          - windows-2022  # windows-latest breaks ASan
           - ubuntu-latest
           - macos-latest
+        sanitizer:
+          - none
+          - asan-ubsan
         include:
-          - os: windows-latest
+          - os: windows-2022
             artifact: win64
           - os: ubuntu-latest
             artifact: linux64
           - os: macos-latest
             artifact: macos64
+
+    env:
+      ARTIFACT_SUFFIX: ${{ matrix.sanitizer == 'asan-ubsan' && '-asan-ubsan' || '' }}
 
     steps:
       - name: Checkout git repo
@@ -243,18 +269,17 @@ jobs:
         run: |
           release_tag=`gh release view --json tagName -q '.tagName' -R mandryskowski/swiftshader-build`
           gh release download $release_tag -p swiftshader-${{ matrix.artifact }}.tar.gz -R mandryskowski/swiftshader-build
-          mkdir swiftshader-${{ matrix.artifact }}
           tar -xvf swiftshader-${{ matrix.artifact }}.tar.gz
 
       - name: Download harness
         uses: actions/download-artifact@v4
         with:
-          name: harness-${{ matrix.artifact }}
-          path: harness-${{ matrix.artifact }}
+          name: harness-${{ matrix.artifact }}${{ env.ARTIFACT_SUFFIX }}
+          path: harness-staging
 
       - name: Copy vulkan loader
-        if: matrix.os == 'windows-latest'
-        run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll .
+        if: matrix.os == 'windows-2022'
+        run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll harness-staging/
 
       - name: Install Vulkan SDK (macOS)
         if: matrix.os == 'macos-latest'
@@ -266,8 +291,13 @@ jobs:
 
       - name: Run test shaders
         env:
-          VK_ICD_FILENAMES: swiftshader-${{ matrix.artifact }}/vk_swiftshader_icd.json
+          VK_ICD_FILENAMES: ${{ github.workspace }}/swiftshader-${{ matrix.artifact }}/vk_swiftshader_icd.json
+          ASAN_OPTIONS: "detect_odr_violation=0:detect_leaks=0:suppressions=tools/asan_suppressions.txt"
         shell: bash
         run: |
-          chmod +x ./harness-${{ matrix.artifact }}/wgslsmith-harness
-          ./harness-${{ matrix.artifact }}/wgslsmith-harness run crates/harness/test.wgsl crates/harness/test.json
+          chmod +x ./harness-staging/wgslsmith-harness
+          
+          mkdir -p tools
+          touch tools/asan_suppressions.txt
+          
+          ./harness-staging/wgslsmith-harness run crates/harness/test.wgsl crates/harness/test.json
