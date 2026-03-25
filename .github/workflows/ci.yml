@@ -34,7 +34,7 @@ jobs:
           release_tag="${{ steps.read_versions.outputs['dawn'] }}"
           gh release download $release_tag -p dawn-static-linux64.tar.gz -R mandryskowski/dawn-build
           mkdir dawn-static-linux64
-          tar -xvf dawn-static-linux64.tar.gz
+          tar -xvf dawn-static-linux64.tar.gz -C dawn-static-linux64 --strip-components=1
           echo "DAWN_BUILD_DIR=${{ github.workspace }}/dawn-static-linux64" >> $GITHUB_ENV
 
       - name: Run clippy
@@ -63,7 +63,7 @@ jobs:
           release_tag="${{ steps.read_versions.outputs['dawn'] }}"
           gh release download $release_tag -p dawn-static-linux64.tar.gz -R mandryskowski/dawn-build
           mkdir dawn-static-linux64
-          tar -xvf dawn-static-linux64.tar.gz
+          tar -xvf dawn-static-linux64.tar.gz -C dawn-static-linux64 --strip-components=1
           echo "DAWN_BUILD_DIR=${{ github.workspace }}/dawn-static-linux64" >> $GITHUB_ENV
 
       - name: Install dependencies
@@ -178,7 +178,7 @@ jobs:
           
           gh release download $release_tag -p ${dawn_folder}.tar.gz -R mandryskowski/dawn-build
           mkdir $dawn_folder
-          tar -xvf ${dawn_folder}.tar.gz
+          tar -xvf ${dawn_folder}.tar.gz -C $dawn_folder --strip-components=1
           
           echo "DAWN_BUILD_DIR=${{ github.workspace }}/$dawn_folder" >> $GITHUB_ENV
 
