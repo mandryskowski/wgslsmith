@@ -102,7 +102,7 @@ jobs:
           - target: android
             os: ubuntu-latest
             rust-target: aarch64-linux-android
-            exe_suffix: ""
+            exe_suffix: "" 
 
     env:
       ARTIFACT_SUFFIX: ${{ matrix.sanitizer == 'asan-ubsan' && '-asan-ubsan' || '' }}
@@ -119,7 +119,7 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
-
+          
       - name: Install cargo-ndk
         if: matrix.target == 'android'
         run: cargo install cargo-ndk
@@ -194,7 +194,8 @@ jobs:
              
              if [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
                 WIN_LIB_DIR="/usr/lib/llvm-19/lib/clang/19/lib/windows"
-                BASE_MSVC_FLAGS="$BASE_MSVC_FLAGS -Lnative=$WIN_LIB_DIR -C link-arg=clang_rt.asan_dynamic-x86_64.lib -C link-arg=clang_rt.asan_dynamic_runtime_thunk-x86_64.lib -C link-arg=-include:__asan_seh_interceptor -C link-arg=-wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib -C link-arg=clang_rt.ubsan_standalone-x86_64.lib"
+                # Add /NODEFAULTLIB overrides for Visual Studio proprietary ASan libraries
+                BASE_MSVC_FLAGS="$BASE_MSVC_FLAGS -Lnative=$WIN_LIB_DIR -C link-arg=clang_rt.asan_dynamic-x86_64.lib -C link-arg=clang_rt.asan_dynamic_runtime_thunk-x86_64.lib -C link-arg=-include:__asan_seh_interceptor -C link-arg=-wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib -C link-arg=clang_rt.ubsan_standalone-x86_64.lib -C link-arg=/NODEFAULTLIB:stl_asan.lib -C link-arg=/NODEFAULTLIB:vcasan.lib"
                 echo "DAWN_ASAN=1" >> $GITHUB_ENV
                 echo "DAWN_UBSAN=1" >> $GITHUB_ENV
              fi
@@ -222,6 +223,7 @@ jobs:
             /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/ucrt
             /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/um
             /imsvc ${{ github.workspace }}/.xwin-cache/splat/sdk/include/shared
+            /D_HAS_ASAN=0
           BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc: >-
             -isystem ${{ github.workspace }}/.xwin-cache/splat/crt/include
             -isystem ${{ github.workspace }}/.xwin-cache/splat/sdk/include/ucrt
