@@ -145,6 +145,7 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 msvc_flags += " -C link-arg=-wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
                 msvc_flags += " -C link-arg=/NODEFAULTLIB:stl_asan.lib"
                 msvc_flags += " -C link-arg=/NODEFAULTLIB:vcasan.lib"
+                msvc_flags += " -C link-arg=/OPT:NOICF"
                 # Suppress Visual Studio STL ASan detection since we lack stl_asan.lib
                 env["CXXFLAGS"] = f"{env.get('CXXFLAGS', '')} /D_HAS_ASAN=0".strip()
             if args.ubsan:
