@@ -65,6 +65,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         build.flag("-std=c++20");
     }
 
+    if env::var("DAWN_ASAN").is_ok()
+        || env::var("CARGO_CFG_SANITIZE")
+            .unwrap_or_default()
+            .contains("address")
+    {
+        build.flag("-fsanitize=address");
+        println!("cargo:rustc-link-arg=-fsanitize=address");
+    }
+
+    if env::var("DAWN_UBSAN").is_ok()
+        || env::var("CARGO_CFG_SANITIZE")
+            .unwrap_or_default()
+            .contains("undefined")
+    {
+        build.flag("-fsanitize=undefined");
+        println!("cargo:rustc-link-arg=-fsanitize=undefined");
+    }
+
     build.compile("tint_ffi");
 
     Ok(())

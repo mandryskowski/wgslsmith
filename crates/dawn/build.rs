@@ -20,6 +20,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:rerun-if-env-changed=DAWN_SRC_DIR");
     println!("cargo:rerun-if-env-changed=DAWN_BUILD_DIR");
+    println!("cargo:rerun-if-env-changed=DAWN_ASAN");
+    println!("cargo:rerun-if-env-changed=DAWN_UBSAN");
 
     let dawn_lib_dir = dawn_build_dir.join("lib");
     let dawn_gen_dir = dawn_build_dir.join("gen");
@@ -103,9 +105,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         .include(dawn_gen_dir.join("include"));
 
     if build_target == "x86_64-pc-windows-msvc" {
-        cc.flag("/std:c++17").flag("/MD");
+        cc.flag("/std:c++20").flag("/MD");
     } else {
-        cc.flag("-std=c++17");
+        cc.flag("-std=c++20");
+    }
+
+    if env::var("DAWN_ASAN").is_ok()
+        || env::var("CARGO_CFG_SANITIZE")
+            .unwrap_or_default()
+            .contains("address")
+    {
+        cc.flag("-fsanitize=address");
+        println!("cargo:rustc-link-arg=-fsanitize=address");
+    }
+
+    if env::var("DAWN_UBSAN").is_ok()
+        || env::var("CARGO_CFG_SANITIZE")
+            .unwrap_or_default()
+            .contains("undefined")
+    {
+        cc.flag("-fsanitize=undefined");
+        println!("cargo:rustc-link-arg=-fsanitize=undefined");
     }
 
     // Compile and link the c++ wrapper code for dawn initialisation.
