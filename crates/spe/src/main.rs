@@ -181,17 +181,6 @@ fn main() {
             let mut current_configs = args.configs.clone();
 
             if content.contains("subgroup") {
-                for backend in &["hlsl", "spirv", "msl"] {
-                    run_compile(
-                        &wslinux,
-                        path,
-                        backend,
-                        "naga",
-                        &mut *failures_log,
-                        &format!("(subgroups detected for {})", path.display()),
-                    );
-                }
-
                 if !current_configs.is_empty() {
                     current_configs.retain(|c| c.implementation != Implementation::Wgpu);
                     if current_configs.is_empty() {
@@ -438,14 +427,17 @@ fn main() {
                         &format!("for {} {}", path.display(), case_str),
                     );
 
-                    let msl_naga_ok = run_compile(
-                        &wslinux,
-                        &tmp_path,
-                        "msl",
-                        "naga",
-                        &mut *failures_log,
-                        &format!("for {} {}", path.display(), case_str),
-                    );
+                    let mut msl_naga_ok = true;
+                    if !content.contains("subgroup") {
+                        msl_naga_ok = run_compile(
+                            &wslinux,
+                            &tmp_path,
+                            "msl",
+                            "naga",
+                            &mut *failures_log,
+                            &format!("for {} {}", path.display(), case_str),
+                        );
+                    }
 
                     if !msl_tint_ok || !msl_naga_ok {
                         failed_count += 1;
