@@ -76,8 +76,10 @@ extern "C" WGPUDevice create_device(
     void* errorUserdata,
     const WGPUFeatureName* requiredFeatures,
     size_t requiredFeatureCount,
-    const char* const* requiredToggles,
-    size_t requiredToggleCount
+    const char* const* enabledToggles,
+    size_t enabledToggleCount,
+    const char* const* disabledToggles,
+    size_t disabledToggleCount
 ) {
     WGPURequestAdapterOptions options = {};
     auto native_adapters = instance->EnumerateAdapters(&options);
@@ -98,14 +100,11 @@ extern "C" WGPUDevice create_device(
                 }
             }
 
-            const char* disabledToggles[] = {
-            };
-
             WGPUDawnTogglesDescriptor toggles = {};
             toggles.chain.sType = WGPUSType_DawnTogglesDescriptor;
-            toggles.enabledToggleCount = requiredToggleCount;
-            toggles.enabledToggles = requiredToggles;
-            toggles.disabledToggleCount = sizeof(disabledToggles) / sizeof(const char*);
+            toggles.enabledToggleCount = enabledToggleCount;
+            toggles.enabledToggles = enabledToggles;
+            toggles.disabledToggleCount = disabledToggleCount;
             toggles.disabledToggles = disabledToggles;
 
             WGPUDeviceDescriptor descriptor = {};

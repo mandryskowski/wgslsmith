@@ -41,7 +41,7 @@ pub struct DaemonServer {
 }
 
 impl DaemonServer {
-    pub fn new(dawn_flags: Vec<String>) -> Self {
+    pub fn new(dawn_flags: crate::DawnFlags) -> Self {
         DaemonServer {
             webgpu_state: crate::WebGPUState::new(dawn_flags),
         }

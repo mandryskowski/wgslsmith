@@ -14,11 +14,11 @@ type DeviceCacheEntry = (Rc<Device<'static>>, Rc<DeviceQueue>);
 pub struct DawnState {
     instance: &'static Instance,
     device_cache: HashMap<ConfigId, DeviceCacheEntry>,
-    flags: Vec<String>,
+    flags: crate::DawnFlags,
 }
 
 impl DawnState {
-    pub(crate) fn new(flags: Vec<String>) -> Self {
+    pub(crate) fn new(flags: crate::DawnFlags) -> Self {
         let instance = Box::new(Instance::new());
         let instance_ref = Box::leak(instance);
 
@@ -82,7 +82,11 @@ pub async fn run(
     let dawn_state: &mut DawnState = match dawn_state {
         Some(state) => state,
         None => {
-            _owned_dawn_state = DawnState::new(vec!["use_dxc".to_owned()]);
+            let default_flags = crate::DawnFlags {
+                enabled: vec!["use_dxc".to_owned()],
+                disabled: vec![],
+            };
+            _owned_dawn_state = DawnState::new(default_flags);
             &mut _owned_dawn_state
         }
     };
@@ -109,7 +113,23 @@ pub async fn run(
                 dawn::webgpu::WGPUFeatureName_WGPUFeatureName_Subgroups,
             ];
 
-            let toggles: Vec<&str> = dawn_state.flags.iter().map(|s| s.as_str()).collect();
+            let enabled_refs: Vec<&str> = dawn_state
+                .flags
+                .enabled
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            let disabled_refs: Vec<&str> = dawn_state
+                .flags
+                .disabled
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+
+            let toggles = dawn::DawnToggles {
+                enabled: &enabled_refs,
+                disabled: &disabled_refs,
+            };
 
             let device = dawn_state
                 .instance

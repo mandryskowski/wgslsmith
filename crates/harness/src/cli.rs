@@ -39,7 +39,7 @@ pub enum Command {
 pub fn run(
     harness_cmd: HarnessCommand,
     command: Command,
-    dawn_flags: Vec<String>,
+    dawn_flags: crate::DawnFlags,
 ) -> eyre::Result<()> {
     match command {
         Command::List => list(),
@@ -71,7 +71,7 @@ fn list() -> eyre::Result<()> {
     Ok(())
 }
 
-fn internal_run(config: ConfigId, dawn_flags: Vec<String>) -> eyre::Result<()> {
+fn internal_run(config: ConfigId, dawn_flags: crate::DawnFlags) -> eyre::Result<()> {
     let input: ExecutionInput =
         bincode::decode_from_std_read(&mut std::io::stdin(), bincode::config::standard())?;
 

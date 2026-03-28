@@ -21,6 +21,12 @@ pub struct AdapterInfo {
     pub device_id: u32,
 }
 
+#[derive(Clone, Default, Debug)]
+pub struct DawnToggles<'a> {
+    pub enabled: &'a [&'a str],
+    pub disabled: &'a [&'a str],
+}
+
 impl Instance {
     pub fn new() -> Instance {
         Instance(unsafe { dawn::new_instance() })
@@ -70,14 +76,23 @@ impl Instance {
         backend: WGPUBackendType,
         device_id: u32,
         enables: &[WGPUFeatureName],
-        toggles: &[&str],
+        toggles: &DawnToggles<'_>,
     ) -> Option<Device<'_>> {
-        let c_toggles: Vec<std::ffi::CString> = toggles
+        let c_enabled: Vec<std::ffi::CString> = toggles
+            .enabled
             .iter()
             .map(|&t| std::ffi::CString::new(t).unwrap())
             .collect();
-        let c_toggles_ptrs: Vec<*const std::os::raw::c_char> =
-            c_toggles.iter().map(|c| c.as_ptr() as _).collect();
+        let c_enabled_ptrs: Vec<*const std::os::raw::c_char> =
+            c_enabled.iter().map(|c| c.as_ptr() as _).collect();
+
+        let c_disabled: Vec<std::ffi::CString> = toggles
+            .disabled
+            .iter()
+            .map(|&t| std::ffi::CString::new(t).unwrap())
+            .collect();
+        let c_disabled_ptrs: Vec<*const std::os::raw::c_char> =
+            c_disabled.iter().map(|c| c.as_ptr() as _).collect();
 
         let callback: WGPUUncapturedErrorCallback = Some(default_error_callback);
         let handle = unsafe {
@@ -89,8 +104,10 @@ impl Instance {
                 null_mut(),
                 enables.as_ptr(),
                 enables.len(),
-                c_toggles_ptrs.as_ptr(),
-                c_toggles_ptrs.len(),
+                c_enabled_ptrs.as_ptr(),
+                c_enabled_ptrs.len(),
+                c_disabled_ptrs.as_ptr(),
+                c_disabled_ptrs.len(),
             )
         };
 
