@@ -22,6 +22,29 @@ pub struct Config {
     pub reducer: Reducer,
     #[serde(default)]
     pub validator: Validator,
+    #[serde(default)]
+    pub dawn: Dawn,
+}
+
+#[derive(Deserialize)]
+pub struct Dawn {
+    #[serde(default = "default_dawn_flags", alias = "flags")]
+    pub enabled_flags: Vec<String>,
+    #[serde(default)]
+    pub disabled_flags: Vec<String>,
+}
+
+fn default_dawn_flags() -> Vec<String> {
+    vec!["use_dxc".to_owned()]
+}
+
+impl Default for Dawn {
+    fn default() -> Self {
+        Self {
+            enabled_flags: default_dawn_flags(),
+            disabled_flags: vec![],
+        }
+    }
 }
 
 #[derive(Default, Deserialize)]

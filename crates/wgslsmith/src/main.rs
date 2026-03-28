@@ -132,7 +132,14 @@ fn main() -> eyre::Result<()> {
             harness::cli::execute(harness_cmd, options)
         }
         #[cfg(feature = "harness")]
-        Cmd::Harness { cmd } => harness::cli::run(harness_cmd, cmd),
+        Cmd::Harness { cmd } => harness::cli::run(
+            harness_cmd,
+            cmd,
+            harness::DawnFlags {
+                enabled: config.dawn.enabled_flags.clone(),
+                disabled: config.dawn.disabled_flags.clone(),
+            },
+        ),
         Cmd::Remote { cmd, server } => {
             let address = server
                 .as_deref()

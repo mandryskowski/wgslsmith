@@ -18,9 +18,24 @@ use process_control::{ChildExt, Control};
 use reflection::PipelineDescription;
 use types::{BackendType, Config, ConfigId, Implementation};
 
+#[derive(Clone, Default, Debug)]
+pub struct DawnFlags {
+    pub enabled: Vec<String>,
+    pub disabled: Vec<String>,
+}
+
 pub struct WebGPUState {
-    dawn_state: DawnState,
-    wgpu_state: WgpuState,
+    pub dawn_state: DawnState,
+    pub wgpu_state: WgpuState,
+}
+
+impl WebGPUState {
+    pub fn new(dawn_flags: DawnFlags) -> Self {
+        Self {
+            dawn_state: DawnState::new(dawn_flags),
+            wgpu_state: WgpuState::new(),
+        }
+    }
 }
 
 #[derive(Clone)]

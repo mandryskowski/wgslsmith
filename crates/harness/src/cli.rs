@@ -36,7 +36,11 @@ pub enum Command {
     },
 }
 
-pub fn run(harness_cmd: HarnessCommand, command: Command) -> eyre::Result<()> {
+pub fn run(
+    harness_cmd: HarnessCommand,
+    command: Command,
+    dawn_flags: crate::DawnFlags,
+) -> eyre::Result<()> {
     match command {
         Command::List => list(),
         Command::Run(options) => {
@@ -47,7 +51,7 @@ pub fn run(harness_cmd: HarnessCommand, command: Command) -> eyre::Result<()> {
             });
             execute(harness_cmd, options)
         }
-        Command::Exec { config } => internal_run(config),
+        Command::Exec { config } => internal_run(config, dawn_flags),
         Command::Serve(options) => {
             let harness_cmd = harness_cmd.arg(if options.use_daemon {
                 "daemon-exec"
@@ -56,7 +60,7 @@ pub fn run(harness_cmd: HarnessCommand, command: Command) -> eyre::Result<()> {
             });
             crate::server::run(harness_cmd, options)
         }
-        Command::Daemon(options) => DaemonServer::new().main_loop(options),
+        Command::Daemon(options) => DaemonServer::new(dawn_flags).main_loop(options),
         Command::DaemonExec { config } => daemon_exec(config),
     }
 }
@@ -67,12 +71,18 @@ fn list() -> eyre::Result<()> {
     Ok(())
 }
 
-fn internal_run(config: ConfigId) -> eyre::Result<()> {
+fn internal_run(config: ConfigId, dawn_flags: crate::DawnFlags) -> eyre::Result<()> {
     let input: ExecutionInput =
         bincode::decode_from_std_read(&mut std::io::stdin(), bincode::config::standard())?;
 
+    let mut state = crate::WebGPUState::new(dawn_flags);
     let output = ExecutionOutput {
-        buffers: crate::execute_config(&input.shader, &input.pipeline_desc, &config, None)?,
+        buffers: crate::execute_config(
+            &input.shader,
+            &input.pipeline_desc,
+            &config,
+            Some(&mut state),
+        )?,
     };
 
     bincode::encode_into_std_write(output, &mut std::io::stdout(), bincode::config::standard())?;

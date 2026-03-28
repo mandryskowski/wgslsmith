@@ -14,16 +14,18 @@ type DeviceCacheEntry = (Rc<Device<'static>>, Rc<DeviceQueue>);
 pub struct DawnState {
     instance: &'static Instance,
     device_cache: HashMap<ConfigId, DeviceCacheEntry>,
+    flags: crate::DawnFlags,
 }
 
 impl DawnState {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(flags: crate::DawnFlags) -> Self {
         let instance = Box::new(Instance::new());
         let instance_ref = Box::leak(instance);
 
         DawnState {
             instance: instance_ref,
             device_cache: HashMap::new(),
+            flags,
         }
     }
 }
@@ -80,7 +82,11 @@ pub async fn run(
     let dawn_state: &mut DawnState = match dawn_state {
         Some(state) => state,
         None => {
-            _owned_dawn_state = DawnState::new();
+            let default_flags = crate::DawnFlags {
+                enabled: vec!["use_dxc".to_owned()],
+                disabled: vec![],
+            };
+            _owned_dawn_state = DawnState::new(default_flags);
             &mut _owned_dawn_state
         }
     };
@@ -107,9 +113,27 @@ pub async fn run(
                 dawn::webgpu::WGPUFeatureName_WGPUFeatureName_Subgroups,
             ];
 
+            let enabled_refs: Vec<&str> = dawn_state
+                .flags
+                .enabled
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            let disabled_refs: Vec<&str> = dawn_state
+                .flags
+                .disabled
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+
+            let toggles = dawn::DawnToggles {
+                enabled: &enabled_refs,
+                disabled: &disabled_refs,
+            };
+
             let device = dawn_state
                 .instance
-                .create_device(backend, config.device_id, &required_features)
+                .create_device(backend, config.device_id, &required_features, &toggles)
                 .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
             let queue = device.create_queue();

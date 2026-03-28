@@ -72,7 +72,7 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-features
 
-  build_harness:
+  build_binaries:
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -190,7 +190,7 @@ jobs:
              echo "XWIN_CACHE=${{ github.workspace }}/.xwin-cache/splat" >> $GITHUB_ENV
           fi
 
-      - name: Build harness
+      - name: Build binaries
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
         shell: bash
@@ -206,34 +206,44 @@ jobs:
           fi
           
           ./build.py harness $BUILD_ARGS
+          ./build.py wgslsmith $BUILD_ARGS
 
       - name: Stage artifacts
         shell: bash
         run: |
-          mkdir -p staging
+          mkdir -p staging_harness
+          mkdir -p staging_wgslsmith
           
           if [ "${{ matrix.target }}" == "android" ]; then
-            cp target/${{ matrix.rust-target }}/release/wgslsmith-harness staging/
-            cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so staging/
+            cp target/${{ matrix.rust-target }}/release/wgslsmith-harness staging_harness/
+            cp target/${{ matrix.rust-target }}/release/wgslsmith staging_wgslsmith/
+            cp ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so staging_harness/
           else
-            # The bash wrapper './cargo' redirects all non-ndk targets into cross-target
-            cp cross-target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }} staging/
+            cp cross-target/${{ matrix.rust-target }}/release/wgslsmith-harness${{ matrix.exe_suffix }} staging_harness/
+            cp cross-target/${{ matrix.rust-target }}/release/wgslsmith${{ matrix.exe_suffix }} staging_wgslsmith/
           fi
           
           # If Windows + ASan, ship the dynamic compiler-rt library next to the executable
           if [ "${{ matrix.target }}" == "win64" ] && [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
-            cp /usr/lib/llvm-19/lib/clang/19/lib/windows/clang_rt.asan_dynamic-x86_64.dll staging/
+            cp /usr/lib/llvm-19/lib/clang/19/lib/windows/clang_rt.asan_dynamic-x86_64.dll staging_harness/
+            cp /usr/lib/llvm-19/lib/clang/19/lib/windows/clang_rt.asan_dynamic-x86_64.dll staging_wgslsmith/
           fi
 
-      - name: Upload artifacts
+      - name: Upload harness artifact
         uses: actions/upload-artifact@v4
         with:
           name: harness-${{ matrix.target }}${{ env.ARTIFACT_SUFFIX }}
-          path: staging/*
+          path: staging_harness/*
+
+      - name: Upload fuzzer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wgslsmith-${{ matrix.target }}${{ env.ARTIFACT_SUFFIX }}
+          path: staging_wgslsmith/*
 
   test_harness:
     runs-on: ${{ matrix.os }}
-    needs: build_harness
+    needs: build_binaries
 
     strategy:
       fail-fast: false
@@ -277,9 +287,13 @@ jobs:
           name: harness-${{ matrix.artifact }}${{ env.ARTIFACT_SUFFIX }}
           path: harness-staging
 
-      - name: Copy vulkan loader
+      - name: Copy dependencies (Windows)
         if: matrix.os == 'windows-2022'
-        run: cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll harness-staging/
+        shell: bash
+        run: |
+          cp swiftshader-${{ matrix.artifact }}/vulkan-1.dll harness-staging/
+          cp tools/dxcompiler.dll harness-staging/
+          cp tools/dxil.dll harness-staging/
 
       - name: Install Vulkan SDK (macOS)
         if: matrix.os == 'macos-latest'

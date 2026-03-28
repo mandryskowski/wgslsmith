@@ -16,5 +16,9 @@ fn main() -> eyre::Result<()> {
     cli::run(
         HarnessCommand::new(std::env::current_exe().unwrap()),
         Command::parse(),
+        harness::DawnFlags {
+            enabled: vec!["use_dxc".to_owned()],
+            disabled: vec![],
+        },
     )
 }
