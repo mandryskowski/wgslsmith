@@ -70,7 +70,15 @@ impl Instance {
         backend: WGPUBackendType,
         device_id: u32,
         enables: &[WGPUFeatureName],
+        toggles: &[&str],
     ) -> Option<Device<'_>> {
+        let c_toggles: Vec<std::ffi::CString> = toggles
+            .iter()
+            .map(|&t| std::ffi::CString::new(t).unwrap())
+            .collect();
+        let c_toggles_ptrs: Vec<*const std::os::raw::c_char> =
+            c_toggles.iter().map(|c| c.as_ptr() as _).collect();
+
         let callback: WGPUUncapturedErrorCallback = Some(default_error_callback);
         let handle = unsafe {
             dawn::create_device(
@@ -81,6 +89,8 @@ impl Instance {
                 null_mut(),
                 enables.as_ptr(),
                 enables.len(),
+                c_toggles_ptrs.as_ptr(),
+                c_toggles_ptrs.len(),
             )
         };
 

@@ -1,5 +1,3 @@
-use crate::dawn::DawnState;
-use crate::wgpu::WgpuState;
 use crate::{ExecutionInput, ExecutionOutput, WebGPUState};
 use clap::Parser;
 use std::io::{BufReader, BufWriter, Write};
@@ -43,12 +41,9 @@ pub struct DaemonServer {
 }
 
 impl DaemonServer {
-    pub fn new() -> Self {
+    pub fn new(dawn_flags: Vec<String>) -> Self {
         DaemonServer {
-            webgpu_state: WebGPUState {
-                dawn_state: DawnState::new(),
-                wgpu_state: WgpuState::new(),
-            },
+            webgpu_state: crate::WebGPUState::new(dawn_flags),
         }
     }
 

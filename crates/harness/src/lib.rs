@@ -19,8 +19,17 @@ use reflection::PipelineDescription;
 use types::{BackendType, Config, ConfigId, Implementation};
 
 pub struct WebGPUState {
-    dawn_state: DawnState,
-    wgpu_state: WgpuState,
+    pub dawn_state: DawnState,
+    pub wgpu_state: WgpuState,
+}
+
+impl WebGPUState {
+    pub fn new(dawn_flags: Vec<String>) -> Self {
+        Self {
+            dawn_state: DawnState::new(dawn_flags),
+            wgpu_state: WgpuState::new(),
+        }
+    }
 }
 
 #[derive(Clone)]

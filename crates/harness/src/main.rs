@@ -16,5 +16,6 @@ fn main() -> eyre::Result<()> {
     cli::run(
         HarnessCommand::new(std::env::current_exe().unwrap()),
         Command::parse(),
+        vec![],
     )
 }

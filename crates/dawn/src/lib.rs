@@ -41,6 +41,8 @@ mod dawn {
             userdata: *mut c_void,
             required_features: *const webgpu::WGPUFeatureName,
             required_feature_count: usize,
+            required_toggles: *const *const std::os::raw::c_char,
+            required_toggle_count: usize,
         ) -> webgpu::WGPUDevice;
     }
 }
