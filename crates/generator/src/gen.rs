@@ -30,6 +30,7 @@ use self::structs::StructKind;
 #[derive(Default)]
 struct FnState {
     is_loop: bool,
+    is_continuing: bool,
     block_depth: u32,
     expression_depth: u32,
 }

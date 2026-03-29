@@ -3,10 +3,10 @@ use std::mem;
 
 use ast::types::{DataType, MemoryViewType, ScalarType};
 use ast::{
-    AssignmentLhs, AssignmentOp, AssignmentStatement, BinOp, BinOpExpr, Expr, ExprNode,
-    ForLoopHeader, ForLoopInit, ForLoopStatement, ForLoopUpdate, IfStatement, LetDeclStatement,
-    LhsExprNode, Lit, LoopStatement, ReturnStatement, Statement, StorageClass, SwitchCase,
-    SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr, WhileStatement,
+    AssignmentLhs, AssignmentOp, AssignmentStatement, BinOp, BinOpExpr, ContinuingBlock, Expr,
+    ExprNode, ForLoopHeader, ForLoopInit, ForLoopStatement, ForLoopUpdate, IfStatement,
+    LetDeclStatement, LhsExprNode, Lit, LoopStatement, ReturnStatement, Statement, StorageClass,
+    SwitchCase, SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr, WhileStatement,
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -32,11 +32,11 @@ enum StatementType {
 
 impl super::Generator<'_> {
     pub fn gen_stmt(&mut self) -> Statement {
-        let mut allowed = vec![
-            StatementType::LetDecl,
-            StatementType::VarDecl,
-            StatementType::Return,
-        ];
+        let mut allowed = vec![StatementType::LetDecl, StatementType::VarDecl];
+
+        if !self.fn_state.is_continuing {
+            allowed.push(StatementType::Return);
+        }
 
         if self.fn_state.is_loop {
             allowed.push(StatementType::Break);
@@ -190,11 +190,43 @@ impl super::Generator<'_> {
             .rng
             .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
 
-        let is_loop = mem::replace(&mut self.fn_state.is_loop, true);
-        let body = self.gen_stmt_block(max_count).1;
+        let is_loop = std::mem::replace(&mut self.fn_state.is_loop, true);
+
+        let (body_scope, body) = self.gen_stmt_block(max_count);
+
+        let continuing = if self.rng.gen_bool(0.3) {
+            let cont_max_count = self
+                .rng
+                .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
+
+            let prev_is_loop = std::mem::replace(&mut self.fn_state.is_loop, false);
+            let prev_in_cont = std::mem::replace(&mut self.fn_state.is_continuing, true);
+
+            let (_, (cont_scope, cont_stmts)) =
+                self.with_scope(body_scope, |this| this.gen_stmt_block(cont_max_count));
+
+            let break_if = if self.rng.gen_bool(0.5) {
+                Some(
+                    self.with_scope(cont_scope, |this| {
+                        this.gen_expr(&DataType::Scalar(ScalarType::Bool))
+                    })
+                    .1,
+                )
+            } else {
+                None
+            };
+
+            self.fn_state.is_loop = prev_is_loop;
+            self.fn_state.is_continuing = prev_in_cont;
+
+            Some(ContinuingBlock::new(cont_stmts, break_if))
+        } else {
+            None
+        };
+
         self.fn_state.is_loop = is_loop;
 
-        LoopStatement::new(body, None).into()
+        LoopStatement::new(body, continuing).into()
     }
 
     fn gen_switch_stmt(&mut self) -> Statement {
