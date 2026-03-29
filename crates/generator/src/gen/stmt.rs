@@ -145,15 +145,34 @@ impl super::Generator<'_> {
     // }
 
     fn gen_if_stmt(&mut self) -> Statement {
+        self.gen_if_statement(0).into()
+    }
+
+    fn gen_if_statement(&mut self, chain_depth: u32) -> IfStatement {
+        use ast::Else;
+
         let max_count = self
             .rng
             .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
 
-        IfStatement::new(
-            self.gen_expr(&DataType::Scalar(ScalarType::Bool)),
-            self.gen_stmt_block(max_count).1,
-        )
-        .into()
+        let condition = self.gen_expr(&DataType::Scalar(ScalarType::Bool));
+        let body = self.gen_stmt_block(max_count).1;
+
+        let mut stmt = IfStatement::new(condition, body);
+
+        if self.rng.gen_bool(0.6) {
+            if chain_depth < self.options.max_if_chain_depth && self.rng.gen_bool(0.5) {
+                stmt.else_ = Some(Box::new(Else::If(self.gen_if_statement(chain_depth + 1))));
+            } else {
+                let else_max_count = self
+                    .rng
+                    .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
+                let else_body = self.gen_stmt_block(else_max_count).1;
+                stmt.else_ = Some(Box::new(Else::Else(else_body)));
+            }
+        }
+
+        stmt
     }
 
     fn gen_return_stmt(&mut self) -> Statement {

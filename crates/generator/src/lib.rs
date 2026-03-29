@@ -103,6 +103,10 @@ pub struct Options {
     #[clap(long, action, default_value = "5")]
     pub max_struct_members: u32,
 
+    /// Maximum number of if-else-if chains to generate
+    #[clap(long, action, default_value = "3")]
+    pub max_if_chain_depth: u32,
+
     /// Preset options configuration. Individual options may still be overridden.
     #[clap(long, action)]
     pub preset: Option<Preset>,
