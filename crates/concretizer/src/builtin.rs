@@ -592,6 +592,9 @@ fn evaluate_unpack(ident: &Builtin, arg: Value) -> Option<Value> {
             for i in 0..2 {
                 let chunk = ((val >> (16 * i)) & 0xFFFF) as u16;
                 let f = half::f16::from_bits(chunk).to_f32();
+                if !f.is_finite() {
+                    return None;
+                }
                 res.push(Value::Lit(Lit::F32(f)));
             }
             Some(Value::Vector(res))
