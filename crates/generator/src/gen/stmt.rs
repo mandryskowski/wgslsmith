@@ -6,7 +6,7 @@ use ast::{
     AssignmentLhs, AssignmentOp, AssignmentStatement, BinOp, BinOpExpr, Expr, ExprNode,
     ForLoopHeader, ForLoopInit, ForLoopStatement, ForLoopUpdate, IfStatement, LetDeclStatement,
     LhsExprNode, Lit, LoopStatement, ReturnStatement, Statement, StorageClass, SwitchCase,
-    SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr,
+    SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr, WhileStatement,
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -25,6 +25,7 @@ enum StatementType {
     Loop,
     Switch,
     ForLoop,
+    While,
     Break,
     Continue,
 }
@@ -53,6 +54,7 @@ impl super::Generator<'_> {
                 StatementType::Loop,
                 StatementType::Switch,
                 StatementType::ForLoop,
+                StatementType::While,
             ]);
         }
 
@@ -66,6 +68,7 @@ impl super::Generator<'_> {
             StatementType::Loop => 5,
             StatementType::Switch => 5,
             StatementType::ForLoop => 5,
+            StatementType::While => 5,
             StatementType::Break => 5,
             StatementType::Continue => 5,
         };
@@ -80,6 +83,7 @@ impl super::Generator<'_> {
             StatementType::Loop => self.gen_loop_stmt(),
             StatementType::Switch => self.gen_switch_stmt(),
             StatementType::ForLoop => self.gen_for_stmt(),
+            StatementType::While => self.gen_while_stmt(),
             StatementType::Break => Statement::Break,
             StatementType::Continue => Statement::Continue,
         }
@@ -323,6 +327,20 @@ impl super::Generator<'_> {
         });
 
         stmt.into()
+    }
+
+    fn gen_while_stmt(&mut self) -> Statement {
+        let max_count = self
+            .rng
+            .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
+
+        let condition = self.gen_expr(&DataType::Scalar(ScalarType::Bool));
+
+        let is_loop = std::mem::replace(&mut self.fn_state.is_loop, true);
+        let body = self.gen_stmt_block(max_count).1;
+        self.fn_state.is_loop = is_loop;
+
+        WhileStatement::new(condition, body).into()
     }
 
     pub fn gen_stmt_block(&mut self, max_count: u32) -> (Scope, Vec<Statement>) {

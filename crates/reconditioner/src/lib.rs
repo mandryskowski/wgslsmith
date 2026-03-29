@@ -237,11 +237,7 @@ impl Reconditioner {
             .into(),
             Statement::While(stmt) => Statement::While(WhileStatement {
                 condition: self.recondition_expr(stmt.condition),
-                body: stmt
-                    .body
-                    .into_iter()
-                    .map(|s| self.recondition_stmt(s))
-                    .collect(),
+                body: self.recondition_loop_body(stmt.body),
             }),
             Statement::Break => Statement::Break,
             Statement::Switch(SwitchStatement {
