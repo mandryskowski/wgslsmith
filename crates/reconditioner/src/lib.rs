@@ -23,6 +23,7 @@ enum Wrapper {
     Select(DataType, DataType),
     Mod(DataType),
     Index(DataType),
+    Pack2x16float,
 }
 
 impl Wrapper {
@@ -42,6 +43,7 @@ impl Wrapper {
             Wrapper::Select(ty, cond_ty) => safe_wrappers::select(name, ty, cond_ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
+            Wrapper::Pack2x16float => safe_wrappers::pack2x16float(name),
         }
     }
 }
@@ -64,6 +66,7 @@ impl Display for Wrapper {
                 write!(f, "_")?;
                 write_type(f, cond_ty)
             }
+            Wrapper::Pack2x16float => write!(f, "pack2x16float"),
             other => {
                 let (name, ty) = match other {
                     Wrapper::ExtractBits(ty) => ("extract_bits", ty),
@@ -72,7 +75,7 @@ impl Display for Wrapper {
                     Wrapper::FloatDivide(ty) => ("div", ty),
                     Wrapper::Mod(ty) => ("mod", ty),
                     Wrapper::Index(ty) => ("index", ty),
-                    Wrapper::Select(..) => unreachable!(),
+                    Wrapper::Select(..) | Wrapper::Pack2x16float => unreachable!(),
                 };
 
                 write!(f, "{name}_")?;
@@ -469,6 +472,9 @@ impl Reconditioner {
                         )),
                         args,
                     ),
+                    "pack2x16float" => {
+                        FnCallExpr::new(self.safe_wrapper(Wrapper::Pack2x16float), args)
+                    }
                     _ => {
                         let mut new_call = FnCallExpr::new(expr.ident, args);
                         new_call.template_args = expr.template_args;

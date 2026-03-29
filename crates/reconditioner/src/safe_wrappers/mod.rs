@@ -4,6 +4,7 @@ mod float_divide;
 mod index;
 mod insert_bits;
 mod modulo;
+mod pack2x16float;
 mod select;
 
 use ast::{
@@ -17,6 +18,7 @@ pub use float_divide::float_divide;
 pub use index::index;
 pub use insert_bits::insert_bits;
 pub use modulo::modulo;
+pub use pack2x16float::pack2x16float;
 pub use select::select;
 
 /// Wraps the given expression in a call to `any()` if it is a vector.
