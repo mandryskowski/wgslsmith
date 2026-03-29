@@ -195,10 +195,18 @@ impl LhsExprNode {
             .as_memory_view()
             .expect("lhs expression must be a reference type");
 
-        let element_type = if let DataType::Array(ty, _) = mem_view.inner.as_ref() {
-            DataType::Ref(mem_view.clone_with_type(ty.as_ref().clone()))
-        } else {
-            panic!("expected array, got `{}`", mem_view.inner)
+        let element_type = match mem_view.inner.as_ref() {
+            DataType::Array(ty, _) => DataType::Ref(mem_view.clone_with_type(ty.as_ref().clone())),
+            DataType::Matrix(_, r, ty) => {
+                DataType::Ref(mem_view.clone_with_type(DataType::Vector(*r, *ty)))
+            }
+            DataType::Vector(_, ty) => {
+                DataType::Ref(mem_view.clone_with_type(DataType::Scalar(*ty)))
+            }
+            _ => panic!(
+                "expected array, matrix, or vector, got `{}`",
+                mem_view.inner
+            ),
         };
 
         LhsExprNode {

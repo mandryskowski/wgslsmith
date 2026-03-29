@@ -124,6 +124,10 @@ impl super::Generator<'_> {
                     lhs = lhs.member(accessor);
                     break;
                 }
+                DataType::Matrix(_, _, _) if self.rng.gen_bool(0.7) => {
+                    let index = self.gen_expr(&ScalarType::U32.into());
+                    lhs = lhs.array_index(index);
+                }
                 DataType::Array(_, _) if self.rng.gen_bool(0.7) => {
                     let index = self.gen_expr(&ScalarType::U32.into());
                     lhs = lhs.array_index(index);
