@@ -273,7 +273,12 @@ impl Concretizer {
             )
             .into(),
             Statement::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                AssignmentStatement::new(lhs, op, self.concretize_expr(rhs)).into()
+                AssignmentStatement::new(
+                    self.concretize_assignment_lhs(lhs),
+                    op,
+                    self.concretize_expr(rhs),
+                )
+                .into()
             }
             Statement::Compound(s) => {
                 self.enter_scope();
