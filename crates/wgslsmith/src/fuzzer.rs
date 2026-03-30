@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use crossbeam_channel::select;
@@ -243,73 +243,122 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
         while let Ok(msg) = worker_rx.recv() {
             match msg {
                 WorkerMessage::Log(line) => println!("{line}"),
-                WorkerMessage::Result(result) => println!("saved: {}", result.saved),
+                WorkerMessage::Result(result) => println!(
+                    "saved: {} (time: {:.3}s)",
+                    result.saved,
+                    result.duration.as_secs_f64()
+                ),
             }
         }
     } else {
         enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
-        let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
-        let ui = Arc::new(Mutex::new(Ui::new(terminal, UiState::default())));
+        let stdout = io::stdout();
+        let mut is_tui = true;
+        let mut needs_render = true;
+
+        let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+        if is_tui {
+            execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+        }
+
+        let mut state = UiState::default();
 
         let (input_tx, input_rx) = crossbeam_channel::bounded(1);
 
-        thread::spawn(move || loop {
-            input_tx.send(crossterm::event::read().unwrap()).unwrap();
-        });
-
-        let on_result = |result: WorkerResult| {
-            let mut ui = ui.lock().unwrap();
-            ui.state.total += 1;
-            match result.kind {
-                WorkerResultKind::Success => ui.state.success += 1,
-                WorkerResultKind::Crash => {
-                    ui.state.crashes += 1;
-                    if result.saved {
-                        ui.state.saved_crashes += 1;
-                    }
-                }
-                WorkerResultKind::Mismatch => {
-                    ui.state.mismatches += 1;
-                    if result.saved {
-                        ui.state.saved_mismatches += 1;
-                    }
-                }
-                // WorkerResultKind::Timeout => ui.state.timeouts += 1,
-                WorkerResultKind::ReconditionFailure | WorkerResultKind::ExecutionFailure => {
-                    ui.state.failures += 1
+        thread::spawn(move || {
+            while let Ok(event) = crossterm::event::read() {
+                if input_tx.send(event).is_err() {
+                    break;
                 }
             }
-        };
+        });
 
         loop {
-            ui.lock().unwrap().render()?;
+            if is_tui && needs_render {
+                render_ui(&mut terminal, &state)?;
+                needs_render = false;
+            }
+
             select! {
                 recv(input_rx) -> msg => {
-                    if let crossterm::event::Event::Key(key) = msg? {
+                    if let Ok(crossterm::event::Event::Key(key)) = msg {
                         if let KeyCode::Char('q') = key.code {
                             break;
+                        } else if let KeyCode::Char('t') = key.code {
+                            is_tui = !is_tui;
+                            if is_tui {
+                                execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                terminal.clear()?;
+                                needs_render = true;
+                            } else {
+                                execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                print!("Switched to log view. Press 't' to switch back to TUI, 'q' to quit.\r\n");
+                                io::stdout().flush()?;
+                            }
                         }
                     }
 
-                    ui.lock().unwrap().render()?;
+                    if is_tui {
+                        needs_render = true;
+                    }
                 }
                 recv(worker_rx) -> msg => {
-                    match msg? {
-                        WorkerMessage::Log(_line) => {},
-                        WorkerMessage::Result(result) => on_result(result),
+                    match msg {
+                        Ok(WorkerMessage::Log(line)) => {
+                            if !is_tui {
+                                print!("{}\r\n", line.replace('\n', "\r\n"));
+                                io::stdout().flush()?;
+                            }
+                        },
+                        Ok(WorkerMessage::Result(result)) => {
+                            state.total += 1;
+                            state.sum_time += result.duration;
+                            *state
+                                .time_buckets_ms
+                                .entry(result.duration.as_millis() as u64)
+                                .or_insert(0) += 1;
+
+                            match result.kind {
+                                WorkerResultKind::Success => state.success += 1,
+                                WorkerResultKind::Crash => {
+                                    state.crashes += 1;
+                                    if result.saved {
+                                        state.saved_crashes += 1;
+                                    }
+                                }
+                                WorkerResultKind::Mismatch => {
+                                    state.mismatches += 1;
+                                    if result.saved {
+                                        state.saved_mismatches += 1;
+                                    }
+                                }
+                                WorkerResultKind::ReconditionFailure | WorkerResultKind::ExecutionFailure => {
+                                    state.failures += 1
+                                }
+                            }
+
+                            if is_tui {
+                                needs_render = true;
+                            } else {
+                                print!(
+                                    "saved: {} (time: {:.3}s)\r\n",
+                                    result.saved,
+                                    result.duration.as_secs_f64()
+                                );
+                                io::stdout().flush()?;
+                            }
+                        },
+                        Err(_) => break,
                     }
                 }
             }
         }
 
-        {
-            disable_raw_mode()?;
-            let mut ui = ui.lock().unwrap();
-            execute!(ui.terminal.backend_mut(), LeaveAlternateScreen)?;
-            ui.terminal.show_cursor()?;
+        if is_tui {
+            execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
         }
+        disable_raw_mode()?;
+        terminal.show_cursor()?;
     }
 
     Ok(())
@@ -323,6 +372,7 @@ enum WorkerMessage {
 struct WorkerResult {
     kind: WorkerResultKind,
     saved: bool,
+    duration: Duration,
 }
 
 enum WorkerResultKind {
@@ -342,15 +392,20 @@ fn worker(
 ) -> eyre::Result<()> {
     loop {
         let mut logger = |line| on_message(WorkerMessage::Log(line));
+        let start_time = Instant::now();
 
         match worker_iteration(&config, &options, targets, &mut logger) {
-            Ok(result) => on_message(WorkerMessage::Result(result)),
+            Ok(mut result) => {
+                result.duration = start_time.elapsed();
+                on_message(WorkerMessage::Result(result));
+            }
             Err(e) => {
                 on_message(WorkerMessage::Log(format!("Iteration failed: {:#}", e)));
 
                 on_message(WorkerMessage::Result(WorkerResult {
                     kind: WorkerResultKind::ExecutionFailure,
                     saved: false,
+                    duration: start_time.elapsed(),
                 }));
 
                 continue;
@@ -378,6 +433,7 @@ fn worker_iteration(
             return Ok(WorkerResult {
                 kind: WorkerResultKind::ReconditionFailure,
                 saved: false,
+                duration: Duration::ZERO,
             });
         }
     };
@@ -413,6 +469,7 @@ fn worker_iteration(
                 return Ok(WorkerResult {
                     kind: WorkerResultKind::ExecutionFailure,
                     saved: false,
+                    duration: Duration::ZERO,
                 });
             }
         };
@@ -483,15 +540,10 @@ fn worker_iteration(
     Ok(WorkerResult {
         kind: result_kind,
         saved: should_save,
+        duration: Duration::ZERO,
     })
 }
 
-struct Ui<B: Backend> {
-    terminal: Terminal<B>,
-    state: UiState,
-}
-
-#[derive(Default)]
 struct UiState {
     total: usize,
     success: usize,
@@ -501,67 +553,109 @@ struct UiState {
     mismatches: usize,
     saved_mismatches: usize,
     failures: usize,
+    sum_time: Duration,
+    time_buckets_ms: BTreeMap<u64, usize>,
+    start_time: Instant,
 }
 
-impl<B: Backend> Ui<B> {
-    fn new(terminal: Terminal<B>, state: UiState) -> Self {
-        Ui { terminal, state }
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            total: 0,
+            success: 0,
+            timeouts: 0,
+            crashes: 0,
+            saved_crashes: 0,
+            mismatches: 0,
+            saved_mismatches: 0,
+            failures: 0,
+            sum_time: Duration::ZERO,
+            time_buckets_ms: BTreeMap::new(),
+            start_time: Instant::now(),
+        }
+    }
+}
+
+fn render_ui<B: Backend>(terminal: &mut Terminal<B>, state: &UiState) -> eyre::Result<()> {
+    fn pc(a: usize, b: usize) -> f32 {
+        if b == 0 {
+            0.0
+        } else {
+            a as f32 / b as f32 * 100.0
+        }
     }
 
-    fn render(&mut self) -> eyre::Result<()> {
-        fn pc(a: usize, b: usize) -> f32 {
-            if b == 0 {
-                0.0
-            } else {
-                a as f32 / b as f32 * 100.0
+    terminal.draw(|f| {
+        let count = state.total;
+        let success = state.success;
+        let crashes = state.crashes;
+        let saved_crashes = state.saved_crashes;
+        let mismatches = state.mismatches;
+        let saved_mismatches = state.saved_mismatches;
+        let timeouts = state.timeouts;
+        let failures = state.failures;
+
+        let avg = if count == 0 {
+            0.0
+        } else {
+            state.sum_time.as_secs_f64() / count as f64
+        };
+
+        let p95_idx = (count as f64 * 0.95).ceil() as usize;
+        let mut current_idx = 0;
+        let mut p95_ms = 0;
+        for (&ms, &c) in &state.time_buckets_ms {
+            current_idx += c;
+            if current_idx >= p95_idx {
+                p95_ms = ms;
+                break;
             }
         }
+        let p95_sec = p95_ms as f64 / 1000.0;
 
-        self.terminal.draw(|f| {
-            let count = self.state.total;
-            let success = self.state.success;
-            let crashes = self.state.crashes;
-            let saved_crashes = self.state.saved_crashes;
-            let mismatches = self.state.mismatches;
-            let saved_mismatches = self.state.saved_mismatches;
-            let timeouts = self.state.timeouts;
-            let failures = self.state.failures;
+        let wall_secs = state.start_time.elapsed().as_secs();
+        let hours = wall_secs / 3600;
+        let mins = (wall_secs % 3600) / 60;
+        let secs = wall_secs % 60;
 
-            #[rustfmt::skip]
-            let lines = vec![
-                Spans::from(format!("total:      {count}")),
-                Spans::from(format!("ok:         {success} ({:.2}%)", pc(success, count))),
-                Spans::from(format!("crashes:    {crashes} ({:.2}%)", pc(crashes, count))),
-                Spans::from(format!("  saved:    {saved_crashes} ({:.2}%)", pc(saved_crashes, crashes))),
-                Spans::from(format!("mismatches: {mismatches} ({:.2}%)", pc(mismatches, count))),
-                Spans::from(format!("  saved:    {saved_mismatches} ({:.2}%)", pc(saved_mismatches, mismatches))),
-                Spans::from(format!("timeouts:   {timeouts} ({:.2}%)", pc(timeouts, count))),
-                Spans::from(format!("failures:   {failures} ({:.2}%)", pc(failures, count))),
-            ];
+        #[rustfmt::skip]
+        let lines = vec![
+            Spans::from(format!("total:      {count}")),
+            Spans::from(format!("ok:         {success} ({:.2}%)", pc(success, count))),
+            Spans::from(format!("crashes:    {crashes} ({:.2}%)", pc(crashes, count))),
+            Spans::from(format!("  saved:    {saved_crashes} ({:.2}%)", pc(saved_crashes, crashes))),
+            Spans::from(format!("mismatches: {mismatches} ({:.2}%)", pc(mismatches, count))),
+            Spans::from(format!("  saved:    {saved_mismatches} ({:.2}%)", pc(saved_mismatches, mismatches))),
+            Spans::from(format!("timeouts:   {timeouts} ({:.2}%)", pc(timeouts, count))),
+            Spans::from(format!("failures:   {failures} ({:.2}%)", pc(failures, count))),
+            Spans::from(""),
+            Spans::from(format!("total time: {:02}:{:02}:{:02}", hours, mins, secs)),
+            Spans::from(format!("avg time:   {:.3}s", avg)),
+            Spans::from(format!("p95 time:   {:.3}s", p95_sec)),
+        ];
 
-            let line_count = lines.len();
-            let mut text_width = 0;
-            for line in &lines {
-                text_width = text_width.max(line.width());
-            }
+        let line_count = lines.len();
+        let mut text_width = 0;
+        for line in &lines {
+            text_width = text_width.max(line.width());
+        }
 
-            let block = Block::default()
-                .title(" wgslsmith - fuzzer ")
-                .borders(Borders::ALL);
+        let block = Block::default()
+            .title(" wgslsmith - fuzzer ")
+            .borders(Borders::ALL);
 
-            let text = Paragraph::new(lines);
+        let text = Paragraph::new(lines);
 
-            let frame_area = f.size();
-            let text_area = Rect::new(
-                frame_area.x + ((frame_area.width - frame_area.x) / 2 - (text_width as u16 / 2)),
-                frame_area.y + ((frame_area.height - frame_area.y) / 2 - (line_count as u16 / 2)),
-                text_width as u16,
-                line_count as u16,
-            );
+        let frame_area = f.size();
+        let text_area = Rect::new(
+            frame_area.x + ((frame_area.width - frame_area.x) / 2 - (text_width as u16 / 2)),
+            frame_area.y + ((frame_area.height - frame_area.y) / 2 - (line_count as u16 / 2)),
+            text_width as u16,
+            line_count as u16,
+        );
 
-            f.render_widget(block, frame_area);
-            f.render_widget(text, text_area);
-        })?;
-        Ok(())
-    }
+        f.render_widget(block, frame_area);
+        f.render_widget(text, text_area);
+    })?;
+    Ok(())
 }
