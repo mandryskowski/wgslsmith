@@ -61,7 +61,7 @@ impl super::Generator<'_> {
         let weights = |t: &StatementType| match t {
             StatementType::LetDecl => 10,
             StatementType::VarDecl => 10,
-            StatementType::Assignment => 10,
+            StatementType::Assignment => 20,
             // StatementType::Compound => 1,
             StatementType::If => 5,
             StatementType::Return => 1,
