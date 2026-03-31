@@ -9,9 +9,12 @@ use wgpu::wgt::PollType::Wait;
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, Device,
-    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, DxcShaderModel, ErrorFilter,
-    ErrorScopeGuard, Instance, Limits, MapMode, Queue, ShaderModuleDescriptor, ShaderSource,
+    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, ErrorFilter, ErrorScopeGuard, Instance,
+    Limits, MapMode, Queue, ShaderModuleDescriptor, ShaderSource,
 };
+
+const CANARY_SIZE: u64 = 256;
+const CANARY_VAL: u8 = 0xCD;
 
 pub struct WgpuState {
     instance: Instance,
@@ -34,8 +37,8 @@ impl WgpuState {
                 dx12: Self::dx12_backend_options(),
                 noop: Default::default(),
             },
-            flags: Default::default(),
             display: Default::default(),
+            flags: Default::default(),
             memory_budget_thresholds: Default::default(),
         }
     }
@@ -217,26 +220,36 @@ pub async fn run(
         let size = resource.size as u64;
         match resource.kind {
             ResourceKind::StorageBuffer => {
+                let actual_size = size + 2 * CANARY_SIZE;
                 let gpu_buffer = device.create_buffer(&BufferDescriptor {
                     label: Some("Storage GPU Buffer"),
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-                    size,
-                    mapped_at_creation: resource.init.is_some(),
+                    size: actual_size,
+                    mapped_at_creation: true,
                 });
 
-                if let Some(init) = resource.init.as_deref() {
+                {
+                    let mut initial_data = vec![CANARY_VAL; actual_size as usize];
+                    let payload_start = CANARY_SIZE as usize;
+                    let payload_end = payload_start + size as usize;
+
+                    if let Some(init) = resource.init.as_deref() {
+                        initial_data[payload_start..payload_end].copy_from_slice(init);
+                    } else {
+                        initial_data[payload_start..payload_end].fill(0);
+                    }
+
                     gpu_buffer
                         .slice(..)
                         .get_mapped_range_mut()
-                        .copy_from_slice(init);
-
-                    gpu_buffer.unmap();
+                        .copy_from_slice(&initial_data);
                 }
+                gpu_buffer.unmap();
 
                 let staging_buffer = device.create_buffer(&BufferDescriptor {
                     label: Some("Storage Staging Buffer"),
                     usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-                    size,
+                    size: actual_size,
                     mapped_at_creation: false,
                 });
 
@@ -283,9 +296,17 @@ pub async fn run(
             ResourceBuffer::Storage {
                 group,
                 binding,
+                size,
                 gpu_buffer,
                 ..
-            } => (*group, *binding, gpu_buffer.as_entire_binding()),
+            } => {
+                let binding_resource = wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: gpu_buffer,
+                    offset: CANARY_SIZE,
+                    size: wgpu::BufferSize::new(*size),
+                });
+                (*group, *binding, binding_resource)
+            }
             ResourceBuffer::Uniform {
                 group,
                 binding,
@@ -341,7 +362,8 @@ pub async fn run(
                 ..
             } = res
             {
-                encoder.copy_buffer_to_buffer(gpu_buffer, 0, staging_buffer, 0, *size);
+                let actual_size = *size + 2 * CANARY_SIZE;
+                encoder.copy_buffer_to_buffer(gpu_buffer, 0, staging_buffer, 0, actual_size);
             }
         }
 
@@ -358,7 +380,12 @@ pub async fn run(
     let mut pending_mappings = vec![];
 
     for res in &resource_buffers {
-        if let ResourceBuffer::Storage { staging_buffer, .. } = res {
+        if let ResourceBuffer::Storage {
+            staging_buffer,
+            size,
+            ..
+        } = res
+        {
             let slice = staging_buffer.slice(..);
             let (tx, rx) = futures::channel::oneshot::channel();
 
@@ -367,7 +394,7 @@ pub async fn run(
                 let _ = tx.send(res);
             });
 
-            pending_mappings.push((rx, slice, staging_buffer));
+            pending_mappings.push((rx, slice, staging_buffer, *size));
         }
     }
 
@@ -378,14 +405,23 @@ pub async fn run(
 
     let mut results = vec![];
 
-    for (rx, slice, raw_buffer) in pending_mappings {
+    for (rx, slice, raw_buffer, size) in pending_mappings {
         let map_result = rx.await?;
         map_result?; // propagate mapping errors
 
-        let bytes = slice.get_mapped_range();
-        results.push(bytes.to_vec());
+        let view = slice.get_mapped_range();
 
-        drop(bytes);
+        let left_canary = &view[..CANARY_SIZE as usize];
+        let right_canary = &view[(CANARY_SIZE as usize + size as usize)..];
+        if left_canary.iter().any(|&b| b != CANARY_VAL)
+            || right_canary.iter().any(|&b| b != CANARY_VAL)
+        {
+            return Err(eyre!("OOB write detected in config {config}"));
+        }
+
+        results.push(view[(CANARY_SIZE as usize)..(CANARY_SIZE as usize + size as usize)].to_vec());
+
+        drop(view);
         raw_buffer.unmap();
     }
 
