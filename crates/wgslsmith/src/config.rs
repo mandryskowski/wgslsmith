@@ -60,6 +60,7 @@ pub struct Remote {
 
 #[derive(Default, Deserialize)]
 pub struct Fuzzer {
+    pub name: Option<String>,
     #[serde(with = "serde_regex")]
     pub ignore: Vec<Regex>,
 }

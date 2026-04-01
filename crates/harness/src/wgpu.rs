@@ -413,10 +413,19 @@ pub async fn run(
 
         let left_canary = &view[..CANARY_SIZE as usize];
         let right_canary = &view[(CANARY_SIZE as usize + size as usize)..];
-        if left_canary.iter().any(|&b| b != CANARY_VAL)
-            || right_canary.iter().any(|&b| b != CANARY_VAL)
-        {
-            return Err(eyre!("OOB write detected in config {config}"));
+
+        if let Some(pos) = left_canary.iter().position(|&b| b != CANARY_VAL) {
+            return Err(eyre!(
+                "OOB write detected in config {}: left canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
+                config, pos, CANARY_VAL, left_canary[pos]
+            ));
+        }
+
+        if let Some(pos) = right_canary.iter().position(|&b| b != CANARY_VAL) {
+            return Err(eyre!(
+                "OOB write detected in config {}: right canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
+                config, pos, CANARY_VAL, right_canary[pos]
+            ));
         }
 
         results.push(view[(CANARY_SIZE as usize)..(CANARY_SIZE as usize + size as usize)].to_vec());

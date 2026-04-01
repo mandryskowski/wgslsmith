@@ -15,6 +15,7 @@ use crossterm::terminal::{
 use eyre::eyre;
 use harness_types::ConfigId;
 use regex::Regex;
+use serde::Serialize;
 use tap::Tap;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use time::{format_description, OffsetDateTime, UtcOffset};
@@ -28,6 +29,35 @@ use crate::config::Config;
 use crate::harness_runner::{
     self, get_targets, ConsensusEntry, ExecutionResult, Target, TargetPath,
 };
+
+#[derive(Clone, Serialize)]
+struct FuzzerContext {
+    name: String,
+    kind: String,
+    flags: Vec<String>,
+    configs: Vec<String>,
+    use_daemon: bool,
+}
+
+impl FuzzerContext {
+    fn new(kind: String, options: &Options, config: &Config) -> Self {
+        let name = config.fuzzer.name.clone().unwrap_or_else(|| {
+            std::env::var("HOSTNAME")
+                .or_else(|_| std::env::var("COMPUTERNAME"))
+                .unwrap_or_else(|_| "unknown-machine".to_string())
+        });
+
+        let configs = options.configs.iter().map(|c| c.to_string()).collect();
+
+        Self {
+            name,
+            kind,
+            flags: std::env::args().collect(),
+            configs,
+            use_daemon: options.use_daemon,
+        }
+    }
+}
 
 #[derive(Copy, Clone, ValueEnum)]
 enum SaveStrategy {
@@ -189,6 +219,7 @@ fn save_shader(
     metadata: &str,
     output: Option<&str>,
     kind: Option<ExecutionResult>,
+    info: &serde_json::Value,
 ) -> eyre::Result<()> {
     let now = OffsetDateTime::now_utc().to_offset(unsafe { UTC_OFFSET }.unwrap());
     let mut filename = now.format(&format_description::parse(
@@ -220,6 +251,9 @@ fn save_shader(
                 .join("\n"),
         )?;
     }
+
+    let info_str = serde_json::to_string_pretty(info)?;
+    std::fs::write(out.join("info.json"), info_str)?;
 
     Ok(())
 }
@@ -464,6 +498,11 @@ fn worker_iteration(
                         metadata,
                         Some(&format!("{e:#?}")),
                         None,
+                        &serde_json::json!(FuzzerContext::new(
+                            "failure".to_string(),
+                            options,
+                            config
+                        )),
                     )?;
                 }
                 return Ok(WorkerResult {
@@ -534,6 +573,18 @@ fn worker_iteration(
             metadata,
             output,
             Some(result.clone()),
+            &serde_json::json!(FuzzerContext::new(
+                match result_kind {
+                    WorkerResultKind::Success => "success",
+                    WorkerResultKind::Crash => "crash",
+                    WorkerResultKind::Mismatch => "mismatch",
+                    WorkerResultKind::ReconditionFailure => "recondition_failure",
+                    WorkerResultKind::ExecutionFailure => "execution_failure",
+                }
+                .to_string(),
+                options,
+                config
+            )),
         )?;
     }
 

@@ -315,11 +315,21 @@ pub async fn run(
 
             let left_canary = &bytes[..CANARY_SIZE];
             let right_canary = &bytes[CANARY_SIZE + size..];
-            if left_canary.iter().any(|&b| b != CANARY_VAL)
-                || right_canary.iter().any(|&b| b != CANARY_VAL)
-            {
+
+            if let Some(pos) = left_canary.iter().position(|&b| b != CANARY_VAL) {
                 unmap_device(dawn_state, config);
-                return Err(eyre!("OOB write detected in config {config}"));
+                return Err(eyre!(
+                    "OOB write detected in config {}: left canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
+                    config, pos, CANARY_VAL, left_canary[pos]
+                ));
+            }
+
+            if let Some(pos) = right_canary.iter().position(|&b| b != CANARY_VAL) {
+                unmap_device(dawn_state, config);
+                return Err(eyre!(
+                    "OOB write detected in config {}: right canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
+                    config, pos, CANARY_VAL, right_canary[pos]
+                ));
             }
 
             results.push(bytes[CANARY_SIZE..CANARY_SIZE + size].to_vec());
