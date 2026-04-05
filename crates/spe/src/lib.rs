@@ -1,794 +1,525 @@
-use ast::types::DataType;
-use ast::*;
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum HoleType {
-    Declaration { mutable: bool },
-    Usage { is_lvalue: bool },
+pub mod enumerator;
+
+use clap::Parser;
+use harness_types::{ConfigId, Implementation};
+use rand::seq::SliceRandom;
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use walkdir::WalkDir;
+
+static ENUMERATED_NO_ISSUE: AtomicUsize = AtomicUsize::new(0);
+static FAILED_PARSE: AtomicUsize = AtomicUsize::new(0);
+static FAILED_RUN: AtomicUsize = AtomicUsize::new(0);
+
+fn print_stats() {
+    println!("\n=== SPE Execution Statistics ===");
+    println!(
+        "- Number of shaders enumerated with no issue: {}",
+        ENUMERATED_NO_ISSUE.load(Ordering::SeqCst)
+    );
+    println!(
+        "- Number of shaders failed to parse:          {}",
+        FAILED_PARSE.load(Ordering::SeqCst)
+    );
+    println!(
+        "- Number of shaders failed while running:     {}",
+        FAILED_RUN.load(Ordering::SeqCst)
+    );
+    println!("================================\n");
 }
-#[derive(Clone, Debug)]
-struct Hole {
-    hole_type: HoleType,
-    data_type: DataType,
-    scope_id: usize,
-    #[allow(dead_code)]
-    original_name: String,
+
+#[derive(Parser, Debug)]
+pub struct Options {
+    /// Directory to scan for WGSL shaders
+    directory: PathBuf,
+    /// Path to wslinux executable (optional)
+    #[clap(long)]
+    wslinux: Option<PathBuf>,
+
+    #[clap(long, action, default_value = "false")]
+    pub log_to_file: bool,
+
+    /// Control parallelism passed to run
+    #[clap(short = 'j', long)]
+    pub parallelism: Option<usize>,
+
+    #[clap(long, action, default_value = "false")]
+    pub use_daemon: bool,
+
+    /// Print out shaders instead of running them
+    #[clap(long, action, default_value = "false")]
+    pub print_only: bool,
+
+    /// Run/print a specific enumeration of a shader
+    #[clap(long)]
+    pub enumeration: Option<usize>,
+
+    /// Configurations to run (e.g., wgpu:dx12:5592)
+    #[clap(short, long = "config", action)]
+    pub configs: Vec<ConfigId>,
+
+    #[clap(long, action, default_value = "false")]
+    pub msl_validate: bool,
+
+    #[clap(long)]
+    pub start_index: Option<usize>,
 }
-struct Context {
-    holes: Vec<Hole>,
-    assignments: Option<Vec<usize>>,
-    hole_counter: usize,
-    scope_stack: Vec<usize>,
-    scope_parents: Vec<usize>,
-    next_scope_id: usize,
-}
-impl Context {
-    fn new() -> Self {
-        Context {
-            holes: vec![],
-            assignments: None,
-            hole_counter: 0,
-            scope_stack: vec![0],
-            scope_parents: vec![0],
-            next_scope_id: 1,
-        }
-    }
-    fn enter_scope(&mut self) {
-        let current = *self.scope_stack.last().unwrap();
-        if self.next_scope_id >= self.scope_parents.len() {
-            self.scope_parents.resize(self.next_scope_id + 1, 0);
-        }
-        self.scope_parents[self.next_scope_id] = current;
-        self.scope_stack.push(self.next_scope_id);
-        self.next_scope_id += 1;
-    }
-    fn exit_scope(&mut self) {
-        self.scope_stack.pop();
-    }
-    fn current_scope(&self) -> usize {
-        *self.scope_stack.last().unwrap()
-    }
-    fn process_decl(&mut self, name: &mut String, data_type: &DataType, mutable: bool) {
-        if self.assignments.is_none() {
-            self.holes.push(Hole {
-                hole_type: HoleType::Declaration { mutable },
-                data_type: data_type.clone(),
-                scope_id: self.current_scope(),
-                original_name: name.clone(),
-            });
-        } else if let Some(assigns) = &self.assignments {
-            if self.hole_counter < assigns.len() {
-                *name = format!("v{}", assigns[self.hole_counter]);
+
+fn run_compile(
+    wslinux: &Path,
+    file: &Path,
+    backend: &str,
+    compiler: &str,
+    failures_log: &mut dyn Write,
+    context: &str,
+) -> bool {
+    let mut cmd = Command::new(wslinux);
+    cmd.arg("compile")
+        .arg("--backend")
+        .arg(backend)
+        .arg("--compiler")
+        .arg(compiler)
+        .arg("--validate-output")
+        .arg(file);
+
+    match cmd.output() {
+        Ok(out) => {
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                writeln!(
+                    failures_log,
+                    "Failed compile (--backend {} --compiler {}) {}\nStdout: {}\nStderr: {}",
+                    backend, compiler, context, stdout, stderr
+                )
+                .unwrap();
+                false
+            } else {
+                true
             }
-            self.hole_counter += 1;
         }
-    }
-    fn process_usage(&mut self, name: &mut String, data_type: &DataType, is_lvalue: bool) {
-        if self.assignments.is_none() {
-            self.holes.push(Hole {
-                hole_type: HoleType::Usage { is_lvalue },
-                data_type: data_type.clone(),
-                scope_id: self.current_scope(),
-                original_name: name.clone(),
-            });
-        } else if let Some(assigns) = &self.assignments {
-            if self.hole_counter < assigns.len() {
-                *name = format!("v{}", assigns[self.hole_counter]);
-            }
-            self.hole_counter += 1;
+        Err(e) => {
+            writeln!(
+                failures_log,
+                "Failed to execute wslinux compile (--backend {} --compiler {}) {}\nError: {}",
+                backend, compiler, context, e
+            )
+            .unwrap();
+            false
         }
     }
 }
 
-fn visit_module(module: &mut Module, ctx: &mut Context) {
-    for decl in &mut module.consts {
-        let ty = decl.inferred_type().clone();
-        ctx.process_decl(&mut decl.ident, &ty, false);
+pub fn run(options: Options) {
+    if let Err(e) = ctrlc::set_handler(move || {
+        println!("\nProcess interrupted by user.");
+        print_stats();
+        std::process::exit(0);
+    }) {
+        eprintln!("Warning: Failed to set Ctrl-C handler: {}", e);
     }
-    for decl in &mut module.vars {
-        let ty = decl.data_type.clone();
-        let mut is_mutable = true;
-        if let Some(qualifier) = &decl.qualifier {
-            let access_mode = qualifier
-                .access_mode
-                .unwrap_or_else(|| qualifier.storage_class.default_access_mode());
-            if access_mode == ast::AccessMode::Read {
-                is_mutable = false;
-            }
-        }
-        ctx.process_decl(&mut decl.name, &ty, is_mutable);
-    }
-    for func in &mut module.functions {
-        visit_fn(func, ctx);
-    }
-}
-fn visit_fn(func: &mut FnDecl, ctx: &mut Context) {
-    ctx.enter_scope();
-    for input in &mut func.inputs {
-        let ty = input.data_type.clone();
-        ctx.process_decl(&mut input.name, &ty, false);
-    }
-    for stmt in &mut func.body {
-        visit_stmt(stmt, ctx);
-    }
-    ctx.exit_scope();
-}
-fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
-    match stmt {
-        Statement::LetDecl(s) => {
-            visit_expr_node(&mut s.initializer, ctx);
-            let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, false);
-        }
-        Statement::VarDecl(s) => {
-            if let Some(init) = &mut s.initializer {
-                visit_expr_node(init, ctx);
-            }
-            let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, true);
-        }
-        Statement::ConstDecl(s) => {
-            visit_expr_node(&mut s.initializer, ctx);
-            let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, false);
-        }
-        Statement::Assignment(s) => {
-            visit_lhs(&mut s.lhs, ctx);
-            visit_expr_node(&mut s.rhs, ctx);
-        }
-        Statement::Compound(stmts) => {
-            ctx.enter_scope();
-            for s in stmts {
-                visit_stmt(s, ctx);
-            }
-            ctx.exit_scope();
-        }
-        Statement::If(s) => {
-            visit_expr_node(&mut s.condition, ctx);
-            ctx.enter_scope();
-            for bs in &mut s.body {
-                visit_stmt(bs, ctx);
-            }
-            ctx.exit_scope();
-            if let Some(else_block) = &mut s.else_ {
-                match else_block.as_mut() {
-                    Else::If(if_stmt) => visit_if_statement(if_stmt, ctx),
-                    Else::Else(stmts) => {
-                        ctx.enter_scope();
-                        for s in stmts {
-                            visit_stmt(s, ctx);
-                        }
-                        ctx.exit_scope();
-                    }
-                }
-            }
-        }
-        Statement::Return(s) => {
-            if let Some(val) = &mut s.value {
-                visit_expr_node(val, ctx);
-            }
-        }
-        Statement::Loop(s) => {
-            ctx.enter_scope();
-            for bs in &mut s.body {
-                visit_stmt(bs, ctx);
-            }
-            if let Some(cont) = &mut s.continuing {
-                ctx.enter_scope();
-                for cs in &mut cont.stmts {
-                    visit_stmt(cs, ctx);
-                }
-                if let Some(br) = &mut cont.break_if {
-                    visit_expr_node(br, ctx);
-                }
-                ctx.exit_scope();
-            }
-            ctx.exit_scope();
-        }
-        Statement::While(s) => {
-            visit_expr_node(&mut s.condition, ctx);
-            ctx.enter_scope();
-            for bs in &mut s.body {
-                visit_stmt(bs, ctx);
-            }
-            ctx.exit_scope();
-        }
-        Statement::ForLoop(s) => {
-            ctx.enter_scope();
-            if let Some(init) = &mut s.header.init {
-                match init {
-                    ForLoopInit::VarDecl(d) => {
-                        if let Some(i) = &mut d.initializer {
-                            visit_expr_node(i, ctx);
-                        }
-                        let ty = d.inferred_type().clone();
-                        ctx.process_decl(&mut d.ident, &ty, true);
-                    }
-                }
-            }
-            if let Some(cond) = &mut s.header.condition {
-                visit_expr_node(cond, ctx);
-            }
-            if let Some(upd) = &mut s.header.update {
-                match upd {
-                    ForLoopUpdate::Assignment(a) => {
-                        visit_lhs(&mut a.lhs, ctx);
-                        visit_expr_node(&mut a.rhs, ctx);
-                    }
-                    ForLoopUpdate::Increment(i) => visit_lhs(&mut i.lhs, ctx),
-                    ForLoopUpdate::Decrement(d) => visit_lhs(&mut d.lhs, ctx),
-                }
-            }
-            ctx.enter_scope();
-            for bs in &mut s.body {
-                visit_stmt(bs, ctx);
-            }
-            ctx.exit_scope();
-            ctx.exit_scope();
-        }
-        Statement::FnCall(s) => {
-            for arg in &mut s.args {
-                visit_expr_node(arg, ctx);
-            }
-        }
-        Statement::Increment(s) => visit_lhs(&mut s.lhs, ctx),
-        Statement::Decrement(s) => visit_lhs(&mut s.lhs, ctx),
-        Statement::Switch(s) => {
-            visit_expr_node(&mut s.selector, ctx);
-            for case in &mut s.cases {
-                ctx.enter_scope();
-                for bs in &mut case.body {
-                    visit_stmt(bs, ctx);
-                }
-                ctx.exit_scope();
-            }
-            ctx.enter_scope();
-            for bs in &mut s.default {
-                visit_stmt(bs, ctx);
-            }
-            ctx.exit_scope();
-        }
-        _ => {}
-    }
-}
-fn visit_if_statement(stmt: &mut IfStatement, ctx: &mut Context) {
-    visit_expr_node(&mut stmt.condition, ctx);
-    ctx.enter_scope();
-    for s in &mut stmt.body {
-        visit_stmt(s, ctx);
-    }
-    ctx.exit_scope();
-    if let Some(else_block) = &mut stmt.else_ {
-        match else_block.as_mut() {
-            Else::If(s) => visit_if_statement(s, ctx),
-            Else::Else(stmts) => {
-                ctx.enter_scope();
-                for s in stmts {
-                    visit_stmt(s, ctx);
-                }
-                ctx.exit_scope();
-            }
-        }
-    }
-}
-fn visit_lhs(lhs: &mut AssignmentLhs, ctx: &mut Context) {
-    if let AssignmentLhs::Expr(node) = lhs {
-        visit_lhs_expr_node(node, ctx);
-    }
-}
-fn visit_lhs_expr_node(node: &mut LhsExprNode, ctx: &mut Context) {
-    match &mut node.expr {
-        LhsExpr::Ident(name) => {
-            let ty = node.data_type.dereference().clone();
-            ctx.process_usage(name, &ty, true);
-        }
-        LhsExpr::Postfix(inner, postfix) => {
-            visit_lhs_expr_node(inner, ctx);
-            if let Postfix::Index(idx_expr) = postfix {
-                visit_expr_node(idx_expr, ctx);
-            }
-        }
-        LhsExpr::Deref(inner) => visit_lhs_expr_node(inner, ctx),
-        LhsExpr::AddressOf(inner) => visit_lhs_expr_node(inner, ctx),
-    }
-}
-fn visit_expr_node(node: &mut ExprNode, ctx: &mut Context) {
-    match &mut node.expr {
-        Expr::Var(v) => {
-            let ty = node.data_type.dereference().clone();
-            ctx.process_usage(&mut v.ident, &ty, false);
-        }
-        Expr::FnCall(call) => {
-            for arg in &mut call.args {
-                visit_expr_node(arg, ctx);
-            }
-        }
-        Expr::BinOp(op) => {
-            visit_expr_node(&mut op.left, ctx);
-            visit_expr_node(&mut op.right, ctx);
-        }
-        Expr::UnOp(op) => {
-            visit_expr_node(&mut op.inner, ctx);
-        }
-        Expr::Postfix(p) => {
-            visit_expr_node(&mut p.inner, ctx);
-            if let Postfix::Index(idx) = &mut p.postfix {
-                visit_expr_node(idx, ctx);
-            }
-        }
-        Expr::TypeCons(t) => {
-            for arg in &mut t.args {
-                visit_expr_node(arg, ctx);
-            }
-        }
-        _ => {}
-    }
-}
-struct Enumerator {
-    holes: Vec<Hole>,
-    results: Vec<Vec<usize>>,
-    scope_parents: Vec<usize>,
-    limit: Option<usize>,
-    step_count: usize,
-}
-impl Enumerator {
-    fn enumerate(&mut self, current: &mut Vec<usize>) {
-        self.step_count += 1;
-        if self.step_count > 100_000 {
-            return;
-        }
-        if let Some(lim) = self.limit {
-            if self.results.len() >= lim {
-                return;
-            }
-        }
-        if current.len() == self.holes.len() {
-            self.results.push(current.clone());
-            return;
-        }
-        let hole_idx = current.len();
 
-        let max_id = current
-            .iter()
-            .max()
-            .copied()
-            .map(|m| m as i32)
-            .unwrap_or(-1);
-        let next_available = (max_id + 1) as usize;
-        for id in 0..=next_available {
-            if self.is_valid_assignment(hole_idx, id, current) {
-                current.push(id);
-                self.enumerate(current);
-                current.pop();
+    let mut skipped_log: Box<dyn Write> = if options.log_to_file {
+        Box::new(fs::File::create("skipped.log").unwrap())
+    } else {
+        Box::new(io::stdout())
+    };
+
+    let mut failures_log: Box<dyn Write> = if options.log_to_file {
+        Box::new(fs::File::create("failures.log").unwrap())
+    } else {
+        Box::new(io::stderr())
+    };
+
+    let wslinux = options
+        .wslinux
+        .or_else(|| {
+            if PathBuf::from("./wslinux").exists() {
+                Some(PathBuf::from("./wslinux"))
+            } else if PathBuf::from("wslinux").exists() {
+                Some(PathBuf::from("wslinux"))
+            } else {
+                None
             }
-        }
-    }
-    fn is_ancestor(&self, possible_ancestor: usize, mut node: usize) -> bool {
-        if possible_ancestor == node {
-            return true;
+        })
+        .expect("Could not find wslinux executable");
+
+    let entries: Vec<_> = WalkDir::new(&options.directory)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| {
+            let p = e.path();
+            p.extension().is_some_and(|ext| ext == "wgsl")
+                && !p.to_string_lossy().ends_with(".expected.wgsl")
+        })
+        .collect();
+
+    let total_files = entries.len();
+
+    for (file_idx, entry) in entries.into_iter().enumerate() {
+        let path = entry.path();
+        let file_num = file_idx + 1;
+
+        if let Some(start_index) = options.start_index {
+            if file_num < start_index {
+                continue;
+            }
         }
 
-        while node != 0 {
-            let parent = self.scope_parents[node];
-            if parent == possible_ancestor {
-                return true;
-            }
-            if parent == node {
-                break;
-            }
-            node = parent;
-        }
-        possible_ancestor == 0
-    }
-    fn is_valid_assignment(&self, hole_idx: usize, id: usize, current: &[usize]) -> bool {
-        let hole = &self.holes[hole_idx];
-        for (prev_idx, &prev_id) in current.iter().enumerate() {
-            if prev_id == id {
-                let prev_hole = &self.holes[prev_idx];
-                if prev_hole.data_type.dereference() != hole.data_type.dereference() {
-                    return false;
-                }
-                let prev_is_mut = match prev_hole.hole_type {
-                    HoleType::Declaration { mutable } => mutable,
-                    HoleType::Usage { .. } => true,
-                };
-                if let HoleType::Usage { is_lvalue: true } = hole.hole_type {
-                    if !prev_is_mut {
-                        return false;
-                    }
-                }
-            }
-        }
-        match &hole.hole_type {
-            HoleType::Declaration { .. } => {
-                let mut is_reused = false;
-                let mut visible_and_reusable = false;
-                for (prev_idx, &prev_id) in current.iter().enumerate() {
-                    if prev_id == id {
-                        is_reused = true;
-                        if let HoleType::Declaration { .. } = self.holes[prev_idx].hole_type {
-                            let prev_scope = self.holes[prev_idx].scope_id;
-                            if self.is_ancestor(prev_scope, hole.scope_id) {
-                                if prev_scope == hole.scope_id {
-                                    return false;
-                                }
-                                visible_and_reusable = true;
-                            }
-                        }
-                    }
-                }
-                if is_reused && !visible_and_reusable {
-                    return false;
-                }
-            }
-            HoleType::Usage { .. } => {
-                let mut valid_decl_found = false;
-                for (prev_idx, &prev_id) in current.iter().enumerate() {
-                    if prev_id == id {
-                        if let HoleType::Declaration { .. } = self.holes[prev_idx].hole_type {
-                            let decl_scope = self.holes[prev_idx].scope_id;
-                            let usage_scope = hole.scope_id;
-                            if self.is_ancestor(decl_scope, usage_scope) {
-                                valid_decl_found = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if !valid_decl_found {
-                    return false;
-                }
-            }
-        }
-        true
-    }
-}
-pub fn estimate_enumerations(module: &Module) -> usize {
-    let mut ctx = Context::new();
-    let mut analyze_module = module.clone();
-    visit_module(&mut analyze_module, &mut ctx);
+        {
+            let content = match fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
 
-    let mut bound: usize = 1;
-    for (i, hole) in ctx.holes.iter().enumerate() {
-        match &hole.hole_type {
-            HoleType::Declaration { .. } => {
-                let mut choices = 1;
-                for prev_hole in &ctx.holes[..i] {
-                    if let HoleType::Declaration { .. } = prev_hole.hole_type {
-                        if prev_hole.data_type.dereference() == hole.data_type.dereference() {
-                            choices += 1;
-                        }
-                    }
-                }
-                bound = bound.saturating_mul(choices);
-            }
-            HoleType::Usage { is_lvalue } => {
-                let mut choices = 0;
-                for prev_hole in &ctx.holes[..i] {
-                    if let HoleType::Declaration { mutable } = prev_hole.hole_type {
-                        if prev_hole.data_type.dereference() == hole.data_type.dereference() {
-                            if *is_lvalue && !mutable {
-                                continue;
-                            }
-                            choices += 1;
-                        }
-                    }
-                }
-                if choices == 0 {
-                    return 0; // unsolvable constraint
-                }
-                bound = bound.saturating_mul(choices);
-            }
-        }
-    }
-    bound
-}
+            let input_buffers = fs::read_to_string(path.with_extension("in.json")).ok();
 
-fn get_original_assignment(holes: &[Hole], scope_parents: &[usize]) -> Vec<usize> {
-    let mut name_to_id: std::collections::HashMap<(usize, String), usize> =
-        std::collections::HashMap::new();
-    let mut current_assignment = Vec::new();
-    let mut next_available_id = 0;
+            let mut current_configs = options.configs.clone();
 
-    for hole in holes {
-        match &hole.hole_type {
-            HoleType::Declaration { .. } => {
-                let id = next_available_id;
-                next_available_id += 1;
-                name_to_id.insert((hole.scope_id, hole.original_name.clone()), id);
-                current_assignment.push(id);
-            }
-            HoleType::Usage { .. } => {
-                let mut cur_scope = hole.scope_id;
-                let mut found_id = None;
-                loop {
-                    if let Some(&id) = name_to_id.get(&(cur_scope, hole.original_name.clone())) {
-                        found_id = Some(id);
-                        break;
-                    }
-                    if cur_scope == 0 {
-                        break;
-                    }
-                    cur_scope = scope_parents[cur_scope];
-                }
-                if let Some(id) = found_id {
-                    current_assignment.push(id);
-                } else {
-                    panic!(
-                        "No declaration found for hole {} in scope {}",
-                        hole.original_name, hole.scope_id
+            if content.contains("subgroup") && !current_configs.is_empty() {
+                current_configs.retain(|c| c.implementation != Implementation::Wgpu);
+                if current_configs.is_empty() {
+                    writeln!(
+                        skipped_log,
+                        "Skipping: {} (uses subgroups, no valid configs left)",
+                        path.display()
+                    )
+                    .unwrap();
+                    println!(
+                        "[{}/{}] Skipped: {} (uses subgroups, no valid configs left)",
+                        file_num,
+                        total_files,
+                        path.display()
                     );
+                    continue;
                 }
+            }
+
+            if content.contains("f16") {
+                let original_len = current_configs.len();
+                current_configs.retain(|c| {
+                    let config_str = c.to_string();
+                    config_str != "dawn:vk:8593"
+                });
+
+                if current_configs.len() < original_len {
+                    writeln!(
+                        skipped_log,
+                        "Filtering dawn:vk:8593 from: {} (uses f16)",
+                        path.display()
+                    )
+                    .unwrap();
+                }
+            }
+
+            let mut module = match std::panic::catch_unwind(|| parser::parse(&content)) {
+                Ok(m) => m,
+                Err(_) => {
+                    writeln!(failures_log, "Parse panic on: {}", path.display()).unwrap();
+                    FAILED_PARSE.fetch_add(1, Ordering::SeqCst);
+                    continue;
+                }
+            };
+
+            if !enumerator::filter_module(&mut module) {
+                println!(
+                    "[{}/{}] No compute entrypoint: {}. Running compile validations.",
+                    file_num,
+                    total_files,
+                    path.display()
+                );
+
+                for backend in &["hlsl", "spirv", "msl"] {
+                    for compiler in &["tint", "naga"] {
+                        run_compile(
+                            &wslinux,
+                            path,
+                            backend,
+                            compiler,
+                            &mut *failures_log,
+                            &format!("(no entrypoint for {})", path.display()),
+                        );
+                    }
+                }
+
+                writeln!(
+                    skipped_log,
+                    "Skipping: {} (no compute entrypoint left after filtering)",
+                    path.display()
+                )
+                .unwrap();
+                println!(
+                    "[{}/{}] Skipped: {} (no compute entrypoint)",
+                    file_num,
+                    total_files,
+                    path.display()
+                );
+                continue;
+            }
+
+            let (holes, mut enumerations, original_assignment_idx) = {
+                let est = enumerator::estimate_enumerations(&module);
+                if est > 100_000 {
+                    writeln!(
+                        skipped_log,
+                        "Skipping: {} (estimated {} bounds, > 100,000)",
+                        path.display(),
+                        est
+                    )
+                    .unwrap();
+                    println!(
+                        "[{}/{}] Skipped prematurely: {} (estimated {} bounds)",
+                        file_num,
+                        total_files,
+                        path.display(),
+                        est
+                    );
+                    continue;
+                }
+                match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, None)) {
+                    Ok(res) => res,
+                    Err(_) => {
+                        writeln!(failures_log, "Enumerate panic on: {}", path.display()).unwrap();
+                        FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+                        continue;
+                    }
+                }
+            };
+
+            if original_assignment_idx.is_none() {
+                writeln!(
+                    failures_log,
+                    "No original assignment found for: {}",
+                    path.display()
+                )
+                .unwrap();
+                FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+                continue;
+            }
+
+            println!("original_assignment_idx {:?}", original_assignment_idx);
+
+            if enumerations.len() > 500 {
+                println!(
+                    "[{}/{}] Downsampling: {} ({} enumerations -> 500 randomly sampled, {} holes)",
+                    file_num,
+                    total_files,
+                    path.display(),
+                    enumerations.len(),
+                    holes
+                );
+
+                let mut rng = rand::thread_rng();
+                enumerations.shuffle(&mut rng);
+                enumerations.truncate(500);
+            } else {
+                println!(
+                    "[{}/{}] Processing: {} ({} enumerations, {} holes)",
+                    file_num,
+                    total_files,
+                    path.display(),
+                    enumerations.len(),
+                    holes
+                );
+            }
+
+            let mut failed_count = 0;
+            let mut shader_has_runtime_failure = false;
+
+            for (i, assigns) in enumerations.iter().enumerate() {
+                if let Some(enum_idx) = options.enumeration {
+                    if i != enum_idx {
+                        continue;
+                    }
+                }
+
+                let case_str = if Some(i) == original_assignment_idx {
+                    format!("(case {i} (original))")
+                } else {
+                    format!("(case {i})")
+                };
+
+                let out_str = match std::panic::catch_unwind(|| {
+                    enumerator::apply_assignment(&module, assigns)
+                }) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        writeln!(
+                            failures_log,
+                            "Apply assignment panic on: {} {case_str}",
+                            path.display()
+                        )
+                        .unwrap();
+                        failed_count += 1;
+                        shader_has_runtime_failure = true;
+                        if failed_count >= 10 {
+                            println!(
+                                "[{}/{}] Skipped remaining enumerations for {} (>= 10 failures)",
+                                file_num,
+                                total_files,
+                                path.display()
+                            );
+                            break;
+                        }
+                        continue;
+                    }
+                };
+
+                if options.print_only {
+                    println!("{}", out_str);
+                    continue;
+                }
+
+                let tmp_path = std::env::temp_dir().join(format!(
+                    "shader_{}_{}_{}.wgsl",
+                    std::process::id(),
+                    file_num,
+                    i
+                ));
+
+                fs::write(&tmp_path, &out_str).expect("Failed to write temporary shader file");
+
+                let mut recond_cmd = Command::new(&wslinux);
+                recond_cmd.arg("recondition").arg(&tmp_path);
+
+                match recond_cmd.output() {
+                    Ok(out) => {
+                        if out.status.success() {
+                            let reconditioned_src = String::from_utf8_lossy(&out.stdout);
+                            fs::write(&tmp_path, reconditioned_src.as_ref())
+                                .expect("Failed to write reconditioned temporary shader file");
+                        } else {
+                            shader_has_runtime_failure = true;
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            writeln!(
+                                failures_log,
+                                "Recondition failed for: {} {}\nStderr: {}",
+                                path.display(),
+                                case_str,
+                                stderr
+                            )
+                            .unwrap();
+                        }
+                    }
+                    Err(e) => {
+                        shader_has_runtime_failure = true;
+                        writeln!(
+                            failures_log,
+                            "Failed to execute wslinux recondition for: {} {}\nError: {}",
+                            path.display(),
+                            case_str,
+                            e
+                        )
+                        .unwrap();
+                    }
+                }
+                if options.msl_validate {
+                    let msl_tint_ok = run_compile(
+                        &wslinux,
+                        &tmp_path,
+                        "msl",
+                        "tint",
+                        &mut *failures_log,
+                        &format!("for {} {}", path.display(), case_str),
+                    );
+
+                    let mut msl_naga_ok = true;
+                    if !content.contains("subgroup") {
+                        msl_naga_ok = run_compile(
+                            &wslinux,
+                            &tmp_path,
+                            "msl",
+                            "naga",
+                            &mut *failures_log,
+                            &format!("for {} {}", path.display(), case_str),
+                        );
+                    }
+
+                    if !msl_tint_ok || !msl_naga_ok {
+                        failed_count += 1;
+                        shader_has_runtime_failure = true;
+                    }
+                }
+
+                let mut cmd = Command::new(&wslinux);
+                cmd.arg("run");
+
+                for config in &current_configs {
+                    cmd.arg("-c").arg(config.to_string());
+                }
+
+                cmd.arg("-j");
+
+                if let Some(j) = options.parallelism {
+                    cmd.arg(j.to_string());
+                } else {
+                    cmd.arg("2");
+                }
+
+                if options.use_daemon {
+                    cmd.arg("--use-daemon");
+                }
+
+                cmd.arg(&tmp_path);
+
+                if let Some(input_buffers) = &input_buffers {
+                    cmd.arg(input_buffers);
+                }
+
+                let output = cmd.output();
+                match output {
+                    Ok(out) => {
+                        if !out.status.success() {
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            let stdout = String::from_utf8_lossy(&out.stdout);
+                            writeln!(
+                                failures_log,
+                                "Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
+                                path.display(),
+                                stdout,
+                                stderr
+                            )
+                            .unwrap();
+                            failed_count += 1;
+                            shader_has_runtime_failure = true;
+                        }
+                    }
+                    Err(e) => {
+                        writeln!(
+                            failures_log,
+                            "Failed to run wslinux for: {} {case_str}\nError: {}",
+                            path.display(),
+                            e
+                        )
+                        .unwrap();
+                        failed_count += 1;
+                        shader_has_runtime_failure = true;
+                    }
+                }
+
+                fs::remove_file(&tmp_path).ok();
+
+                if failed_count >= 10 {
+                    println!(
+                        "[{}/{}] Skipped remaining enumerations for {} (>= 10 failures)",
+                        file_num,
+                        total_files,
+                        path.display()
+                    );
+                    break;
+                }
+            }
+
+            if shader_has_runtime_failure {
+                FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+            } else {
+                ENUMERATED_NO_ISSUE.fetch_add(1, Ordering::SeqCst);
             }
         }
     }
-    current_assignment
-}
 
-pub fn get_enumerations(
-    module: &Module,
-    limit: Option<usize>,
-) -> (usize, Vec<Vec<usize>>, Option<usize>) {
-    let mut ctx = Context::new();
-    let mut analyze_module = module.clone();
-    visit_module(&mut analyze_module, &mut ctx);
-
-    let mut enumerator = Enumerator {
-        holes: ctx.holes.clone(),
-        results: vec![],
-        scope_parents: ctx.scope_parents.clone(),
-        limit,
-        step_count: 0,
-    };
-    enumerator.enumerate(&mut vec![]);
-
-    let original_assignment = get_original_assignment(&ctx.holes, &ctx.scope_parents);
-    let original_idx = enumerator
-        .results
-        .iter()
-        .position(|r| r == &original_assignment);
-
-    (ctx.holes.len(), enumerator.results, original_idx)
-}
-
-pub fn filter_module(module: &mut Module) -> bool {
-    let mut compute_found = false;
-    let mut live_functions = std::collections::HashSet::new();
-
-    for func in &module.functions {
-        let is_compute = func
-            .attrs
-            .iter()
-            .any(|a| matches!(a, FnAttr::Stage(ShaderStage::Compute)));
-        if is_compute {
-            compute_found = true;
-            collect_live_functions(&func.name, module, &mut live_functions);
-        }
-    }
-
-    if !compute_found {
-        return false;
-    }
-
-    module
-        .functions
-        .retain(|f| live_functions.contains(&f.name));
-    true
-}
-
-fn collect_live_functions(
-    name: &str,
-    module: &Module,
-    live_functions: &mut std::collections::HashSet<String>,
-) {
-    if !live_functions.insert(name.to_string()) {
-        return;
-    }
-
-    let func = match module.functions.iter().find(|f| f.name == name) {
-        Some(f) => f,
-        None => return,
-    };
-
-    struct CallVisitor<'a> {
-        module: &'a Module,
-        live_functions: &'a mut std::collections::HashSet<String>,
-    }
-
-    impl<'a> CallVisitor<'a> {
-        fn visit_expr(&mut self, expr: &ExprNode) {
-            match &expr.expr {
-                Expr::FnCall(call) => {
-                    collect_live_functions(&call.ident, self.module, self.live_functions);
-                    for arg in &call.args {
-                        self.visit_expr(arg);
-                    }
-                }
-                Expr::BinOp(op) => {
-                    self.visit_expr(&op.left);
-                    self.visit_expr(&op.right);
-                }
-                Expr::UnOp(op) => {
-                    self.visit_expr(&op.inner);
-                }
-                Expr::Postfix(p) => {
-                    self.visit_expr(&p.inner);
-                    if let Postfix::Index(idx) = &p.postfix {
-                        self.visit_expr(idx);
-                    }
-                }
-                Expr::TypeCons(t) => {
-                    for arg in &t.args {
-                        self.visit_expr(arg);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        fn visit_stmt(&mut self, stmt: &Statement) {
-            match stmt {
-                Statement::LetDecl(s) => self.visit_expr(&s.initializer),
-                Statement::VarDecl(s) => {
-                    if let Some(init) = &s.initializer {
-                        self.visit_expr(init);
-                    }
-                }
-                Statement::ConstDecl(s) => self.visit_expr(&s.initializer),
-                Statement::Assignment(s) => {
-                    self.visit_lhs(&s.lhs);
-                    self.visit_expr(&s.rhs);
-                }
-                Statement::Compound(stmts) => {
-                    for s in stmts {
-                        self.visit_stmt(s);
-                    }
-                }
-                Statement::If(s) => {
-                    self.visit_expr(&s.condition);
-                    for bs in &s.body {
-                        self.visit_stmt(bs);
-                    }
-                    if let Some(else_block) = &s.else_ {
-                        match else_block.as_ref() {
-                            Else::If(if_stmt) => self.visit_if(if_stmt),
-                            Else::Else(stmts) => {
-                                for es in stmts {
-                                    self.visit_stmt(es);
-                                }
-                            }
-                        }
-                    }
-                }
-                Statement::Return(s) => {
-                    if let Some(val) = &s.value {
-                        self.visit_expr(val);
-                    }
-                }
-                Statement::Loop(s) => {
-                    for bs in &s.body {
-                        self.visit_stmt(bs);
-                    }
-                    if let Some(cont) = &s.continuing {
-                        for cs in &cont.stmts {
-                            self.visit_stmt(cs);
-                        }
-                        if let Some(br) = &cont.break_if {
-                            self.visit_expr(br);
-                        }
-                    }
-                }
-                Statement::While(s) => {
-                    self.visit_expr(&s.condition);
-                    for bs in &s.body {
-                        self.visit_stmt(bs);
-                    }
-                }
-                Statement::ForLoop(s) => {
-                    if let Some(init) = &s.header.init {
-                        match init {
-                            ForLoopInit::VarDecl(d) => {
-                                if let Some(i) = &d.initializer {
-                                    self.visit_expr(i);
-                                }
-                            }
-                        }
-                    }
-                    if let Some(cond) = &s.header.condition {
-                        self.visit_expr(cond);
-                    }
-                    if let Some(upd) = &s.header.update {
-                        match upd {
-                            ForLoopUpdate::Assignment(a) => {
-                                self.visit_lhs(&a.lhs);
-                                self.visit_expr(&a.rhs);
-                            }
-                            ForLoopUpdate::Increment(i) => self.visit_lhs(&i.lhs),
-                            ForLoopUpdate::Decrement(d) => self.visit_lhs(&d.lhs),
-                        }
-                    }
-                    for bs in &s.body {
-                        self.visit_stmt(bs);
-                    }
-                }
-                Statement::FnCall(s) => {
-                    collect_live_functions(&s.ident, self.module, self.live_functions);
-                    for arg in &s.args {
-                        self.visit_expr(arg);
-                    }
-                }
-                Statement::Increment(s) => self.visit_lhs(&s.lhs),
-                Statement::Decrement(s) => self.visit_lhs(&s.lhs),
-                Statement::Switch(s) => {
-                    self.visit_expr(&s.selector);
-                    for case in &s.cases {
-                        for bs in &case.body {
-                            self.visit_stmt(bs);
-                        }
-                    }
-                    for bs in &s.default {
-                        self.visit_stmt(bs);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        fn visit_if(&mut self, stmt: &IfStatement) {
-            self.visit_expr(&stmt.condition);
-            for s in &stmt.body {
-                self.visit_stmt(s);
-            }
-            if let Some(else_block) = &stmt.else_ {
-                match else_block.as_ref() {
-                    Else::If(s) => self.visit_if(s),
-                    Else::Else(stmts) => {
-                        for s in stmts {
-                            self.visit_stmt(s);
-                        }
-                    }
-                }
-            }
-        }
-
-        fn visit_lhs(&mut self, lhs: &AssignmentLhs) {
-            if let AssignmentLhs::Expr(node) = lhs {
-                self.visit_lhs_expr(node);
-            }
-        }
-
-        fn visit_lhs_expr(&mut self, node: &LhsExprNode) {
-            match &node.expr {
-                LhsExpr::Postfix(inner, postfix) => {
-                    self.visit_lhs_expr(inner);
-                    if let Postfix::Index(idx_expr) = postfix {
-                        self.visit_expr(idx_expr);
-                    }
-                }
-                LhsExpr::Deref(inner) => self.visit_lhs_expr(inner),
-                LhsExpr::AddressOf(inner) => self.visit_lhs_expr(inner),
-                _ => {}
-            }
-        }
-    }
-
-    let mut visitor = CallVisitor {
-        module,
-        live_functions,
-    };
-
-    for stmt in &func.body {
-        visitor.visit_stmt(stmt);
-    }
-}
-
-pub fn apply_assignment(module: &Module, assigns: &[usize]) -> String {
-    let mut case_module = module.clone();
-    let mut apply_ctx = Context::new();
-    apply_ctx.assignments = Some(assigns.to_vec());
-    visit_module(&mut case_module, &mut apply_ctx);
-    let mut out_str = String::new();
-    ast::writer::Writer::default()
-        .write_module(&mut out_str, &case_module)
-        .unwrap();
-    out_str
+    print_stats();
 }
