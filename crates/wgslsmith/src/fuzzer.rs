@@ -93,6 +93,10 @@ pub struct Options {
     #[clap(long, action)]
     enable_pointers: bool,
 
+    /// Enable generating shaders with f16 type
+    #[clap(long, action)]
+    enable_f16: bool,
+
     #[clap(short, long = "config", action)]
     configs: Vec<ConfigId>,
 
@@ -156,6 +160,9 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
         .tap_mut(|cmd| {
             if options.enable_pointers {
                 cmd.arg("--enable-pointers");
+            }
+            if options.enable_f16 {
+                cmd.arg("--enable-f16");
             }
         })
         .stdout(Stdio::piped())
