@@ -63,6 +63,10 @@ pub struct Options {
     #[clap(long, action)]
     pub log: Option<String>,
 
+    /// Enable f16 type
+    #[clap(long, action)]
+    pub enable_f16: bool,
+
     /// Minimum number of statements to generate in function bodies
     #[clap(long, action, default_value = "5")]
     pub fn_min_stmts: u32,

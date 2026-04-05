@@ -41,14 +41,13 @@ impl super::Generator<'_> {
             }
 
             // Binary operators are available for all scalars, and for {i32,u32,f32} vectors.
-            if matches!(
-                ty,
-                DataType::Scalar(_)
-                    | DataType::Vector(
-                        _,
-                        ScalarType::I32 | ScalarType::U32 | ScalarType::F32 | ScalarType::F16,
-                    )
-            ) {
+            let is_binop_valid = match ty {
+                DataType::Scalar(_) => true,
+                DataType::Vector(_, ScalarType::I32 | ScalarType::U32 | ScalarType::F32) => true,
+                DataType::Vector(_, ScalarType::F16) if self.options.enable_f16 => true,
+                _ => false,
+            };
+            if is_binop_valid {
                 allowed.push(ExprType::BinOp);
             }
 
@@ -205,33 +204,29 @@ impl super::Generator<'_> {
             // These operators work on scalar/vector integers.
             // The number of components in the result type depends on the operands, but the
             // actual type does not.
-            BinOp::Less | BinOp::LessEqual | BinOp::Greater | BinOp::GreaterEqual => ty.map(
-                [
-                    ScalarType::I32,
-                    ScalarType::U32,
-                    ScalarType::F32,
-                    ScalarType::F16,
-                ]
-                .choose(&mut self.rng)
-                .copied()
-                .unwrap(),
-            ),
+            BinOp::Less | BinOp::LessEqual | BinOp::Greater | BinOp::GreaterEqual => {
+                let mut choices = vec![ScalarType::I32, ScalarType::U32, ScalarType::F32];
+                if self.options.enable_f16 {
+                    choices.push(ScalarType::F16);
+                }
+                ty.map(*choices.choose(&mut self.rng).unwrap())
+            }
 
             // These operators work on scalar/vector integers and bools.
             // The number of components in the result type depends on the operands, but the
             // actual type does not.
-            BinOp::Equal | BinOp::NotEqual => ty.map(
-                [
+            BinOp::Equal | BinOp::NotEqual => {
+                let mut choices = vec![
                     ScalarType::I32,
                     ScalarType::U32,
                     ScalarType::F32,
-                    ScalarType::F16,
                     ScalarType::Bool,
-                ]
-                .choose(&mut self.rng)
-                .copied()
-                .unwrap(),
-            ),
+                ];
+                if self.options.enable_f16 {
+                    choices.push(ScalarType::F16);
+                }
+                ty.map(*choices.choose(&mut self.rng).unwrap())
+            }
         };
 
         let l = self.gen_expr(&l_ty);

@@ -138,8 +138,13 @@ impl<'a> Generator<'a> {
 
         functions.push(entrypoint);
 
+        let mut enables = vec![];
+        if self.options.enable_f16 {
+            enables.push(ast::EnableExtension::F16);
+        }
+
         Module {
-            enables: vec![ast::EnableExtension::F16],
+            enables,
             requires: vec![],
             aliases: vec![],
             structs: {
