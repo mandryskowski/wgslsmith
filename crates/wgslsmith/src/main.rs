@@ -1,3 +1,5 @@
+#[cfg(all(target_family = "unix", feature = "reducer"))]
+mod auto_reducer;
 #[cfg(feature = "compiler")]
 mod compiler;
 mod config;
@@ -7,6 +9,7 @@ mod harness_runner;
 #[cfg(all(target_family = "unix", feature = "reducer"))]
 mod reducer;
 mod remote;
+mod rerun_daemon;
 #[cfg(all(target_family = "unix", feature = "reducer"))]
 mod test;
 #[cfg(all(target_family = "unix", feature = "reducer"))]
@@ -51,6 +54,8 @@ enum Cmd {
     Reduce(reducer::Options),
     #[cfg(all(target_family = "unix", feature = "reducer"))]
     Test(test::Options),
+    #[cfg(all(target_family = "unix", feature = "reducer"))]
+    AutoReduce(auto_reducer::Options),
     /// Execute a shader.
     #[cfg(feature = "harness")]
     Run(harness_frontend::cli::RunOptions),
@@ -66,6 +71,8 @@ enum Cmd {
         #[clap(action)]
         server: Option<String>,
     },
+    /// Re-runs daemon crashes recursively.
+    RerunDaemon(rerun_daemon::Options),
 }
 
 #[derive(Parser)]
@@ -122,6 +129,8 @@ fn main() -> eyre::Result<()> {
         Cmd::Reduce(options) => reducer::run(config, options),
         #[cfg(all(target_family = "unix", feature = "reducer"))]
         Cmd::Test(options) => test::run(&config, options),
+        #[cfg(all(target_family = "unix", feature = "reducer"))]
+        Cmd::AutoReduce(options) => auto_reducer::run(&config, options),
         #[cfg(feature = "harness")]
         Cmd::Run(options) => {
             let harness_cmd = harness_cmd.arg(if options.use_daemon {
@@ -185,5 +194,6 @@ fn main() -> eyre::Result<()> {
                 }
             }
         }
+        Cmd::RerunDaemon(options) => rerun_daemon::run(&config, options),
     }
 }

@@ -40,7 +40,7 @@ impl Display for ExecutionResult {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Harness {
     Local(PathBuf),
     Remote(String),
@@ -90,7 +90,7 @@ impl std::fmt::Display for TargetPath {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Target {
     pub harness: Harness,
     pub configs: Vec<ConfigId>,
