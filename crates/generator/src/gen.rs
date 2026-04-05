@@ -121,6 +121,36 @@ impl<'a> Generator<'a> {
             },
         ];
 
+        let num_extra_sbs = self.rng.gen_range(1..=3);
+        let mut extra_sb_decls = Vec::new();
+
+        for i in 0..num_extra_sbs {
+            let extra_sb_decl =
+                self.gen_struct_with(format!("StorageBuffer_{i}"), StructKind::HostShareable);
+            extra_sb_decls.push(extra_sb_decl.clone());
+
+            let name = format!("s_buf_{i}");
+
+            global_vars.push(GlobalVarDecl {
+                attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(3 + i)],
+                qualifier: Some(VarQualifier {
+                    storage_class: StorageClass::Storage,
+                    access_mode: Some(AccessMode::ReadWrite),
+                }),
+                name: name.clone(),
+                data_type: DataType::Struct(extra_sb_decl.clone()),
+                initializer: None,
+            });
+
+            self.global_scope.insert_mutable(
+                name,
+                DataType::Ref(MemoryViewType::new(
+                    DataType::Struct(extra_sb_decl),
+                    StorageClass::Storage,
+                )),
+            );
+        }
+
         for i in 0..self.rng.gen_range(0..=5) {
             let name = format!("global{i}");
             global_vars.push(self.gen_global_var(name));
@@ -151,6 +181,7 @@ impl<'a> Generator<'a> {
                 let mut structs = types.into_structs();
                 structs.push(ub_type_decl);
                 structs.push(sb_type_decl);
+                structs.extend(extra_sb_decls);
                 structs
             },
             consts: vec![],

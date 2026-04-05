@@ -196,7 +196,9 @@ pub fn run(mut options: Options) -> eyre::Result<()> {
 
         for var in &shader.vars {
             if let Some(VarQualifier { storage_class, .. }) = &var.qualifier {
-                if *storage_class != StorageClass::Uniform {
+                if *storage_class != StorageClass::Uniform
+                    && *storage_class != StorageClass::Storage
+                {
                     continue;
                 }
 
