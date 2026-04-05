@@ -33,6 +33,9 @@ fn print_stats() {
 
 #[derive(Parser, Debug)]
 pub struct Options {
+    #[clap(long, action, default_value = "false")]
+    pub skip_original: bool,
+
     #[clap(subcommand)]
     pub cmd: SpeCommand,
 }
@@ -135,12 +138,14 @@ pub fn run(options: Options) {
         eprintln!("Warning: Failed to set Ctrl-C handler: {}", e);
     }
 
+    let skip_original = options.skip_original;
+
     match options.cmd {
         SpeCommand::Enumerate(opt) => {
-            run_enumerate(opt);
+            run_enumerate(opt, skip_original);
         }
         SpeCommand::ProcessDir(opt) => {
-            run_process_dir(opt);
+            run_process_dir(opt, skip_original);
         }
     }
 }
@@ -161,7 +166,7 @@ fn get_logs(log_to_file: bool) -> (Box<dyn Write>, Box<dyn Write>) {
     (skipped_log, failures_log)
 }
 
-fn run_enumerate(opt: EnumerateOptions) {
+fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
     let content = match fs::read_to_string(&opt.shader_path) {
         Ok(c) => c,
         Err(e) => {
@@ -219,6 +224,9 @@ fn run_enumerate(opt: EnumerateOptions) {
         }
 
         for (i, assigns) in enumerations.iter().enumerate() {
+            if skip_original && Some(i) == original_assignment_idx {
+                continue;
+            }
             let out_str = enumerator::apply_assignment(&module, assigns);
             println!("// === Enumeration {} ===", i);
             println!("{}", out_str);
@@ -226,7 +234,7 @@ fn run_enumerate(opt: EnumerateOptions) {
     }
 }
 
-fn run_process_dir(opt: ProcessDirOptions) {
+fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
     let wgslsmith_exe = std::env::current_exe().expect("Failed to get current executable path");
     let (mut skipped_log, mut failures_log) = get_logs(opt.log_to_file);
 
@@ -257,6 +265,7 @@ fn run_process_dir(opt: ProcessDirOptions) {
             file_num,
             Some(total_files),
             &opt,
+            skip_original,
             &wgslsmith_exe,
             &mut *skipped_log,
             &mut *failures_log,
@@ -266,11 +275,13 @@ fn run_process_dir(opt: ProcessDirOptions) {
     print_stats();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_shader(
     path: &Path,
     file_num: usize,
     total_files: Option<usize>,
     opt: &ProcessDirOptions,
+    skip_original: bool,
     wgslsmith_exe: &Path,
     skipped_log: &mut dyn Write,
     failures_log: &mut dyn Write,
@@ -407,7 +418,24 @@ fn process_shader(
         return;
     }
 
+    let original_assignment = original_assignment_idx.map(|idx| enumerations[idx].clone());
+
     println!("original_assignment_idx {:?}", original_assignment_idx);
+
+    if skip_original && enumerations.len() <= 1 {
+        writeln!(
+            skipped_log,
+            "Skipping: {} (only original enumeration exists)",
+            path.display()
+        )
+        .unwrap();
+        println!(
+            "{}Skipped: {} (only original enumeration exists)",
+            progress_prefix,
+            path.display()
+        );
+        return;
+    }
 
     if enumerations.len() > 500 {
         println!(
@@ -433,13 +461,20 @@ fn process_shader(
 
     let mut failed_count = 0;
     let mut shader_has_runtime_failure = false;
+    let mut has_success = false;
+    let mut failures_to_save = Vec::new();
 
     for (i, assigns) in enumerations.iter().enumerate() {
-        let case_str = if Some(i) == original_assignment_idx {
+        let is_original = Some(assigns) == original_assignment.as_ref();
+        let case_str = if is_original {
             format!("(case {i} (original))")
         } else {
             format!("(case {i})")
         };
+
+        if skip_original && is_original {
+            continue;
+        }
 
         let out_str =
             match std::panic::catch_unwind(|| enumerator::apply_assignment(&module, assigns)) {
@@ -578,6 +613,26 @@ fn process_shader(
                     .unwrap();
                     failed_count += 1;
                     shader_has_runtime_failure = true;
+
+                    let kind = if out.status.code() == Some(1) {
+                        "mismatch"
+                    } else {
+                        "crash"
+                    };
+
+                    if !is_original {
+                        let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
+                        failures_to_save.push((
+                            i,
+                            kind,
+                            out.stdout.clone(),
+                            out.stderr.clone(),
+                            out_str.clone(),
+                            recond_src,
+                        ));
+                    }
+                } else {
+                    has_success = true;
                 }
             }
             Err(e) => {
@@ -590,6 +645,18 @@ fn process_shader(
                 .unwrap();
                 failed_count += 1;
                 shader_has_runtime_failure = true;
+
+                if !is_original {
+                    let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
+                    failures_to_save.push((
+                        i,
+                        "crash",
+                        Vec::new(),
+                        format!("Error: {}", e).into_bytes(),
+                        out_str.clone(),
+                        recond_src,
+                    ));
+                }
             }
         }
 
@@ -602,6 +669,45 @@ fn process_shader(
                 path.display()
             );
             break;
+        }
+    }
+
+    // Save failing enumerations if at least one variant succeeded
+    if has_success && !failures_to_save.is_empty() {
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        for (i, kind, stdout, stderr, src, recond_src) in failures_to_save {
+            let out_dir = PathBuf::from("out").join(format!("{}_{}-{kind}", stem, i));
+            std::fs::create_dir_all(&out_dir).unwrap();
+
+            std::fs::write(out_dir.join("shader.wgsl"), src).unwrap();
+            std::fs::write(out_dir.join("reconditioned.wgsl"), recond_src).unwrap();
+
+            if let Some(in_bufs) = &input_buffers {
+                std::fs::write(out_dir.join("inputs.json"), in_bufs).unwrap();
+            }
+
+            let configs_str = opt
+                .configs
+                .iter()
+                .map(|c| format!("\"{}\"", c))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let name = std::env::var("HOSTNAME")
+                .or_else(|_| std::env::var("COMPUTERNAME"))
+                .unwrap_or_else(|_| "unknown-machine".to_string());
+            let info = format!(
+                "{{\n  \"configs\": [{}],\n  \"kind\": \"{}\",\n  \"name\": \"{name}\",\n  \"flags\": []\n}}",
+                configs_str, kind
+            );
+            std::fs::write(out_dir.join("info.json"), info).unwrap();
+
+            if kind == "crash" {
+                std::fs::write(out_dir.join("stderr.txt"), stderr).unwrap();
+            } else {
+                std::fs::write(out_dir.join("consensus.json"), stdout).unwrap();
+                std::fs::write(out_dir.join("stderr.txt"), stderr).unwrap();
+            }
         }
     }
 
