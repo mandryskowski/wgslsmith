@@ -23,6 +23,7 @@ enum Wrapper {
     Select(DataType, DataType),
     Mod(DataType),
     Index(DataType),
+    Pack2x16float,
 }
 
 impl Wrapper {
@@ -42,6 +43,7 @@ impl Wrapper {
             Wrapper::Select(ty, cond_ty) => safe_wrappers::select(name, ty, cond_ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
+            Wrapper::Pack2x16float => safe_wrappers::pack2x16float(name),
         }
     }
 }
@@ -64,6 +66,7 @@ impl Display for Wrapper {
                 write!(f, "_")?;
                 write_type(f, cond_ty)
             }
+            Wrapper::Pack2x16float => write!(f, "pack2x16float"),
             other => {
                 let (name, ty) = match other {
                     Wrapper::ExtractBits(ty) => ("extract_bits", ty),
@@ -72,7 +75,7 @@ impl Display for Wrapper {
                     Wrapper::FloatDivide(ty) => ("div", ty),
                     Wrapper::Mod(ty) => ("mod", ty),
                     Wrapper::Index(ty) => ("index", ty),
-                    Wrapper::Select(..) => unreachable!(),
+                    Wrapper::Select(..) | Wrapper::Pack2x16float => unreachable!(),
                 };
 
                 write!(f, "{name}_")?;
@@ -234,11 +237,7 @@ impl Reconditioner {
             .into(),
             Statement::While(stmt) => Statement::While(WhileStatement {
                 condition: self.recondition_expr(stmt.condition),
-                body: stmt
-                    .body
-                    .into_iter()
-                    .map(|s| self.recondition_stmt(s))
-                    .collect(),
+                body: self.recondition_loop_body(stmt.body),
             }),
             Statement::Break => Statement::Break,
             Statement::Switch(SwitchStatement {
@@ -422,15 +421,16 @@ impl Reconditioner {
                     UnOp::Neg => {
                         let data_type = inner.data_type.dereference().clone();
                         let mut expr = UnOpExpr::new(UnOp::Neg, inner).into();
-                        if matches!(
-                            data_type.as_scalar().unwrap(),
-                            ScalarType::F32 | ScalarType::F16
-                        ) {
-                            expr = FnCallExpr::new(
-                                self.safe_wrapper(Wrapper::FloatOp(data_type.clone())),
-                                vec![ExprNode { data_type, expr }],
-                            )
-                            .into();
+                        if !data_type.is_matrix() {
+                            if let Some(scalar) = data_type.as_scalar() {
+                                if matches!(scalar, ScalarType::F32 | ScalarType::F16) {
+                                    expr = FnCallExpr::new(
+                                        self.safe_wrapper(Wrapper::FloatOp(data_type.clone())),
+                                        vec![ExprNode { data_type, expr }],
+                                    )
+                                    .into();
+                                }
+                            }
                         }
                         expr
                     }
@@ -469,6 +469,9 @@ impl Reconditioner {
                         )),
                         args,
                     ),
+                    "pack2x16float" => {
+                        FnCallExpr::new(self.safe_wrapper(Wrapper::Pack2x16float), args)
+                    }
                     _ => {
                         let mut new_call = FnCallExpr::new(expr.ident, args);
                         new_call.template_args = expr.template_args;
@@ -476,10 +479,12 @@ impl Reconditioner {
                     }
                 };
 
-                if matches!(
-                    node.data_type.as_scalar(),
-                    Some(ScalarType::F32 | ScalarType::F16)
-                ) {
+                if !node.data_type.is_matrix()
+                    && matches!(
+                        node.data_type.as_scalar(),
+                        Some(ScalarType::F32 | ScalarType::F16)
+                    )
+                {
                     FnCallExpr::new(
                         self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
                         vec![expr.into_node(node.data_type.clone())],
@@ -613,6 +618,10 @@ impl Reconditioner {
         l: ExprNode,
         r: ExprNode,
     ) -> ExprNode {
+        if data_type.is_matrix() {
+            return BinOpExpr::new(op, l, r).into();
+        }
+
         if let BinOp::LShift | BinOp::RShift = op {
             return self.recondition_shift_expr(data_type, op, l, r);
         }

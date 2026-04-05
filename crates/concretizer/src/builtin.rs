@@ -9,7 +9,10 @@ pub enum Builtin {
     Clamp,
     All,
     Any,
+    Determinant,
     Dot,
+    Dot4I8Packed,
+    Dot4U8Packed,
     Exp,
     Exp2,
     CountLeadingZeros,
@@ -22,7 +25,23 @@ pub enum Builtin {
     FirstTrailingBit,
     Min,
     Max,
+    Pack2x16float,
+    Pack2x16snorm,
+    Pack2x16unorm,
+    Pack4x8snorm,
+    Pack4x8unorm,
+    Pack4xI8,
+    Pack4xI8Clamp,
+    Pack4xU8,
+    Pack4xU8Clamp,
     Select,
+    Unpack2x16float,
+    Unpack2x16snorm,
+    Unpack2x16unorm,
+    Unpack4x8snorm,
+    Unpack4x8unorm,
+    Unpack4xI8,
+    Unpack4xU8,
 }
 
 impl Builtin {
@@ -37,7 +56,10 @@ impl Builtin {
             "countLeadingZeros" => Some(Builtin::CountLeadingZeros),
             "countTrailingZeros" => Some(Builtin::CountTrailingZeros),
             "countOneBits" => Some(Builtin::CountOneBits),
+            "determinant" => Some(Builtin::Determinant),
             "dot" => Some(Builtin::Dot),
+            "dot4I8Packed" => Some(Builtin::Dot4I8Packed),
+            "dot4U8Packed" => Some(Builtin::Dot4U8Packed),
             "extractBits" => Some(Builtin::ExtractBits),
             "insertBits" => Some(Builtin::InsertBits),
             "reverseBits" => Some(Builtin::ReverseBits),
@@ -45,7 +67,23 @@ impl Builtin {
             "firstTrailingBit" => Some(Builtin::FirstTrailingBit),
             "min" => Some(Builtin::Min),
             "max" => Some(Builtin::Max),
+            "pack2x16float" => Some(Builtin::Pack2x16float),
+            "pack2x16snorm" => Some(Builtin::Pack2x16snorm),
+            "pack2x16unorm" => Some(Builtin::Pack2x16unorm),
+            "pack4x8snorm" => Some(Builtin::Pack4x8snorm),
+            "pack4x8unorm" => Some(Builtin::Pack4x8unorm),
+            "pack4xI8" => Some(Builtin::Pack4xI8),
+            "pack4xI8Clamp" => Some(Builtin::Pack4xI8Clamp),
+            "pack4xU8" => Some(Builtin::Pack4xU8),
+            "pack4xU8Clamp" => Some(Builtin::Pack4xU8Clamp),
             "select" => Some(Builtin::Select),
+            "unpack2x16float" => Some(Builtin::Unpack2x16float),
+            "unpack2x16snorm" => Some(Builtin::Unpack2x16snorm),
+            "unpack2x16unorm" => Some(Builtin::Unpack2x16unorm),
+            "unpack4x8snorm" => Some(Builtin::Unpack4x8snorm),
+            "unpack4x8unorm" => Some(Builtin::Unpack4x8unorm),
+            "unpack4xI8" => Some(Builtin::Unpack4xI8),
+            "unpack4xU8" => Some(Builtin::Unpack4xU8),
             _ => None,
         }
     }
@@ -71,7 +109,7 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
             evaluate_three_arg_builtin(ident, arg1, arg2, arg3)
         }
 
-        Builtin::Min | Builtin::Max => {
+        Builtin::Min | Builtin::Max | Builtin::Dot4I8Packed | Builtin::Dot4U8Packed => {
             let arg1 = args[0].clone().unwrap();
             let arg2 = args[1].clone().unwrap();
 
@@ -89,6 +127,33 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
         Builtin::All | Builtin::Any => {
             let arg = args[0].clone().unwrap();
             evaluate_bool_reduction(ident, arg)
+        }
+
+        Builtin::Pack4x8snorm
+        | Builtin::Pack4x8unorm
+        | Builtin::Pack4xI8
+        | Builtin::Pack4xU8
+        | Builtin::Pack4xI8Clamp
+        | Builtin::Pack4xU8Clamp
+        | Builtin::Pack2x16snorm
+        | Builtin::Pack2x16unorm
+        | Builtin::Pack2x16float => {
+            let arg = args[0].clone().unwrap();
+            evaluate_pack(ident, arg)
+        }
+        Builtin::Unpack4x8snorm
+        | Builtin::Unpack4x8unorm
+        | Builtin::Unpack4xI8
+        | Builtin::Unpack4xU8
+        | Builtin::Unpack2x16snorm
+        | Builtin::Unpack2x16unorm
+        | Builtin::Unpack2x16float => {
+            let arg = args[0].clone().unwrap();
+            evaluate_unpack(ident, arg)
+        }
+        Builtin::Determinant => {
+            let arg = args[0].clone().unwrap();
+            evaluate_determinant(arg)
         }
 
         _ => {
@@ -225,6 +290,32 @@ fn evaluate_two_args(ident: &Builtin, val1: Lit, val2: Lit) -> Option<Value> {
     match ident {
         Builtin::Min => min(val1, val2),
         Builtin::Max => max(val1, val2),
+        Builtin::Dot4I8Packed => {
+            if let (Lit::U32(a), Lit::U32(b)) = (val1, val2) {
+                let mut sum = 0i32;
+                for i in 0..4 {
+                    let c1 = ((a >> (8 * i)) & 0xFF) as u8 as i8 as i32;
+                    let c2 = ((b >> (8 * i)) & 0xFF) as u8 as i8 as i32;
+                    sum += c1 * c2;
+                }
+                Some(Value::Lit(Lit::I32(sum)))
+            } else {
+                panic!("Dot4I8Packed requires u32 arguments")
+            }
+        }
+        Builtin::Dot4U8Packed => {
+            if let (Lit::U32(a), Lit::U32(b)) = (val1, val2) {
+                let mut sum = 0u32;
+                for i in 0..4 {
+                    let c1 = (a >> (8 * i)) & 0xFF;
+                    let c2 = (b >> (8 * i)) & 0xFF;
+                    sum += c1 * c2;
+                }
+                Some(Value::Lit(Lit::U32(sum)))
+            } else {
+                panic!("Dot4U8Packed requires u32 arguments")
+            }
+        }
         _ => todo!(),
     }
 }
@@ -275,6 +366,245 @@ fn evaluate_bool_reduction(ident: &Builtin, arg: Value) -> Option<Value> {
         Value::Lit(Lit::Bool(b)) => Some(b.into()),
         _ => None,
     }
+}
+
+fn evaluate_pack(ident: &Builtin, arg: Value) -> Option<Value> {
+    let vec = match arg {
+        Value::Vector(v) => v,
+        _ => return None,
+    };
+
+    match ident {
+        Builtin::Pack4x8snorm => {
+            if vec.len() != 4 {
+                panic!("Pack4x8snorm requires a vec4")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::F32(f)) = v {
+                    let clamped = f.clamp(-1.0, 1.0);
+                    let val = (0.5 + 127.0 * clamped).floor() as i32;
+                    let val_u8 = val as u8 as u32;
+                    res |= val_u8 << (8 * i);
+                } else {
+                    panic!("Pack4x8snorm requires f32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack4x8unorm => {
+            if vec.len() != 4 {
+                panic!("Pack4x8unorm requires a vec4")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::F32(f)) = v {
+                    let clamped = f.clamp(0.0, 1.0);
+                    let val = (0.5 + 255.0 * clamped).floor() as u32;
+                    let val_u8 = val as u8 as u32;
+                    res |= val_u8 << (8 * i);
+                } else {
+                    panic!("Pack4x8unorm requires f32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack4xI8 => {
+            if vec.len() != 4 {
+                panic!("Pack4xI8 requires a vec4")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::I32(val)) = v {
+                    let val_u8 = (*val as u8) as u32;
+                    res |= val_u8 << (8 * i);
+                } else {
+                    panic!("Pack4xI8 requires i32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack4xU8 => {
+            if vec.len() != 4 {
+                panic!("Pack4xU8 requires a vec4")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::U32(val)) = v {
+                    let val_u8 = (*val as u8) as u32;
+                    res |= val_u8 << (8 * i);
+                } else {
+                    panic!("Pack4xU8 requires u32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack4xI8Clamp => {
+            if vec.len() != 4 {
+                panic!("Pack4xI8Clamp requires a vec4")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::I32(val)) = v {
+                    let clamped = (*val).clamp(-128, 127);
+                    let val_u8 = (clamped as u8) as u32;
+                    res |= val_u8 << (8 * i);
+                } else {
+                    panic!("Pack4xI8Clamp requires i32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack4xU8Clamp => {
+            if vec.len() != 4 {
+                panic!("Pack4xU8Clamp requires a vec4")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::U32(val)) = v {
+                    let clamped = (*val).min(255);
+                    let val_u8 = (clamped as u8) as u32;
+                    res |= val_u8 << (8 * i);
+                } else {
+                    panic!("Pack4xU8Clamp requires u32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack2x16snorm => {
+            if vec.len() != 2 {
+                panic!("Pack2x16snorm requires a vec2")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::F32(f)) = v {
+                    let clamped = f.clamp(-1.0, 1.0);
+                    let val = (0.5 + 32767.0 * clamped).floor() as i32;
+                    let val_u16 = val as u16 as u32;
+                    res |= val_u16 << (16 * i);
+                } else {
+                    panic!("Pack2x16snorm requires f32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack2x16unorm => {
+            if vec.len() != 2 {
+                panic!("Pack2x16unorm requires 2 arguments")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::F32(f)) = v {
+                    let clamped = f.clamp(0.0, 1.0);
+                    let val = (0.5 + 65535.0 * clamped).floor() as u32;
+                    let val_u16 = val as u16 as u32;
+                    res |= val_u16 << (16 * i);
+                } else {
+                    panic!("Pack2x16unorm requires f32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        Builtin::Pack2x16float => {
+            if vec.len() != 2 {
+                panic!("Pack2x16float requires a vec2")
+            }
+            let mut res = 0u32;
+            for (i, v) in vec.iter().enumerate() {
+                if let Value::Lit(Lit::F32(f)) = v {
+                    if f.abs() > 65504.0 || f.is_nan() {
+                        return None;
+                    }
+                    let f16_val = half::f16::from_f32(*f);
+                    let val_u16 = f16_val.to_bits() as u32;
+                    res |= val_u16 << (16 * i);
+                } else {
+                    panic!("Pack2x16float requires f32 arguments")
+                }
+            }
+            Some(Value::Lit(Lit::U32(res)))
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_unpack(ident: &Builtin, arg: Value) -> Option<Value> {
+    let val = match arg {
+        Value::Lit(Lit::U32(v)) => v,
+        _ => return None,
+    };
+
+    match ident {
+        Builtin::Unpack4x8snorm => {
+            let mut res = Vec::new();
+            for i in 0..4 {
+                let chunk = ((val >> (8 * i)) & 0xFF) as u8 as i8 as i32;
+                let f = (chunk as f32 / 127.0).max(-1.0);
+                res.push(Value::Lit(Lit::F32(f)));
+            }
+            Some(Value::Vector(res))
+        }
+        Builtin::Unpack4x8unorm => {
+            let mut res = Vec::new();
+            for i in 0..4 {
+                let chunk = (val >> (8 * i)) & 0xFF;
+                let f = chunk as f32 / 255.0;
+                res.push(Value::Lit(Lit::F32(f)));
+            }
+            Some(Value::Vector(res))
+        }
+        Builtin::Unpack4xI8 => {
+            let mut res = Vec::new();
+            for i in 0..4 {
+                let chunk = ((val >> (8 * i)) & 0xFF) as u8 as i8 as i32;
+                res.push(Value::Lit(Lit::I32(chunk)));
+            }
+            Some(Value::Vector(res))
+        }
+        Builtin::Unpack4xU8 => {
+            let mut res = Vec::new();
+            for i in 0..4 {
+                let chunk = (val >> (8 * i)) & 0xFF;
+                res.push(Value::Lit(Lit::U32(chunk)));
+            }
+            Some(Value::Vector(res))
+        }
+        Builtin::Unpack2x16snorm => {
+            let mut res = Vec::new();
+            for i in 0..2 {
+                let chunk = ((val >> (16 * i)) & 0xFFFF) as u16 as i16 as i32;
+                let f = (chunk as f32 / 32767.0).max(-1.0);
+                res.push(Value::Lit(Lit::F32(f)));
+            }
+            Some(Value::Vector(res))
+        }
+        Builtin::Unpack2x16unorm => {
+            let mut res = Vec::new();
+            for i in 0..2 {
+                let chunk = (val >> (16 * i)) & 0xFFFF;
+                let f = chunk as f32 / 65535.0;
+                res.push(Value::Lit(Lit::F32(f)));
+            }
+            Some(Value::Vector(res))
+        }
+        Builtin::Unpack2x16float => {
+            let mut res = Vec::new();
+            for i in 0..2 {
+                let chunk = ((val >> (16 * i)) & 0xFFFF) as u16;
+                let f = half::f16::from_bits(chunk).to_f32();
+                if !f.is_finite() {
+                    return None;
+                }
+                res.push(Value::Lit(Lit::F32(f)));
+            }
+            Some(Value::Vector(res))
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_determinant(_arg: Value) -> Option<Value> {
+    None
 }
 
 fn count_one_bits(val: Lit) -> Option<Value> {

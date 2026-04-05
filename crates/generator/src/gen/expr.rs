@@ -26,7 +26,7 @@ impl super::Generator<'_> {
         match ty {
             DataType::Scalar(_) => allowed.push(ExprType::Lit),
             DataType::Vector(_, _) => allowed.push(ExprType::TypeCons),
-            DataType::Matrix(_, _, _) => todo!(),
+            DataType::Matrix(_, _, _) => allowed.push(ExprType::TypeCons),
             DataType::Array(_, _) => allowed.push(ExprType::TypeCons),
             DataType::Struct(_) => allowed.push(ExprType::TypeCons),
             DataType::Ptr(view) => return self.gen_pointer_expr(view),
@@ -41,14 +41,13 @@ impl super::Generator<'_> {
             }
 
             // Binary operators are available for all scalars, and for {i32,u32,f32} vectors.
-            if matches!(
-                ty,
-                DataType::Scalar(_)
-                    | DataType::Vector(
-                        _,
-                        ScalarType::I32 | ScalarType::U32 | ScalarType::F32 | ScalarType::F16,
-                    )
-            ) {
+            let is_binop_valid = match ty {
+                DataType::Scalar(_) => true,
+                DataType::Vector(_, ScalarType::I32 | ScalarType::U32 | ScalarType::F32) => true,
+                DataType::Vector(_, ScalarType::F16) if self.options.enable_f16 => true,
+                _ => false,
+            };
+            if is_binop_valid {
                 allowed.push(ExprType::BinOp);
             }
 
@@ -127,7 +126,9 @@ impl super::Generator<'_> {
             DataType::Vector(n, t) => (0..*n)
                 .map(|_| self.gen_expr(&DataType::Scalar(*t)))
                 .collect(),
-            DataType::Matrix(_, _, _) => todo!(),
+            DataType::Matrix(c, r, t) => (0..*c)
+                .map(|_| self.gen_expr(&DataType::Vector(*r, *t)))
+                .collect(),
             DataType::Array(_, _) => vec![],
             DataType::Struct(decl) => decl
                 .members
@@ -149,7 +150,9 @@ impl super::Generator<'_> {
             DataType::Vector(n, t) => (0..*n)
                 .map(|_| self.gen_const_expr(&DataType::Scalar(*t)))
                 .collect(),
-            DataType::Matrix(_, _, _) => todo!(),
+            DataType::Matrix(c, r, t) => (0..*c)
+                .map(|_| self.gen_const_expr(&DataType::Vector(*r, *t)))
+                .collect(),
             DataType::Array(ty, Some(n)) => (0..*n).map(|_| self.gen_const_expr(ty)).collect(),
             DataType::Array(_, None) => panic!("runtime sized array is not constructable"),
             DataType::Struct(decl) => decl
@@ -201,33 +204,29 @@ impl super::Generator<'_> {
             // These operators work on scalar/vector integers.
             // The number of components in the result type depends on the operands, but the
             // actual type does not.
-            BinOp::Less | BinOp::LessEqual | BinOp::Greater | BinOp::GreaterEqual => ty.map(
-                [
-                    ScalarType::I32,
-                    ScalarType::U32,
-                    ScalarType::F32,
-                    ScalarType::F16,
-                ]
-                .choose(&mut self.rng)
-                .copied()
-                .unwrap(),
-            ),
+            BinOp::Less | BinOp::LessEqual | BinOp::Greater | BinOp::GreaterEqual => {
+                let mut choices = vec![ScalarType::I32, ScalarType::U32, ScalarType::F32];
+                if self.options.enable_f16 {
+                    choices.push(ScalarType::F16);
+                }
+                ty.map(*choices.choose(&mut self.rng).unwrap())
+            }
 
             // These operators work on scalar/vector integers and bools.
             // The number of components in the result type depends on the operands, but the
             // actual type does not.
-            BinOp::Equal | BinOp::NotEqual => ty.map(
-                [
+            BinOp::Equal | BinOp::NotEqual => {
+                let mut choices = vec![
                     ScalarType::I32,
                     ScalarType::U32,
                     ScalarType::F32,
-                    ScalarType::F16,
                     ScalarType::Bool,
-                ]
-                .choose(&mut self.rng)
-                .copied()
-                .unwrap(),
-            ),
+                ];
+                if self.options.enable_f16 {
+                    choices.push(ScalarType::F16);
+                }
+                ty.map(*choices.choose(&mut self.rng).unwrap())
+            }
         };
 
         let l = self.gen_expr(&l_ty);
@@ -274,7 +273,7 @@ impl super::Generator<'_> {
 
     fn gen_raw_fn_call_expr(&mut self, ty: &DataType) -> ExprNode {
         // Produce a function call with p=0.8 or p=1 if max functions reached
-        if self.cx.fns.len() > self.options.max_fns || self.rng.gen_bool(0.8) {
+        if self.cx.fns.len() >= self.options.max_fns || self.rng.gen_bool(0.8) {
             if let Some(func) = self.cx.fns.select(self.rng, ty) {
                 let (name, params, return_type) = match func.as_ref() {
                     Func::Builtin(builtin, overload) => (
@@ -298,6 +297,7 @@ impl super::Generator<'_> {
         }
 
         // Otherwise generate a new function with the target return type
+        let name = self.cx.fns.next_fn();
 
         let arg_count: i32 = self.rng.gen_range(0..5);
 
@@ -329,7 +329,7 @@ impl super::Generator<'_> {
             args.push(expr);
         }
 
-        let decl = self.gen_fn(params, ty);
+        let decl = self.gen_fn(name, params, ty);
 
         // Add the new function to the context
         let func = self.cx.fns.insert(decl);
@@ -341,7 +341,7 @@ impl super::Generator<'_> {
         match expr.data_type.dereference() {
             DataType::Scalar(_) => unreachable!(),
             DataType::Vector(n, _) => self.gen_vector_accessor(*n, target, expr),
-            DataType::Matrix(_, _, _) => todo!(),
+            DataType::Matrix(_, _, _) => self.gen_array_accessor(target, expr),
             DataType::Array(_, _) => self.gen_array_accessor(target, expr),
             DataType::Struct(decl) => self.gen_struct_accessor(&decl.clone(), target, expr),
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
@@ -414,7 +414,7 @@ impl super::Generator<'_> {
         let scalar_ty = match ty {
             DataType::Scalar(ty) => ty,
             DataType::Vector(_, ty) => ty,
-            DataType::Matrix(_, _, _) => todo!(),
+            DataType::Matrix(_, _, _) => unreachable!(),
             DataType::Array(_, _) => unreachable!(),
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),
@@ -438,7 +438,7 @@ impl super::Generator<'_> {
         let scalar_ty = match ty {
             DataType::Scalar(ty) => ty,
             DataType::Vector(_, ty) => ty,
-            DataType::Matrix(_, _, _) => todo!(),
+            DataType::Matrix(_, _, _) => unreachable!(),
             DataType::Array(_, _) => unreachable!(),
             DataType::Struct(_) => unreachable!(),
             DataType::Ptr(_) => todo!(),

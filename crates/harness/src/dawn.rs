@@ -1,7 +1,7 @@
 use color_eyre::eyre::eyre;
 use dawn::webgpu::{
     WGPUBackendType_WGPUBackendType_D3D12, WGPUBackendType_WGPUBackendType_Metal,
-    WGPUBackendType_WGPUBackendType_Vulkan, WGPUBool,
+    WGPUBackendType_WGPUBackendType_Vulkan,
 };
 use dawn::*;
 use reflection::{PipelineDescription, ResourceKind};
@@ -9,6 +9,9 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::ConfigId;
+
+const CANARY_SIZE: usize = 256;
+const CANARY_VAL: u8 = 0xCD;
 
 type DeviceCacheEntry = (Rc<Device<'static>>, Rc<DeviceQueue>);
 pub struct DawnState {
@@ -160,25 +163,30 @@ pub async fn run(
         let size = resource.size as usize;
         match resource.kind {
             ResourceKind::StorageBuffer => {
-                let mapped: WGPUBool = match resource.init {
-                    Some(_) => 1,
-                    None => 0,
-                };
+                let actual_size = size + 2 * CANARY_SIZE;
 
                 let mut storage = device.create_buffer(
-                    mapped,
-                    size,
+                    1, // mapped: 1
+                    actual_size,
                     DeviceBufferUsage::STORAGE | DeviceBufferUsage::COPY_SRC,
                 )?;
 
-                if let Some(init) = resource.init.as_deref() {
-                    storage.get_mapped_range(size).copy_from_slice(init);
-                    storage.unmap();
+                {
+                    let view = storage.get_mapped_range(actual_size);
+                    view[..CANARY_SIZE].fill(CANARY_VAL);
+                    view[CANARY_SIZE + size..].fill(CANARY_VAL);
+
+                    if let Some(init) = resource.init.as_deref() {
+                        view[CANARY_SIZE..CANARY_SIZE + size].copy_from_slice(init);
+                    } else {
+                        view[CANARY_SIZE..CANARY_SIZE + size].fill(0);
+                    }
                 }
+                storage.unmap();
 
                 let read = device.create_buffer(
                     0,
-                    size,
+                    actual_size,
                     DeviceBufferUsage::COPY_DST | DeviceBufferUsage::MAP_READ,
                 )?;
 
@@ -214,20 +222,20 @@ pub async fn run(
     let mut groups = HashSet::new();
 
     for buffer in &buffer_sets {
-        let (group, binding, buffer_obj, size) = match buffer {
+        let (group, binding, buffer_obj, offset, size) = match buffer {
             BufferSet::Storage {
                 group,
                 binding,
                 storage,
                 size,
                 ..
-            } => (*group, *binding, storage, *size),
+            } => (*group, *binding, storage, CANARY_SIZE, *size),
             BufferSet::Uniform {
                 group,
                 binding,
                 buffer,
                 size,
-            } => (*group, *binding, buffer, *size),
+            } => (*group, *binding, buffer, 0, *size),
         };
 
         groups.insert(group);
@@ -237,21 +245,19 @@ pub async fn run(
             .push(BindGroupEntry {
                 binding,
                 resource: BindGroupEntryResource::Buffer(buffer_obj),
+                offset,
                 size,
             });
     }
 
     let bind_groups: HashMap<_, _> = bind_groups
         .into_iter()
-        .map(|(group, entries)| {
-            (
-                group,
-                device
-                    .create_bind_group(&pipeline.get_bind_group_layout(group), &entries)
-                    .unwrap(),
-            )
+        .map(|(group, entries)| -> color_eyre::Result<_> {
+            let layout = pipeline.get_bind_group_layout(group);
+            let bind_group = device.create_bind_group(&layout, &entries)?;
+            Ok((group, bind_group))
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     let encoder = device.create_command_encoder()?;
 
@@ -272,7 +278,8 @@ pub async fn run(
             ..
         } = buffers
         {
-            encoder.copy_buffer_to_buffer(storage, read, *size);
+            let actual_size = *size + 2 * CANARY_SIZE;
+            encoder.copy_buffer_to_buffer(storage, read, actual_size);
         }
     }
 
@@ -283,7 +290,9 @@ pub async fn run(
     let mut results = vec![];
     for buffers in &buffer_sets {
         if let BufferSet::Storage { read, size, .. } = buffers {
-            let mut rx = read.map_async(DeviceBufferMapMode::READ, *size);
+            let size = *size;
+            let actual_size = size + 2 * CANARY_SIZE;
+            let mut rx = read.map_async(DeviceBufferMapMode::READ, actual_size);
 
             loop {
                 match rx.try_recv() {
@@ -299,9 +308,28 @@ pub async fn run(
                 }
             }
 
-            let bytes = read.get_const_mapped_range(*size);
+            let bytes = read.get_const_mapped_range(actual_size);
 
-            results.push(bytes.to_vec());
+            let left_canary = &bytes[..CANARY_SIZE];
+            let right_canary = &bytes[CANARY_SIZE + size..];
+
+            if let Some(pos) = left_canary.iter().position(|&b| b != CANARY_VAL) {
+                unmap_device(dawn_state, config);
+                return Err(eyre!(
+                    "OOB write detected in config {}: left canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
+                    config, pos, CANARY_VAL, left_canary[pos]
+                ));
+            }
+
+            if let Some(pos) = right_canary.iter().position(|&b| b != CANARY_VAL) {
+                unmap_device(dawn_state, config);
+                return Err(eyre!(
+                    "OOB write detected in config {}: right canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
+                    config, pos, CANARY_VAL, right_canary[pos]
+                ));
+            }
+
+            results.push(bytes[CANARY_SIZE..CANARY_SIZE + size].to_vec());
         }
     }
 

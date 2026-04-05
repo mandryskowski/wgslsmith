@@ -63,6 +63,10 @@ pub struct Options {
     #[clap(long, action)]
     pub log: Option<String>,
 
+    /// Enable f16 type
+    #[clap(long, action)]
+    pub enable_f16: bool,
+
     /// Minimum number of statements to generate in function bodies
     #[clap(long, action, default_value = "5")]
     pub fn_min_stmts: u32,
@@ -102,6 +106,10 @@ pub struct Options {
     /// Maximum number of members allowed in a struct
     #[clap(long, action, default_value = "5")]
     pub max_struct_members: u32,
+
+    /// Maximum number of if-else-if chains to generate
+    #[clap(long, action, default_value = "3")]
+    pub max_if_chain_depth: u32,
 
     /// Preset options configuration. Individual options may still be overridden.
     #[clap(long, action)]
@@ -188,7 +196,9 @@ pub fn run(mut options: Options) -> eyre::Result<()> {
 
         for var in &shader.vars {
             if let Some(VarQualifier { storage_class, .. }) = &var.qualifier {
-                if *storage_class != StorageClass::Uniform {
+                if *storage_class != StorageClass::Uniform
+                    && *storage_class != StorageClass::Storage
+                {
                     continue;
                 }
 

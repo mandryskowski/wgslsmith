@@ -75,6 +75,7 @@ impl DataType {
         match self {
             DataType::Scalar(_) => DataType::Scalar(scalar),
             DataType::Vector(n, _) => DataType::Vector(*n, scalar),
+            DataType::Matrix(c, r, _) => DataType::Matrix(*c, *r, scalar),
             _ => unimplemented!(),
         }
     }
@@ -83,6 +84,7 @@ impl DataType {
         match self {
             DataType::Scalar(ty) => Some(*ty),
             DataType::Vector(_, ty) => Some(*ty),
+            DataType::Matrix(_, _, ty) => Some(*ty),
             DataType::Ref(view) => view.inner.as_scalar(),
             _ => None,
         }

@@ -6,13 +6,13 @@ use rand::Rng;
 pub fn gen_vector_accessor(rng: &mut impl Rng, size: u8, target_type: &DataType) -> String {
     // Find m (size of src vector) and n (size of target vector).
     let (m, n) = match target_type {
-        DataType::Scalar(_) => return "x".to_owned(),
+        DataType::Scalar(_) => (size, 1),
         DataType::Vector(n, _) => (size, *n),
-        _ => panic!("vector component type must be a scalar"),
+        _ => panic!("vector component type must be a scalar or vector"),
     };
 
     assert!((2..=4).contains(&m));
-    assert!((2..=4).contains(&n));
+    assert!((1..=4).contains(&n));
 
     let mut accessor = String::new();
 
@@ -44,7 +44,11 @@ pub fn accessible_types_of(ty: &DataType) -> Vec<DataType> {
             }
             derived
         }
-        DataType::Matrix(_, _, _) => todo!(),
+        DataType::Matrix(_, r, ty) => {
+            let mut derived = vec![DataType::Vector(*r, *ty)];
+            derived.extend(accessible_types_of(&DataType::Vector(*r, *ty)));
+            derived
+        }
         DataType::Array(ty, _) => vec![(**ty).clone()],
         DataType::Struct(decl) => decl.accessible_types().cloned().collect(),
         DataType::Ptr(view) | DataType::Ref(view) => accessible_types_of(&view.inner),

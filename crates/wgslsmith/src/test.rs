@@ -55,6 +55,14 @@ pub struct CrashOptions {
 
     #[clap(long, action)]
     no_recondition: bool,
+
+    /// Command to run before executing the shader.
+    #[clap(long, action)]
+    pub pre_cmd: Option<String>,
+
+    /// Command to run after executing the shader. If the command succeeds (exits with code 0), the shader will be considered interesting.
+    #[clap(long, action)]
+    pub post_cmd: Option<String>,
 }
 
 pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
@@ -147,6 +155,10 @@ fn reduce_crash(
         let mut any_crash_matched = false;
 
         for target in targets {
+            if let Some(ref pre) = options.pre_cmd {
+                let _ = std::process::Command::new("sh").arg("-c").arg(pre).status();
+            }
+
             let result = harness_runner::exec_shader(target, &source, &metadata, &[], |line| {
                 if !quiet {
                     println!("{line}");
@@ -157,8 +169,22 @@ fn reduce_crash(
                 eprintln!("{result:?}");
             }
 
-            if matches!(result, ExecutionResult::Crash(output) if (regex.is_match(&output)) && !inverse_regex.clone().map(|r| r.is_match(&output)).unwrap_or(false))
-            {
+            let mut current_matches = matches!(
+                result,
+                ExecutionResult::Crash(ref output)
+                if regex.is_match(output) && !inverse_regex.clone().map(|r| r.is_match(output)).unwrap_or(false)
+            );
+
+            if let Some(ref post) = options.post_cmd {
+                let status = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(post)
+                    .status()?;
+
+                current_matches = status.success();
+            }
+
+            if current_matches {
                 any_crash_matched = true;
                 break;
             }

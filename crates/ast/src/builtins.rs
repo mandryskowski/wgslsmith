@@ -26,8 +26,13 @@ pub enum BuiltinFn {
     CountTrailingZeros,
     Cross,
     Degrees,
+    Determinant,
     Distance,
     Dot,
+    #[strum(serialize = "dot4I8Packed")]
+    Dot4I8Packed,
+    #[strum(serialize = "dot4U8Packed")]
+    Dot4U8Packed,
     Exp,
     Exp2,
     ExtractBits,
@@ -47,6 +52,24 @@ pub enum BuiltinFn {
     Min,
     Mix,
     Normalize,
+    #[strum(serialize = "pack2x16float")]
+    Pack2x16float,
+    #[strum(serialize = "pack2x16snorm")]
+    Pack2x16snorm,
+    #[strum(serialize = "pack2x16unorm")]
+    Pack2x16unorm,
+    #[strum(serialize = "pack4x8snorm")]
+    Pack4x8snorm,
+    #[strum(serialize = "pack4x8unorm")]
+    Pack4x8unorm,
+    #[strum(serialize = "pack4xI8")]
+    Pack4xI8,
+    #[strum(serialize = "pack4xI8Clamp")]
+    Pack4xI8Clamp,
+    #[strum(serialize = "pack4xU8")]
+    Pack4xU8,
+    #[strum(serialize = "pack4xU8Clamp")]
+    Pack4xU8Clamp,
     Pow,
     QuantizeToF16,
     Radians,
@@ -68,6 +91,20 @@ pub enum BuiltinFn {
     Tanh,
     Transpose,
     Trunc,
+    #[strum(serialize = "unpack2x16float")]
+    Unpack2x16float,
+    #[strum(serialize = "unpack2x16snorm")]
+    Unpack2x16snorm,
+    #[strum(serialize = "unpack2x16unorm")]
+    Unpack2x16unorm,
+    #[strum(serialize = "unpack4x8snorm")]
+    Unpack4x8snorm,
+    #[strum(serialize = "unpack4x8unorm")]
+    Unpack4x8unorm,
+    #[strum(serialize = "unpack4xI8")]
+    Unpack4xI8,
+    #[strum(serialize = "unpack4xU8")]
+    Unpack4xU8,
 
     // Texture
     TextureDimensions,
@@ -152,8 +189,17 @@ impl BuiltinFn {
             CountTrailingZeros => first_param()?,
             Cross => first_param()?,
             Degrees => first_param()?,
+            Determinant => {
+                if let DataType::Matrix(_, _, s) = first_param()? {
+                    DataType::Scalar(s)
+                } else {
+                    return None;
+                }
+            }
             Distance => F32.into(),
             Dot => first_param()?.as_scalar()?.into(),
+            Dot4I8Packed => I32.into(),
+            Dot4U8Packed => U32.into(),
             ExtractBits => first_param()?,
             Exp => first_param()?,
             Exp2 => first_param()?,
@@ -174,6 +220,8 @@ impl BuiltinFn {
             Mix => first_param()?,
             Normalize => first_param()?,
             Pow => first_param()?,
+            Pack2x16float | Pack2x16snorm | Pack2x16unorm | Pack4x8snorm | Pack4x8unorm
+            | Pack4xI8 | Pack4xI8Clamp | Pack4xU8 | Pack4xU8Clamp => U32.into(),
             QuadBroadcast | QuadSwapX | QuadSwapY | QuadSwapDiagonal => first_param()?,
             QuantizeToF16 => first_param()?,
             Radians => first_param()?,
@@ -212,6 +260,10 @@ impl BuiltinFn {
                 }
             }
             Trunc => first_param()?,
+            Unpack2x16float | Unpack2x16snorm | Unpack2x16unorm => DataType::Vector(2, F32),
+            Unpack4x8snorm | Unpack4x8unorm => DataType::Vector(4, F32),
+            Unpack4xI8 => DataType::Vector(4, I32),
+            Unpack4xU8 => DataType::Vector(4, U32),
             TextureDimensions => {
                 let ty = first_param()?;
                 if let DataType::Texture(t) = ty {

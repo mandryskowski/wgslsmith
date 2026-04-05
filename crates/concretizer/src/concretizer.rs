@@ -134,7 +134,7 @@ pub(super) fn in_float16_range(f: half::f16) -> Option<half::f16> {
 
 #[derive(Clone)]
 pub struct ConNode {
-    node: ExprNode,
+    pub node: ExprNode,
     pub value: Option<Value>,
 }
 
@@ -273,7 +273,12 @@ impl Concretizer {
             )
             .into(),
             Statement::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                AssignmentStatement::new(lhs, op, self.concretize_expr(rhs)).into()
+                AssignmentStatement::new(
+                    self.concretize_assignment_lhs(lhs),
+                    op,
+                    self.concretize_expr(rhs),
+                )
+                .into()
             }
             Statement::Compound(s) => {
                 self.enter_scope();
@@ -661,25 +666,16 @@ impl Concretizer {
         left: ConNode,
         right: ConNode,
     ) -> ConNode {
+        if helper::is_zero_node(&right) {
+            match op {
+                BinOp::Divide | BinOp::Mod => return left,
+                _ => {}
+            }
+        }
+
         // if either left or right is not a const-expression, then
         // this node is not a const-expression
         if left.value.is_none() || right.value.is_none() {
-            // If only right is a const-expression, validation could still detect div/mod by 0.
-            if let Some(r_val) = &right.value {
-                if helper::is_zero(r_val) {
-                    match op {
-                        BinOp::Divide => {
-                            return ConNode {
-                                node: left.node,
-                                value: None,
-                            }
-                        }
-                        BinOp::Mod => return self.default_node(data_type),
-                        _ => {}
-                    }
-                }
-            }
-
             return ConNode {
                 node: ExprNode {
                     data_type,

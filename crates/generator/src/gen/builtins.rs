@@ -148,6 +148,27 @@ pub fn gen_builtins() -> HashMap<DataType, Vec<Rc<Func>>> {
     //     }
     // }
 
+    map.add(Pack4x8snorm, [Vector(4, F32)], U32);
+    map.add(Pack4x8unorm, [Vector(4, F32)], U32);
+    map.add(Pack4xI8, [Vector(4, I32)], U32);
+    map.add(Pack4xU8, [Vector(4, U32)], U32);
+    map.add(Pack4xI8Clamp, [Vector(4, I32)], U32);
+    map.add(Pack4xU8Clamp, [Vector(4, U32)], U32);
+    map.add(Pack2x16snorm, [Vector(2, F32)], U32);
+    map.add(Pack2x16unorm, [Vector(2, F32)], U32);
+    map.add(Pack2x16float, [Vector(2, F32)], U32);
+
+    map.add(Unpack4x8snorm, [U32.into()], Vector(4, F32));
+    map.add(Unpack4x8unorm, [U32.into()], Vector(4, F32));
+    map.add(Unpack4xI8, [U32.into()], Vector(4, I32));
+    map.add(Unpack4xU8, [U32.into()], Vector(4, U32));
+    map.add(Unpack2x16snorm, [U32.into()], Vector(2, F32));
+    map.add(Unpack2x16unorm, [U32.into()], Vector(2, F32));
+    map.add(Unpack2x16float, [U32.into()], Vector(2, F32));
+
+    map.add(Dot4I8Packed, [U32.into(), U32.into()], I32);
+    map.add(Dot4U8Packed, [U32.into(), U32.into()], U32);
+
     map
 }
 

@@ -559,6 +559,7 @@ impl Drop for BindGroupLayout {
 pub struct BindGroupEntry<'a> {
     pub binding: u32,
     pub resource: BindGroupEntryResource<'a>,
+    pub offset: usize,
     pub size: usize,
 }
 
@@ -578,7 +579,7 @@ impl<'a> From<&BindGroupEntry<'a>> for WGPUBindGroupEntry {
         WGPUBindGroupEntry {
             binding: entry.binding,
             buffer,
-            offset: 0,
+            offset: entry.offset as _,
             size: entry.size as _,
             sampler,
             textureView: texture_view,

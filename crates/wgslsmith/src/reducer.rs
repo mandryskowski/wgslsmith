@@ -95,6 +95,18 @@ pub struct Options {
     /// Can also be set in `wgslsmith.toml`, as `reducer.parallelism`.
     #[clap(long, action)]
     parallelism: Option<u32>,
+
+    /// Command to run before executing the shader.
+    ///
+    /// This is only valid if we're reducing a crash.
+    #[clap(long, action)]
+    pre_cmd: Option<String>,
+
+    /// Command to run after executing the shader. If the command succeeds (exits with code 0), the shader will be considered interesting.
+    ///
+    /// This is only valid if we're reducing a crash.
+    #[clap(long, action)]
+    post_cmd: Option<String>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -327,6 +339,14 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
 
             if !options.no_recondition {
                 cmd.env("WGSLREDUCE_RECONDITION", "1");
+            }
+
+            if let Some(pre) = &options.pre_cmd {
+                cmd.env("WGSLREDUCE_PRE_CMD", pre);
+            }
+
+            if let Some(post) = &options.post_cmd {
+                cmd.env("WGSLREDUCE_POST_CMD", post);
             }
         }
         ReductionKind::Mismatch => {
