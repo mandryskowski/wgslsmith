@@ -9,8 +9,8 @@ use wgpu::wgt::PollType::Wait;
 use wgpu::{
     Backends, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, Device,
-    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, DxcShaderModel, ErrorFilter,
-    ErrorScopeGuard, Instance, Limits, MapMode, Queue, ShaderModuleDescriptor, ShaderSource,
+    DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, ErrorFilter, ErrorScopeGuard, Instance,
+    Limits, MapMode, Queue, ShaderModuleDescriptor, ShaderSource,
 };
 
 const CANARY_SIZE: u64 = 256;
@@ -50,7 +50,6 @@ impl WgpuState {
             Dx12BackendOptions {
                 shader_compiler: Dx12Compiler::DynamicDxc {
                     dxc_path: dxc_path.to_string_lossy().into_owned(),
-                    max_shader_model: DxcShaderModel::V6_7,
                 },
                 ..Default::default()
             }
