@@ -252,15 +252,12 @@ pub async fn run(
 
     let bind_groups: HashMap<_, _> = bind_groups
         .into_iter()
-        .map(|(group, entries)| {
-            (
-                group,
-                device
-                    .create_bind_group(&pipeline.get_bind_group_layout(group), &entries)
-                    .unwrap(),
-            )
+        .map(|(group, entries)| -> color_eyre::Result<_> {
+            let layout = pipeline.get_bind_group_layout(group);
+            let bind_group = device.create_bind_group(&layout, &entries)?;
+            Ok((group, bind_group))
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     let encoder = device.create_command_encoder()?;
 
