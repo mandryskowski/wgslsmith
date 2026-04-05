@@ -34,6 +34,14 @@ if [[ "$WGSLREDUCE_KIND" == "crash" ]]; then
     if [[ ! -n "${WGSLREDUCE_RECONDITION}" ]]; then
         args+=("--no-recondition")
     fi
+
+    if [[ -n "${WGSLREDUCE_PRE_CMD}" ]]; then
+        args+=("--pre-cmd" "$WGSLREDUCE_PRE_CMD")
+    fi
+
+    if [[ -n "${WGSLREDUCE_POST_CMD}" ]]; then
+        args+=("--post-cmd" "$WGSLREDUCE_POST_CMD")
+    fi
 fi
 
 [WGSLSMITH] test -q "${args[@]}"
