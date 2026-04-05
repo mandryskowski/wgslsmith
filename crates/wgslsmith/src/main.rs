@@ -7,6 +7,7 @@ mod harness_runner;
 #[cfg(all(target_family = "unix", feature = "reducer"))]
 mod reducer;
 mod remote;
+mod rerun_daemon;
 #[cfg(all(target_family = "unix", feature = "reducer"))]
 mod test;
 #[cfg(all(target_family = "unix", feature = "reducer"))]
@@ -66,6 +67,8 @@ enum Cmd {
         #[clap(action)]
         server: Option<String>,
     },
+    /// Re-runs daemon crashes recursively.
+    RerunDaemon(rerun_daemon::Options),
 }
 
 #[derive(Parser)]
@@ -185,5 +188,6 @@ fn main() -> eyre::Result<()> {
                 }
             }
         }
+        Cmd::RerunDaemon(options) => rerun_daemon::run(&config, options),
     }
 }

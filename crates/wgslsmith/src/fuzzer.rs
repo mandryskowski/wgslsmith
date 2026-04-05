@@ -88,7 +88,7 @@ pub struct Options {
 
     /// Address of harness server.
     #[clap(short, long, action)]
-    server: Option<String>,
+    pub server: Option<String>,
 
     #[clap(long, action)]
     enable_pointers: bool,
@@ -98,10 +98,10 @@ pub struct Options {
     enable_f16: bool,
 
     #[clap(short, long = "config", action)]
-    configs: Vec<ConfigId>,
+    pub configs: Vec<ConfigId>,
 
     #[clap(short = 't', long = "target", action)]
-    targets: Vec<TargetPath>,
+    pub targets: Vec<TargetPath>,
 
     /// Disable the fancy terminal dashboard UI.
     #[clap(long, action)]
@@ -126,11 +126,11 @@ pub struct Options {
     local_timeout: Option<u64>,
 
     #[clap(long, action, default_value = "false")]
-    use_daemon: bool,
+    pub use_daemon: bool,
 }
 
 impl Options {
-    fn to_cmd(&self) -> Vec<String> {
+    pub fn to_cmd(&self) -> Vec<String> {
         let mut exec_params = Vec::new();
 
         if let Some(timeout) = self.local_timeout {
