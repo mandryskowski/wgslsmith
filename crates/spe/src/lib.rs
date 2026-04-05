@@ -82,6 +82,10 @@ pub struct ProcessDirOptions {
 
     #[clap(long, action, default_value = "false")]
     pub msl_validate: bool,
+
+    /// Run fallback compile validations when no compute entrypoint is found
+    #[clap(long, action, default_value = "false")]
+    pub compile_validate: bool,
 }
 
 fn run_compile(
@@ -346,6 +350,17 @@ fn process_shader(
     };
 
     if !enumerator::filter_module(&mut module) {
+        writeln!(
+            skipped_log,
+            "Skipping: {} (no compute entrypoint left after filtering)",
+            path.display()
+        )
+        .unwrap();
+
+        if !opt.compile_validate {
+            return;
+        }
+
         println!(
             "{}No compute entrypoint: {}. Running compile validations.",
             progress_prefix,
@@ -364,18 +379,6 @@ fn process_shader(
                 );
             }
         }
-
-        writeln!(
-            skipped_log,
-            "Skipping: {} (no compute entrypoint left after filtering)",
-            path.display()
-        )
-        .unwrap();
-        println!(
-            "{}Skipped: {} (no compute entrypoint)",
-            progress_prefix,
-            path.display()
-        );
         return;
     }
 
