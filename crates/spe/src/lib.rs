@@ -1,12 +1,12 @@
 pub mod enumerator;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use harness_types::{ConfigId, Implementation};
 use rand::seq::SliceRandom;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use walkdir::WalkDir;
 
@@ -33,11 +33,35 @@ fn print_stats() {
 
 #[derive(Parser, Debug)]
 pub struct Options {
-    /// Directory to scan for WGSL shaders
-    directory: PathBuf,
-    /// Path to wslinux executable (optional)
+    #[clap(subcommand)]
+    pub cmd: SpeCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SpeCommand {
+    /// Enumerate and test permutations for a single shader
+    Enumerate(EnumerateOptions),
+    /// Process a directory of shaders
+    ProcessDir(ProcessDirOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct EnumerateOptions {
+    /// Path to the WGSL shader
+    pub shader_path: PathBuf,
+
+    /// Run/print a specific enumeration of a shader
     #[clap(long)]
-    wslinux: Option<PathBuf>,
+    pub enumeration: Option<usize>,
+}
+
+#[derive(Parser, Debug)]
+pub struct ProcessDirOptions {
+    /// Directory to scan for WGSL shaders
+    pub directory: PathBuf,
+
+    #[clap(long)]
+    pub start_index: Option<usize>,
 
     #[clap(long, action, default_value = "false")]
     pub log_to_file: bool,
@@ -49,34 +73,23 @@ pub struct Options {
     #[clap(long, action, default_value = "false")]
     pub use_daemon: bool,
 
-    /// Print out shaders instead of running them
-    #[clap(long, action, default_value = "false")]
-    pub print_only: bool,
-
-    /// Run/print a specific enumeration of a shader
-    #[clap(long)]
-    pub enumeration: Option<usize>,
-
     /// Configurations to run (e.g., wgpu:dx12:5592)
     #[clap(short, long = "config", action)]
     pub configs: Vec<ConfigId>,
 
     #[clap(long, action, default_value = "false")]
     pub msl_validate: bool,
-
-    #[clap(long)]
-    pub start_index: Option<usize>,
 }
 
 fn run_compile(
-    wslinux: &Path,
+    wgslsmith_exe: &Path,
     file: &Path,
     backend: &str,
     compiler: &str,
     failures_log: &mut dyn Write,
     context: &str,
 ) -> bool {
-    let mut cmd = Command::new(wslinux);
+    let mut cmd = process::Command::new(wgslsmith_exe);
     cmd.arg("compile")
         .arg("--backend")
         .arg(backend)
@@ -122,32 +135,102 @@ pub fn run(options: Options) {
         eprintln!("Warning: Failed to set Ctrl-C handler: {}", e);
     }
 
-    let mut skipped_log: Box<dyn Write> = if options.log_to_file {
+    match options.cmd {
+        SpeCommand::Enumerate(opt) => {
+            run_enumerate(opt);
+        }
+        SpeCommand::ProcessDir(opt) => {
+            run_process_dir(opt);
+        }
+    }
+}
+
+fn get_logs(log_to_file: bool) -> (Box<dyn Write>, Box<dyn Write>) {
+    let skipped_log: Box<dyn Write> = if log_to_file {
         Box::new(fs::File::create("skipped.log").unwrap())
     } else {
         Box::new(io::stdout())
     };
 
-    let mut failures_log: Box<dyn Write> = if options.log_to_file {
+    let failures_log: Box<dyn Write> = if log_to_file {
         Box::new(fs::File::create("failures.log").unwrap())
     } else {
         Box::new(io::stderr())
     };
 
-    let wslinux = options
-        .wslinux
-        .or_else(|| {
-            if PathBuf::from("./wslinux").exists() {
-                Some(PathBuf::from("./wslinux"))
-            } else if PathBuf::from("wslinux").exists() {
-                Some(PathBuf::from("wslinux"))
-            } else {
-                None
-            }
-        })
-        .expect("Could not find wslinux executable");
+    (skipped_log, failures_log)
+}
 
-    let entries: Vec<_> = WalkDir::new(&options.directory)
+fn run_enumerate(opt: EnumerateOptions) {
+    let content = match fs::read_to_string(&opt.shader_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to read {}: {}", opt.shader_path.display(), e);
+            return;
+        }
+    };
+
+    let mut module = match std::panic::catch_unwind(|| parser::parse(&content)) {
+        Ok(m) => m,
+        Err(_) => {
+            eprintln!("Parse panic on: {}", opt.shader_path.display());
+            return;
+        }
+    };
+
+    if !enumerator::filter_module(&mut module) {
+        eprintln!("No compute entrypoint: {}", opt.shader_path.display());
+        return;
+    }
+
+    let (holes, enumerations, original_assignment_idx) =
+        match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, None)) {
+            Ok(res) => res,
+            Err(_) => {
+                eprintln!("Enumerate panic on: {}", opt.shader_path.display());
+                return;
+            }
+        };
+
+    if enumerations.is_empty() {
+        println!("No enumerations found.");
+        return;
+    }
+
+    if let Some(enum_idx) = opt.enumeration {
+        if enum_idx >= enumerations.len() {
+            eprintln!(
+                "Error: Requested enumeration index {} is out of bounds (max {}).",
+                enum_idx,
+                enumerations.len() - 1
+            );
+            return;
+        }
+        let out_str = enumerator::apply_assignment(&module, &enumerations[enum_idx]);
+        println!("{}", out_str);
+    } else {
+        println!(
+            "// Found {} holes, {} valid enumerations.",
+            holes,
+            enumerations.len()
+        );
+        if let Some(orig) = original_assignment_idx {
+            println!("// Original assignment is at index {}.", orig);
+        }
+
+        for (i, assigns) in enumerations.iter().enumerate() {
+            let out_str = enumerator::apply_assignment(&module, assigns);
+            println!("// === Enumeration {} ===", i);
+            println!("{}", out_str);
+        }
+    }
+}
+
+fn run_process_dir(opt: ProcessDirOptions) {
+    let wgslsmith_exe = std::env::current_exe().expect("Failed to get current executable path");
+    let (mut skipped_log, mut failures_log) = get_logs(opt.log_to_file);
+
+    let entries: Vec<_> = WalkDir::new(&opt.directory)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| {
@@ -163,363 +246,368 @@ pub fn run(options: Options) {
         let path = entry.path();
         let file_num = file_idx + 1;
 
-        if let Some(start_index) = options.start_index {
+        if let Some(start_index) = opt.start_index {
             if file_num < start_index {
                 continue;
             }
         }
 
-        {
-            let content = match fs::read_to_string(path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            let input_buffers = fs::read_to_string(path.with_extension("in.json")).ok();
-
-            let mut current_configs = options.configs.clone();
-
-            if content.contains("subgroup") && !current_configs.is_empty() {
-                current_configs.retain(|c| c.implementation != Implementation::Wgpu);
-                if current_configs.is_empty() {
-                    writeln!(
-                        skipped_log,
-                        "Skipping: {} (uses subgroups, no valid configs left)",
-                        path.display()
-                    )
-                    .unwrap();
-                    println!(
-                        "[{}/{}] Skipped: {} (uses subgroups, no valid configs left)",
-                        file_num,
-                        total_files,
-                        path.display()
-                    );
-                    continue;
-                }
-            }
-
-            if content.contains("f16") {
-                let original_len = current_configs.len();
-                current_configs.retain(|c| {
-                    let config_str = c.to_string();
-                    config_str != "dawn:vk:8593"
-                });
-
-                if current_configs.len() < original_len {
-                    writeln!(
-                        skipped_log,
-                        "Filtering dawn:vk:8593 from: {} (uses f16)",
-                        path.display()
-                    )
-                    .unwrap();
-                }
-            }
-
-            let mut module = match std::panic::catch_unwind(|| parser::parse(&content)) {
-                Ok(m) => m,
-                Err(_) => {
-                    writeln!(failures_log, "Parse panic on: {}", path.display()).unwrap();
-                    FAILED_PARSE.fetch_add(1, Ordering::SeqCst);
-                    continue;
-                }
-            };
-
-            if !enumerator::filter_module(&mut module) {
-                println!(
-                    "[{}/{}] No compute entrypoint: {}. Running compile validations.",
-                    file_num,
-                    total_files,
-                    path.display()
-                );
-
-                for backend in &["hlsl", "spirv", "msl"] {
-                    for compiler in &["tint", "naga"] {
-                        run_compile(
-                            &wslinux,
-                            path,
-                            backend,
-                            compiler,
-                            &mut *failures_log,
-                            &format!("(no entrypoint for {})", path.display()),
-                        );
-                    }
-                }
-
-                writeln!(
-                    skipped_log,
-                    "Skipping: {} (no compute entrypoint left after filtering)",
-                    path.display()
-                )
-                .unwrap();
-                println!(
-                    "[{}/{}] Skipped: {} (no compute entrypoint)",
-                    file_num,
-                    total_files,
-                    path.display()
-                );
-                continue;
-            }
-
-            let (holes, mut enumerations, original_assignment_idx) = {
-                let est = enumerator::estimate_enumerations(&module);
-                if est > 100_000 {
-                    writeln!(
-                        skipped_log,
-                        "Skipping: {} (estimated {} bounds, > 100,000)",
-                        path.display(),
-                        est
-                    )
-                    .unwrap();
-                    println!(
-                        "[{}/{}] Skipped prematurely: {} (estimated {} bounds)",
-                        file_num,
-                        total_files,
-                        path.display(),
-                        est
-                    );
-                    continue;
-                }
-                match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, None)) {
-                    Ok(res) => res,
-                    Err(_) => {
-                        writeln!(failures_log, "Enumerate panic on: {}", path.display()).unwrap();
-                        FAILED_RUN.fetch_add(1, Ordering::SeqCst);
-                        continue;
-                    }
-                }
-            };
-
-            if original_assignment_idx.is_none() {
-                writeln!(
-                    failures_log,
-                    "No original assignment found for: {}",
-                    path.display()
-                )
-                .unwrap();
-                FAILED_RUN.fetch_add(1, Ordering::SeqCst);
-                continue;
-            }
-
-            println!("original_assignment_idx {:?}", original_assignment_idx);
-
-            if enumerations.len() > 500 {
-                println!(
-                    "[{}/{}] Downsampling: {} ({} enumerations -> 500 randomly sampled, {} holes)",
-                    file_num,
-                    total_files,
-                    path.display(),
-                    enumerations.len(),
-                    holes
-                );
-
-                let mut rng = rand::thread_rng();
-                enumerations.shuffle(&mut rng);
-                enumerations.truncate(500);
-            } else {
-                println!(
-                    "[{}/{}] Processing: {} ({} enumerations, {} holes)",
-                    file_num,
-                    total_files,
-                    path.display(),
-                    enumerations.len(),
-                    holes
-                );
-            }
-
-            let mut failed_count = 0;
-            let mut shader_has_runtime_failure = false;
-
-            for (i, assigns) in enumerations.iter().enumerate() {
-                if let Some(enum_idx) = options.enumeration {
-                    if i != enum_idx {
-                        continue;
-                    }
-                }
-
-                let case_str = if Some(i) == original_assignment_idx {
-                    format!("(case {i} (original))")
-                } else {
-                    format!("(case {i})")
-                };
-
-                let out_str = match std::panic::catch_unwind(|| {
-                    enumerator::apply_assignment(&module, assigns)
-                }) {
-                    Ok(s) => s,
-                    Err(_) => {
-                        writeln!(
-                            failures_log,
-                            "Apply assignment panic on: {} {case_str}",
-                            path.display()
-                        )
-                        .unwrap();
-                        failed_count += 1;
-                        shader_has_runtime_failure = true;
-                        if failed_count >= 10 {
-                            println!(
-                                "[{}/{}] Skipped remaining enumerations for {} (>= 10 failures)",
-                                file_num,
-                                total_files,
-                                path.display()
-                            );
-                            break;
-                        }
-                        continue;
-                    }
-                };
-
-                if options.print_only {
-                    println!("{}", out_str);
-                    continue;
-                }
-
-                let tmp_path = std::env::temp_dir().join(format!(
-                    "shader_{}_{}_{}.wgsl",
-                    std::process::id(),
-                    file_num,
-                    i
-                ));
-
-                fs::write(&tmp_path, &out_str).expect("Failed to write temporary shader file");
-
-                let mut recond_cmd = Command::new(&wslinux);
-                recond_cmd.arg("recondition").arg(&tmp_path);
-
-                match recond_cmd.output() {
-                    Ok(out) => {
-                        if out.status.success() {
-                            let reconditioned_src = String::from_utf8_lossy(&out.stdout);
-                            fs::write(&tmp_path, reconditioned_src.as_ref())
-                                .expect("Failed to write reconditioned temporary shader file");
-                        } else {
-                            shader_has_runtime_failure = true;
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            writeln!(
-                                failures_log,
-                                "Recondition failed for: {} {}\nStderr: {}",
-                                path.display(),
-                                case_str,
-                                stderr
-                            )
-                            .unwrap();
-                        }
-                    }
-                    Err(e) => {
-                        shader_has_runtime_failure = true;
-                        writeln!(
-                            failures_log,
-                            "Failed to execute wslinux recondition for: {} {}\nError: {}",
-                            path.display(),
-                            case_str,
-                            e
-                        )
-                        .unwrap();
-                    }
-                }
-                if options.msl_validate {
-                    let msl_tint_ok = run_compile(
-                        &wslinux,
-                        &tmp_path,
-                        "msl",
-                        "tint",
-                        &mut *failures_log,
-                        &format!("for {} {}", path.display(), case_str),
-                    );
-
-                    let mut msl_naga_ok = true;
-                    if !content.contains("subgroup") {
-                        msl_naga_ok = run_compile(
-                            &wslinux,
-                            &tmp_path,
-                            "msl",
-                            "naga",
-                            &mut *failures_log,
-                            &format!("for {} {}", path.display(), case_str),
-                        );
-                    }
-
-                    if !msl_tint_ok || !msl_naga_ok {
-                        failed_count += 1;
-                        shader_has_runtime_failure = true;
-                    }
-                }
-
-                let mut cmd = Command::new(&wslinux);
-                cmd.arg("run");
-
-                for config in &current_configs {
-                    cmd.arg("-c").arg(config.to_string());
-                }
-
-                cmd.arg("-j");
-
-                if let Some(j) = options.parallelism {
-                    cmd.arg(j.to_string());
-                } else {
-                    cmd.arg("2");
-                }
-
-                if options.use_daemon {
-                    cmd.arg("--use-daemon");
-                }
-
-                cmd.arg(&tmp_path);
-
-                if let Some(input_buffers) = &input_buffers {
-                    cmd.arg(input_buffers);
-                }
-
-                let output = cmd.output();
-                match output {
-                    Ok(out) => {
-                        if !out.status.success() {
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            let stdout = String::from_utf8_lossy(&out.stdout);
-                            writeln!(
-                                failures_log,
-                                "Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
-                                path.display(),
-                                stdout,
-                                stderr
-                            )
-                            .unwrap();
-                            failed_count += 1;
-                            shader_has_runtime_failure = true;
-                        }
-                    }
-                    Err(e) => {
-                        writeln!(
-                            failures_log,
-                            "Failed to run wslinux for: {} {case_str}\nError: {}",
-                            path.display(),
-                            e
-                        )
-                        .unwrap();
-                        failed_count += 1;
-                        shader_has_runtime_failure = true;
-                    }
-                }
-
-                fs::remove_file(&tmp_path).ok();
-
-                if failed_count >= 10 {
-                    println!(
-                        "[{}/{}] Skipped remaining enumerations for {} (>= 10 failures)",
-                        file_num,
-                        total_files,
-                        path.display()
-                    );
-                    break;
-                }
-            }
-
-            if shader_has_runtime_failure {
-                FAILED_RUN.fetch_add(1, Ordering::SeqCst);
-            } else {
-                ENUMERATED_NO_ISSUE.fetch_add(1, Ordering::SeqCst);
-            }
-        }
+        process_shader(
+            path,
+            file_num,
+            Some(total_files),
+            &opt,
+            &wgslsmith_exe,
+            &mut *skipped_log,
+            &mut *failures_log,
+        );
     }
 
     print_stats();
+}
+
+fn process_shader(
+    path: &Path,
+    file_num: usize,
+    total_files: Option<usize>,
+    opt: &ProcessDirOptions,
+    wgslsmith_exe: &Path,
+    skipped_log: &mut dyn Write,
+    failures_log: &mut dyn Write,
+) {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let input_buffers = fs::read_to_string(path.with_extension("in.json")).ok();
+
+    let mut current_configs = opt.configs.clone();
+
+    let progress_prefix = if let Some(total) = total_files {
+        format!("[{}/{}] ", file_num, total)
+    } else {
+        "".to_string()
+    };
+
+    if content.contains("subgroup") && !current_configs.is_empty() {
+        current_configs.retain(|c| c.implementation != Implementation::Wgpu);
+        if current_configs.is_empty() {
+            writeln!(
+                skipped_log,
+                "Skipping: {} (uses subgroups, no valid configs left)",
+                path.display()
+            )
+            .unwrap();
+            println!(
+                "{}Skipped: {} (uses subgroups, no valid configs left)",
+                progress_prefix,
+                path.display()
+            );
+            return;
+        }
+    }
+
+    if content.contains("f16") {
+        let original_len = current_configs.len();
+        current_configs.retain(|c| {
+            let config_str = c.to_string();
+            config_str != "dawn:vk:8593"
+        });
+
+        if current_configs.len() < original_len {
+            writeln!(
+                skipped_log,
+                "Filtering dawn:vk:8593 from: {} (uses f16)",
+                path.display()
+            )
+            .unwrap();
+        }
+    }
+
+    let mut module = match std::panic::catch_unwind(|| parser::parse(&content)) {
+        Ok(m) => m,
+        Err(_) => {
+            writeln!(failures_log, "Parse panic on: {}", path.display()).unwrap();
+            FAILED_PARSE.fetch_add(1, Ordering::SeqCst);
+            return;
+        }
+    };
+
+    if !enumerator::filter_module(&mut module) {
+        println!(
+            "{}No compute entrypoint: {}. Running compile validations.",
+            progress_prefix,
+            path.display()
+        );
+
+        for backend in &["hlsl", "spirv", "msl"] {
+            for compiler in &["tint", "naga"] {
+                run_compile(
+                    wgslsmith_exe,
+                    path,
+                    backend,
+                    compiler,
+                    failures_log,
+                    &format!("(no entrypoint for {})", path.display()),
+                );
+            }
+        }
+
+        writeln!(
+            skipped_log,
+            "Skipping: {} (no compute entrypoint left after filtering)",
+            path.display()
+        )
+        .unwrap();
+        println!(
+            "{}Skipped: {} (no compute entrypoint)",
+            progress_prefix,
+            path.display()
+        );
+        return;
+    }
+
+    let (holes, mut enumerations, original_assignment_idx) = {
+        let est = enumerator::estimate_enumerations(&module);
+        if est > 100_000 {
+            writeln!(
+                skipped_log,
+                "Skipping: {} (estimated {} bounds, > 100,000)",
+                path.display(),
+                est
+            )
+            .unwrap();
+            println!(
+                "{}Skipped prematurely: {} (estimated {} bounds)",
+                progress_prefix,
+                path.display(),
+                est
+            );
+            return;
+        }
+        match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, None)) {
+            Ok(res) => res,
+            Err(_) => {
+                writeln!(failures_log, "Enumerate panic on: {}", path.display()).unwrap();
+                FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+                return;
+            }
+        }
+    };
+
+    if original_assignment_idx.is_none() {
+        writeln!(
+            failures_log,
+            "No original assignment found for: {}",
+            path.display()
+        )
+        .unwrap();
+        FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+        return;
+    }
+
+    println!("original_assignment_idx {:?}", original_assignment_idx);
+
+    if enumerations.len() > 500 {
+        println!(
+            "{}Downsampling: {} ({} enumerations -> 500 randomly sampled, {} holes)",
+            progress_prefix,
+            path.display(),
+            enumerations.len(),
+            holes
+        );
+
+        let mut rng = rand::thread_rng();
+        enumerations.shuffle(&mut rng);
+        enumerations.truncate(500);
+    } else {
+        println!(
+            "{}Processing: {} ({} enumerations, {} holes)",
+            progress_prefix,
+            path.display(),
+            enumerations.len(),
+            holes
+        );
+    }
+
+    let mut failed_count = 0;
+    let mut shader_has_runtime_failure = false;
+
+    for (i, assigns) in enumerations.iter().enumerate() {
+        let case_str = if Some(i) == original_assignment_idx {
+            format!("(case {i} (original))")
+        } else {
+            format!("(case {i})")
+        };
+
+        let out_str =
+            match std::panic::catch_unwind(|| enumerator::apply_assignment(&module, assigns)) {
+                Ok(s) => s,
+                Err(_) => {
+                    writeln!(
+                        failures_log,
+                        "Apply assignment panic on: {} {case_str}",
+                        path.display()
+                    )
+                    .unwrap();
+                    failed_count += 1;
+                    shader_has_runtime_failure = true;
+                    if failed_count >= 10 {
+                        println!(
+                            "{}Skipped remaining enumerations for {} (>= 10 failures)",
+                            progress_prefix,
+                            path.display()
+                        );
+                        break;
+                    }
+                    continue;
+                }
+            };
+
+        let tmp_path = std::env::temp_dir().join(format!(
+            "shader_{}_{}_{}.wgsl",
+            std::process::id(),
+            file_num,
+            i
+        ));
+
+        fs::write(&tmp_path, &out_str).expect("Failed to write temporary shader file");
+
+        let mut recond_cmd = process::Command::new(wgslsmith_exe);
+        recond_cmd.arg("recondition").arg(&tmp_path);
+
+        match recond_cmd.output() {
+            Ok(out) => {
+                if out.status.success() {
+                    let reconditioned_src = String::from_utf8_lossy(&out.stdout);
+                    fs::write(&tmp_path, reconditioned_src.as_ref())
+                        .expect("Failed to write reconditioned temporary shader file");
+                } else {
+                    shader_has_runtime_failure = true;
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    writeln!(
+                        failures_log,
+                        "Recondition failed for: {} {}\nStderr: {}",
+                        path.display(),
+                        case_str,
+                        stderr
+                    )
+                    .unwrap();
+                }
+            }
+            Err(e) => {
+                shader_has_runtime_failure = true;
+                writeln!(
+                    failures_log,
+                    "Failed to execute wslinux recondition for: {} {}\nError: {}",
+                    path.display(),
+                    case_str,
+                    e
+                )
+                .unwrap();
+            }
+        }
+
+        if opt.msl_validate {
+            let msl_tint_ok = run_compile(
+                wgslsmith_exe,
+                &tmp_path,
+                "msl",
+                "tint",
+                failures_log,
+                &format!("for {} {}", path.display(), case_str),
+            );
+
+            let mut msl_naga_ok = true;
+            if !content.contains("subgroup") {
+                msl_naga_ok = run_compile(
+                    wgslsmith_exe,
+                    &tmp_path,
+                    "msl",
+                    "naga",
+                    failures_log,
+                    &format!("for {} {}", path.display(), case_str),
+                );
+            }
+
+            if !msl_tint_ok || !msl_naga_ok {
+                failed_count += 1;
+                shader_has_runtime_failure = true;
+            }
+        }
+
+        let mut cmd = process::Command::new(wgslsmith_exe);
+        cmd.arg("run");
+
+        for config in &current_configs {
+            cmd.arg("-c").arg(config.to_string());
+        }
+
+        cmd.arg("-j");
+
+        if let Some(j) = opt.parallelism {
+            cmd.arg(j.to_string());
+        } else {
+            cmd.arg("2");
+        }
+
+        if opt.use_daemon {
+            cmd.arg("--use-daemon");
+        }
+
+        cmd.arg(&tmp_path);
+
+        if let Some(input_buffers) = &input_buffers {
+            cmd.arg(input_buffers);
+        }
+
+        let output = cmd.output();
+        match output {
+            Ok(out) => {
+                if !out.status.success() {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    writeln!(
+                        failures_log,
+                        "Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
+                        path.display(),
+                        stdout,
+                        stderr
+                    )
+                    .unwrap();
+                    failed_count += 1;
+                    shader_has_runtime_failure = true;
+                }
+            }
+            Err(e) => {
+                writeln!(
+                    failures_log,
+                    "Failed to run wgslsmith for: {} {case_str}\nError: {}",
+                    path.display(),
+                    e
+                )
+                .unwrap();
+                failed_count += 1;
+                shader_has_runtime_failure = true;
+            }
+        }
+
+        fs::remove_file(&tmp_path).ok();
+
+        if failed_count >= 10 {
+            println!(
+                "{}Skipped remaining enumerations for {} (>= 10 failures)",
+                progress_prefix,
+                path.display()
+            );
+            break;
+        }
+    }
+
+    if shader_has_runtime_failure {
+        FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+    } else {
+        ENUMERATED_NO_ISSUE.fetch_add(1, Ordering::SeqCst);
+    }
 }
