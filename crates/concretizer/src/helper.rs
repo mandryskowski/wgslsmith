@@ -1,7 +1,16 @@
+use crate::concretizer::ConNode;
 use crate::value::Value;
-use ast::Lit;
+use ast::{Expr, Lit};
 
 // Division
+pub(crate) fn is_zero_node(con: &ConNode) -> bool {
+    if let Some(val) = &con.value {
+        is_zero(val)
+    } else {
+        is_zero_expr(&con.node.expr)
+    }
+}
+
 pub(crate) fn is_zero(val: &Value) -> bool {
     match val {
         Value::Lit(Lit::I32(v)) => *v == 0,
@@ -9,6 +18,17 @@ pub(crate) fn is_zero(val: &Value) -> bool {
         Value::Lit(Lit::F32(v)) => *v == 0.0,
         Value::Lit(Lit::F16(v)) => *v == half::f16::ZERO,
         Value::Vector(vec) => vec.iter().any(is_zero),
+        _ => false,
+    }
+}
+
+fn is_zero_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(Lit::I32(v)) => *v == 0,
+        Expr::Lit(Lit::U32(v)) => *v == 0,
+        Expr::Lit(Lit::F32(v)) => *v == 0.0,
+        Expr::Lit(Lit::F16(v)) => *v == half::f16::ZERO,
+        Expr::TypeCons(type_cons) => type_cons.args.iter().any(|arg| is_zero_expr(&arg.expr)),
         _ => false,
     }
 }
