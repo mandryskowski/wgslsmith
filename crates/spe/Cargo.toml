@@ -15,3 +15,6 @@ rand = "0.8"
 ast = { path = "../ast" }
 harness-types = { path = "../harness-types" }
 
+[dependencies.time]
+version = "0.3.9"
+features = ["formatting", "local-offset"]
