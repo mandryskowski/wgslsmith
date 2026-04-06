@@ -26,7 +26,14 @@ fn print_stats() {
     let run_failed = FAILED_RUN.load(Ordering::SeqCst);
     let last_idx = LAST_INDEX.load(Ordering::SeqCst);
 
+    // Capture the exact command and arguments used
+    let args: Vec<String> = std::env::args().collect();
+
     println!("\n=== SPE Execution Statistics ===");
+    println!(
+        "- Command ran:                                {}",
+        args.join(" ")
+    );
     println!(
         "- Number of shaders enumerated with no issue: {}",
         enumerated
@@ -43,15 +50,22 @@ fn print_stats() {
     println!("================================\n");
 
     if let Some(out_dir) = OUT_DIR.get() {
+        // Safely escape backslashes and quotes for valid JSON
+        let args_json = args
+            .iter()
+            .map(|a| format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(", ");
+
         let json = format!(
-            "{{\n  \"enumerated_no_issue\": {},\n  \"failed_parse\": {},\n  \"failed_run\": {},\n  \"last_handled_index\": {}\n}}",
-            enumerated, parse_failed, run_failed, last_idx
+            "{{\n  \"args\": [{}],\n  \"enumerated_no_issue\": {},\n  \"failed_parse\": {},\n  \"failed_run\": {},\n  \"last_handled_index\": {}\n}}",
+            args_json, enumerated, parse_failed, run_failed, last_idx
         );
         let _ = fs::write(out_dir.join("stats.json"), json);
     }
 }
 
-fn load_stats(out_dir: &Path) {
+fn load_stats(out_dir: &Path) -> usize {
     let stats_path = out_dir.join("stats.json");
     if let Ok(content) = fs::read_to_string(stats_path) {
         let parse_val = |key: &str| -> usize {
@@ -65,7 +79,10 @@ fn load_stats(out_dir: &Path) {
         ENUMERATED_NO_ISSUE.store(parse_val("\"enumerated_no_issue\""), Ordering::SeqCst);
         FAILED_PARSE.store(parse_val("\"failed_parse\""), Ordering::SeqCst);
         FAILED_RUN.store(parse_val("\"failed_run\""), Ordering::SeqCst);
+
+        return parse_val("\"last_handled_index\"");
     }
+    0
 }
 
 #[derive(Parser, Debug)]
@@ -300,11 +317,19 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
 fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
     let wgslsmith_exe = std::env::current_exe().expect("Failed to get current executable path");
 
+    let mut effective_start_index = opt.start_index;
+
     let (out_dir, append) = if let Some(dir) = &opt.append_dir {
-        load_stats(dir);
+        let last_idx = load_stats(dir);
+
+        // If the user didn't specify a start_index, automatically resume
+        // from the last recorded index in stats.json
+        if effective_start_index.is_none() && last_idx > 0 {
+            effective_start_index = Some(last_idx);
+        }
+
         (dir.clone(), true)
     } else {
-        // Read safely from the OnceLock
         let offset = *UTC_OFFSET.get().unwrap_or(&UtcOffset::UTC);
         let now = OffsetDateTime::now_utc().to_offset(offset);
         let format =
@@ -335,7 +360,8 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
         let path = entry.path();
         let file_num = file_idx + 1;
 
-        if let Some(start_index) = opt.start_index {
+        // Skip files until we reach our effective start index
+        if let Some(start_index) = effective_start_index {
             if file_num < start_index {
                 continue;
             }
