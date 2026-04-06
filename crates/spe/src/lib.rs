@@ -8,27 +8,64 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
+use time::{format_description, OffsetDateTime, UtcOffset};
 use walkdir::WalkDir;
 
 static ENUMERATED_NO_ISSUE: AtomicUsize = AtomicUsize::new(0);
 static FAILED_PARSE: AtomicUsize = AtomicUsize::new(0);
 static FAILED_RUN: AtomicUsize = AtomicUsize::new(0);
+static LAST_INDEX: AtomicUsize = AtomicUsize::new(0);
+
+static OUT_DIR: OnceLock<PathBuf> = OnceLock::new();
+static UTC_OFFSET: OnceLock<UtcOffset> = OnceLock::new();
 
 fn print_stats() {
+    let enumerated = ENUMERATED_NO_ISSUE.load(Ordering::SeqCst);
+    let parse_failed = FAILED_PARSE.load(Ordering::SeqCst);
+    let run_failed = FAILED_RUN.load(Ordering::SeqCst);
+    let last_idx = LAST_INDEX.load(Ordering::SeqCst);
+
     println!("\n=== SPE Execution Statistics ===");
     println!(
         "- Number of shaders enumerated with no issue: {}",
-        ENUMERATED_NO_ISSUE.load(Ordering::SeqCst)
+        enumerated
     );
     println!(
         "- Number of shaders failed to parse:          {}",
-        FAILED_PARSE.load(Ordering::SeqCst)
+        parse_failed
     );
     println!(
         "- Number of shaders failed while running:     {}",
-        FAILED_RUN.load(Ordering::SeqCst)
+        run_failed
     );
+    println!("- Last handled shader index:                  {}", last_idx);
     println!("================================\n");
+
+    if let Some(out_dir) = OUT_DIR.get() {
+        let json = format!(
+            "{{\n  \"enumerated_no_issue\": {},\n  \"failed_parse\": {},\n  \"failed_run\": {},\n  \"last_handled_index\": {}\n}}",
+            enumerated, parse_failed, run_failed, last_idx
+        );
+        let _ = fs::write(out_dir.join("stats.json"), json);
+    }
+}
+
+fn load_stats(out_dir: &Path) {
+    let stats_path = out_dir.join("stats.json");
+    if let Ok(content) = fs::read_to_string(stats_path) {
+        let parse_val = |key: &str| -> usize {
+            content
+                .lines()
+                .find(|l| l.contains(key))
+                .and_then(|l| l.split(':').nth(1))
+                .and_then(|s| s.trim().trim_end_matches(',').parse().ok())
+                .unwrap_or(0)
+        };
+        ENUMERATED_NO_ISSUE.store(parse_val("\"enumerated_no_issue\""), Ordering::SeqCst);
+        FAILED_PARSE.store(parse_val("\"failed_parse\""), Ordering::SeqCst);
+        FAILED_RUN.store(parse_val("\"failed_run\""), Ordering::SeqCst);
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -65,6 +102,10 @@ pub struct ProcessDirOptions {
 
     #[clap(long)]
     pub start_index: Option<usize>,
+
+    /// Append to an existing directory's logs and resume its stats
+    #[clap(long)]
+    pub append_dir: Option<PathBuf>,
 
     #[clap(long, action, default_value = "false")]
     pub log_to_file: bool,
@@ -134,6 +175,8 @@ fn run_compile(
 }
 
 pub fn run(options: Options) {
+    UTC_OFFSET.get_or_init(|| UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC));
+
     if let Err(e) = ctrlc::set_handler(move || {
         println!("\nProcess interrupted by user.");
         print_stats();
@@ -154,15 +197,31 @@ pub fn run(options: Options) {
     }
 }
 
-fn get_logs(log_to_file: bool) -> (Box<dyn Write>, Box<dyn Write>) {
+fn get_logs(log_to_file: bool, out_dir: &Path, append: bool) -> (Box<dyn Write>, Box<dyn Write>) {
     let skipped_log: Box<dyn Write> = if log_to_file {
-        Box::new(fs::File::create("skipped.log").unwrap())
+        Box::new(
+            fs::OpenOptions::new()
+                .create(true)
+                .append(append)
+                .write(true)
+                .truncate(!append)
+                .open(out_dir.join("skipped.log"))
+                .unwrap(),
+        )
     } else {
         Box::new(io::stdout())
     };
 
     let failures_log: Box<dyn Write> = if log_to_file {
-        Box::new(fs::File::create("failures.log").unwrap())
+        Box::new(
+            fs::OpenOptions::new()
+                .create(true)
+                .append(append)
+                .write(true)
+                .truncate(!append)
+                .open(out_dir.join("failures.log"))
+                .unwrap(),
+        )
     } else {
         Box::new(io::stderr())
     };
@@ -240,7 +299,25 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
 
 fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
     let wgslsmith_exe = std::env::current_exe().expect("Failed to get current executable path");
-    let (mut skipped_log, mut failures_log) = get_logs(opt.log_to_file);
+
+    let (out_dir, append) = if let Some(dir) = &opt.append_dir {
+        load_stats(dir);
+        (dir.clone(), true)
+    } else {
+        // Read safely from the OnceLock
+        let offset = *UTC_OFFSET.get().unwrap_or(&UtcOffset::UTC);
+        let now = OffsetDateTime::now_utc().to_offset(offset);
+        let format =
+            format_description::parse("spe-[year]-[month]-[day]-[hour]-[minute]-[second]").unwrap();
+        let dir_name = now.format(&format).unwrap();
+        (PathBuf::from(dir_name), false)
+    };
+
+    fs::create_dir_all(&out_dir).unwrap();
+    let _ = OUT_DIR.set(out_dir.clone());
+
+    let log_to_file = opt.log_to_file || opt.append_dir.is_some();
+    let (mut skipped_log, mut failures_log) = get_logs(log_to_file, &out_dir, append);
 
     let entries: Vec<_> = WalkDir::new(&opt.directory)
         .into_iter()
@@ -264,6 +341,8 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
             }
         }
 
+        LAST_INDEX.store(file_num, Ordering::SeqCst);
+
         process_shader(
             path,
             file_num,
@@ -271,6 +350,7 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
             &opt,
             skip_original,
             &wgslsmith_exe,
+            &out_dir,
             &mut *skipped_log,
             &mut *failures_log,
         );
@@ -287,6 +367,7 @@ fn process_shader(
     opt: &ProcessDirOptions,
     skip_original: bool,
     wgslsmith_exe: &Path,
+    out_dir: &Path,
     skipped_log: &mut dyn Write,
     failures_log: &mut dyn Write,
 ) {
@@ -675,18 +756,17 @@ fn process_shader(
         }
     }
 
-    // Save failing enumerations if at least one variant succeeded
     if has_success && !failures_to_save.is_empty() {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         for (i, kind, stdout, stderr, src, recond_src) in failures_to_save {
-            let out_dir = PathBuf::from("out").join(format!("{}_{}-{kind}", stem, i));
-            std::fs::create_dir_all(&out_dir).unwrap();
+            let failure_out_dir = out_dir.join("out").join(format!("{}_{}-{kind}", stem, i));
+            std::fs::create_dir_all(&failure_out_dir).unwrap();
 
-            std::fs::write(out_dir.join("shader.wgsl"), src).unwrap();
-            std::fs::write(out_dir.join("reconditioned.wgsl"), recond_src).unwrap();
+            std::fs::write(failure_out_dir.join("shader.wgsl"), src).unwrap();
+            std::fs::write(failure_out_dir.join("reconditioned.wgsl"), recond_src).unwrap();
 
             if let Some(in_bufs) = &input_buffers {
-                std::fs::write(out_dir.join("inputs.json"), in_bufs).unwrap();
+                std::fs::write(failure_out_dir.join("inputs.json"), in_bufs).unwrap();
             }
 
             let configs_str = opt
@@ -703,13 +783,13 @@ fn process_shader(
                 "{{\n  \"configs\": [{}],\n  \"kind\": \"{}\",\n  \"name\": \"{name}\",\n  \"flags\": []\n}}",
                 configs_str, kind
             );
-            std::fs::write(out_dir.join("info.json"), info).unwrap();
+            std::fs::write(failure_out_dir.join("info.json"), info).unwrap();
 
             if kind == "crash" {
-                std::fs::write(out_dir.join("stderr.txt"), stderr).unwrap();
+                std::fs::write(failure_out_dir.join("stderr.txt"), stderr).unwrap();
             } else {
-                std::fs::write(out_dir.join("consensus.json"), stdout).unwrap();
-                std::fs::write(out_dir.join("stderr.txt"), stderr).unwrap();
+                std::fs::write(failure_out_dir.join("consensus.json"), stdout).unwrap();
+                std::fs::write(failure_out_dir.join("stderr.txt"), stderr).unwrap();
             }
         }
     }
