@@ -73,7 +73,7 @@ enum Cmd {
     },
     /// Re-runs daemon crashes recursively.
     RerunDaemon(rerun_daemon::Options),
-    /// Run the Shader Permutation Engine (SPE).
+    /// Run Skeletal Program Enumeration (SPE).
     Spe(spe::Options),
 }
 

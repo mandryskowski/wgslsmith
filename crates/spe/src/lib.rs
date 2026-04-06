@@ -26,7 +26,6 @@ fn print_stats() {
     let run_failed = FAILED_RUN.load(Ordering::SeqCst);
     let last_idx = LAST_INDEX.load(Ordering::SeqCst);
 
-    // Capture the exact command and arguments used
     let args: Vec<String> = std::env::args().collect();
 
     println!("\n=== SPE Execution Statistics ===");
@@ -50,7 +49,6 @@ fn print_stats() {
     println!("================================\n");
 
     if let Some(out_dir) = OUT_DIR.get() {
-        // Safely escape backslashes and quotes for valid JSON
         let args_json = args
             .iter()
             .map(|a| format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\"")))
@@ -322,8 +320,6 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
     let (out_dir, append) = if let Some(dir) = &opt.append_dir {
         let last_idx = load_stats(dir);
 
-        // If the user didn't specify a start_index, automatically resume
-        // from the last recorded index in stats.json
         if effective_start_index.is_none() && last_idx > 0 {
             effective_start_index = Some(last_idx);
         }
@@ -360,7 +356,6 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
         let path = entry.path();
         let file_num = file_idx + 1;
 
-        // Skip files until we reach our effective start index
         if let Some(start_index) = effective_start_index {
             if file_num < start_index {
                 continue;
