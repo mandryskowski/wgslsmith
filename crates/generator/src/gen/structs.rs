@@ -15,14 +15,14 @@ pub enum StructKind {
     UniformBuffer,
 }
 
-fn round_up(alignment: u32, offset: u32) -> u32 {
+pub(crate) fn round_up(alignment: u32, offset: u32) -> u32 {
     if alignment == 0 {
         return offset;
     }
     offset.div_ceil(alignment) * alignment
 }
 
-fn align_of(ty: &DataType) -> u32 {
+pub(crate) fn align_of(ty: &DataType) -> u32 {
     match ty {
         DataType::Scalar(s) => match s {
             ScalarType::F16 => 2,
@@ -56,7 +56,7 @@ fn align_of(ty: &DataType) -> u32 {
     }
 }
 
-fn size_of(ty: &DataType) -> u32 {
+pub(crate) fn size_of(ty: &DataType) -> u32 {
     match ty {
         DataType::Scalar(s) => match s {
             ScalarType::F16 => 2,

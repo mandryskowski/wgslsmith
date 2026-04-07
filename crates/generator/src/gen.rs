@@ -151,9 +151,11 @@ impl<'a> Generator<'a> {
             );
         }
 
+        let mut workgroup_size = 0;
+
         for i in 0..self.rng.gen_range(0..=5) {
             let name = format!("global{i}");
-            global_vars.push(self.gen_global_var(name));
+            global_vars.push(self.gen_global_var(name, &mut workgroup_size));
         }
 
         let entrypoint = self.gen_entrypoint_function(
@@ -190,18 +192,34 @@ impl<'a> Generator<'a> {
         }
     }
 
-    fn gen_global_var(&mut self, name: String) -> GlobalVarDecl {
-        let mut data_type = self.cx.types.select(self.rng);
+    fn gen_global_var(&mut self, name: String, workgroup_size: &mut u32) -> GlobalVarDecl {
+        let mut data_type;
+        let mut storage_class;
+
+        data_type = self.cx.types.select(self.rng);
 
         if self.rng.gen_bool(0.5) {
             data_type = DataType::Array(Rc::new(data_type), Some(self.rng.gen_range(1..=32)));
         }
 
-        let storage_class = if self.rng.gen_bool(0.5) {
+        storage_class = if self.rng.gen_bool(0.5) {
             StorageClass::WorkGroup
         } else {
             StorageClass::Private
         };
+
+        // If the global variable won't fit in the workgroup storage, fallback to private
+        if storage_class == StorageClass::WorkGroup {
+            let align = structs::align_of(&data_type);
+            let size = structs::size_of(&data_type);
+            let offset = structs::round_up(align, *workgroup_size);
+
+            if offset + size <= self.options.max_compute_workgroup_storage_size {
+                *workgroup_size = offset + size;
+            } else {
+                storage_class = StorageClass::Private;
+            }
+        }
 
         let mem_view = MemoryViewType::new(data_type.clone(), storage_class);
         let ref_type = DataType::Ref(mem_view);
