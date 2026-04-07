@@ -155,7 +155,7 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
     let output = Command::new(std::env::current_exe().unwrap())
         .arg("gen")
         .args(["--block-min-stmts", "1"])
-        .args(["--block-max-stmts", "1"])
+        .args(["--block-max-stmts", "2"])
         .args(["--max-fns", "3"])
         .tap_mut(|cmd| {
             if options.enable_pointers {
@@ -467,8 +467,15 @@ fn worker_iteration(
         .ok_or_else(|| eyre!("expected first line of shader to be a JSON metadata comment"))?;
 
     let metadata = metadata.trim_start_matches("//").trim();
+
     let reconditioned = match recondition_shader(shader) {
-        Ok(reconditioned) => reconditioned,
+        Ok(reconditioned) => format!(
+            "{}\n{reconditioned}",
+            shader
+                .split_once('\n')
+                .ok_or_else(|| eyre!("expected first line of shader to be a seed comment"))?
+                .0
+        ),
         Err(_) => {
             eprintln!("reconditioner command failed, ignoring");
             return Ok(WorkerResult {

@@ -3,7 +3,7 @@ use derive_more::Display;
 use crate::types::DataType;
 use crate::ExprNode;
 
-#[derive(Debug, Display, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq, Clone)]
 pub enum GlobalVarAttr {
     #[display("binding({_0})")]
     Binding(i32),
@@ -50,13 +50,13 @@ pub enum AccessMode {
     ReadWrite,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct VarQualifier {
     pub storage_class: StorageClass,
     pub access_mode: Option<AccessMode>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct GlobalVarDecl {
     pub attrs: Vec<GlobalVarAttr>,
     pub qualifier: Option<VarQualifier>,

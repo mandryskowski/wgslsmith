@@ -111,6 +111,10 @@ pub struct Options {
     #[clap(long, action, default_value = "3")]
     pub max_if_chain_depth: u32,
 
+    /// Maximum compute workgroup storage size
+    #[clap(long, action, default_value = "16384")]
+    pub max_compute_workgroup_storage_size: u32,
+
     /// Preset options configuration. Individual options may still be overridden.
     #[clap(long, action)]
     pub preset: Option<Preset>,

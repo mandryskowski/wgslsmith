@@ -73,6 +73,8 @@ enum Cmd {
     },
     /// Re-runs daemon crashes recursively.
     RerunDaemon(rerun_daemon::Options),
+    /// Run Skeletal Program Enumeration (SPE).
+    Spe(spe::Options),
 }
 
 #[derive(Parser)]
@@ -195,5 +197,9 @@ fn main() -> eyre::Result<()> {
             }
         }
         Cmd::RerunDaemon(options) => rerun_daemon::run(&config, options),
+        Cmd::Spe(options) => {
+            spe::run(options);
+            Ok(())
+        }
     }
 }
