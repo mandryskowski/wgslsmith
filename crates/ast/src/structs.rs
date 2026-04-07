@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -143,11 +143,14 @@ fn collect_struct_accessors(
     let mut accessors = HashMap::new();
 
     fn insert(
-        map: &mut HashMap<DataType, HashSet<Rc<StructMember>>>,
+        map: &mut HashMap<DataType, Vec<Rc<StructMember>>>,
         ty: &DataType,
         member: &Rc<StructMember>,
     ) {
-        map.entry(ty.clone()).or_default().insert(member.clone());
+        let list = map.entry(ty.clone()).or_default();
+        if !list.contains(member) {
+            list.push(member.clone());
+        }
     }
 
     for member in members {
@@ -193,10 +196,5 @@ fn collect_struct_accessors(
         }
     }
 
-    // Convert the sets into vectors
-    // We use vectors for more efficient random selection later on
     accessors
-        .into_iter()
-        .map(|(k, v)| (k, v.into_iter().collect()))
-        .collect()
 }
