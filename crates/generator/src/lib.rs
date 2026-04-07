@@ -1,6 +1,6 @@
 mod gen;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufWriter};
 use std::path::Path;
@@ -196,7 +196,7 @@ pub fn run(mut options: Options) -> eyre::Result<()> {
     };
 
     if !options.debug {
-        let mut init_data = HashMap::new();
+        let mut init_data = BTreeMap::new();
 
         for var in &shader.vars {
             if let Some(VarQualifier { storage_class, .. }) = &var.qualifier {

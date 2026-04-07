@@ -13,6 +13,7 @@ pub struct Scope {
     symbols: HashTrieMap<DataType, Vec<(String, DataType)>>,
     mutables: Vector<(String, DataType)>,
     references: Vector<(String, MemoryViewType)>,
+    all_vars: Vector<(String, DataType)>,
 }
 
 impl Scope {
@@ -22,6 +23,7 @@ impl Scope {
             symbols: HashTrieMap::new(),
             mutables: Vector::new(),
             references: Vector::new(),
+            all_vars: Vector::new(),
         }
     }
 
@@ -57,6 +59,7 @@ impl Scope {
 
     pub fn insert_readonly(&mut self, name: String, data_type: DataType) {
         self.insert_symbol(&name, &data_type);
+        self.all_vars.push_back_mut((name, data_type));
     }
 
     pub fn insert_mutable(&mut self, name: String, data_type: DataType) {
@@ -65,7 +68,9 @@ impl Scope {
             self.references
                 .push_back_mut((name.clone(), mem_view.clone()));
         }
-        self.mutables.push_back_mut((name, data_type));
+        self.mutables
+            .push_back_mut((name.clone(), data_type.clone()));
+        self.all_vars.push_back_mut((name, data_type));
     }
 
     fn insert_symbol(&mut self, name: &str, ty: &DataType) {
@@ -82,7 +87,7 @@ impl Scope {
     }
 
     pub fn all_symbols(&self) -> Vec<(String, DataType)> {
-        self.symbols.values().flatten().cloned().collect()
+        self.all_vars.iter().cloned().collect()
     }
 
     pub fn next_name(&mut self) -> String {
