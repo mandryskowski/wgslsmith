@@ -660,13 +660,13 @@ impl Concretizer {
     }
 
     fn concretize_bin_op(
-        &self,
+        &mut self,
         data_type: DataType,
         op: BinOp,
         left: ConNode,
         right: ConNode,
     ) -> ConNode {
-        if helper::is_zero_node(&right) {
+        if self.is_zero_node(&right) {
             match op {
                 BinOp::Divide | BinOp::Mod => return left,
                 _ => {}
@@ -700,6 +700,35 @@ impl Concretizer {
                     expr: Expr::BinOp(BinOpExpr::new(op, left, right)),
                 },
                 value,
+            }
+        }
+    }
+
+    fn is_zero_node(&mut self, con: &ConNode) -> bool {
+        if let Some(val) = &con.value {
+            helper::is_zero(val)
+        } else {
+            self.is_partially_zero_expr(&con.node)
+        }
+    }
+
+    fn is_partially_zero_expr(&mut self, node: &ExprNode) -> bool {
+        match &node.expr {
+            Expr::TypeCons(type_cons) => {
+                for arg in &type_cons.args {
+                    if self.is_partially_zero_expr(arg) {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => {
+                let con = self.concretize_expr(node.clone());
+                if let Some(val) = con.value {
+                    helper::is_zero(&val)
+                } else {
+                    false
+                }
             }
         }
     }
