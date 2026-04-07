@@ -525,8 +525,6 @@ fn process_shader(
 
     let original_assignment = original_assignment_idx.map(|idx| enumerations[idx].clone());
 
-    println!("original_assignment_idx {:?}", original_assignment_idx);
-
     if skip_original && enumerations.len() <= 1 {
         writeln!(
             skipped_log,
@@ -542,6 +540,14 @@ fn process_shader(
         return;
     }
 
+    // Rearrange so original is always at the beginning if we're not skipping it
+    if !skip_original {
+        if let Some(orig) = &original_assignment {
+            enumerations.retain(|e| e != orig);
+            enumerations.insert(0, orig.clone());
+        }
+    }
+
     if enumerations.len() > 500 {
         println!(
             "{}Downsampling: {} ({} enumerations -> 500 randomly sampled, {} holes)",
@@ -552,8 +558,16 @@ fn process_shader(
         );
 
         let mut rng = rand::thread_rng();
-        enumerations.shuffle(&mut rng);
-        enumerations.truncate(500);
+        // Ensure original isn't wiped out during truncation if we aren't skipping it
+        if !skip_original && original_assignment.is_some() {
+            let first = enumerations.remove(0);
+            enumerations.shuffle(&mut rng);
+            enumerations.truncate(499);
+            enumerations.insert(0, first);
+        } else {
+            enumerations.shuffle(&mut rng);
+            enumerations.truncate(500);
+        }
     } else {
         println!(
             "{}Processing: {} ({} enumerations, {} holes)",
@@ -593,6 +607,14 @@ fn process_shader(
                     .unwrap();
                     failed_count += 1;
                     shader_has_runtime_failure = true;
+                    if is_original {
+                        println!(
+                            "{}Skipped variants for {} (original panicked on apply_assignment)",
+                            progress_prefix,
+                            path.display()
+                        );
+                        break;
+                    }
                     if failed_count >= 10 {
                         println!(
                             "{}Skipped remaining enumerations for {} (>= 10 failures)",
@@ -634,6 +656,16 @@ fn process_shader(
                         stderr
                     )
                     .unwrap();
+
+                    if is_original {
+                        fs::remove_file(&tmp_path).ok();
+                        println!(
+                            "{}Skipped variants for {} (original failed recondition)",
+                            progress_prefix,
+                            path.display()
+                        );
+                        break;
+                    }
                 }
             }
             Err(e) => {
@@ -646,6 +678,16 @@ fn process_shader(
                     e
                 )
                 .unwrap();
+
+                if is_original {
+                    fs::remove_file(&tmp_path).ok();
+                    println!(
+                        "{}Skipped variants for {} (original failed to execute recondition)",
+                        progress_prefix,
+                        path.display()
+                    );
+                    break;
+                }
             }
         }
 
@@ -674,6 +716,16 @@ fn process_shader(
             if !msl_tint_ok || !msl_naga_ok {
                 failed_count += 1;
                 shader_has_runtime_failure = true;
+
+                if is_original {
+                    fs::remove_file(&tmp_path).ok();
+                    println!(
+                        "{}Skipped variants for {} (original failed msl_validate)",
+                        progress_prefix,
+                        path.display()
+                    );
+                    break;
+                }
             }
         }
 
@@ -719,23 +771,31 @@ fn process_shader(
                     failed_count += 1;
                     shader_has_runtime_failure = true;
 
+                    if is_original {
+                        fs::remove_file(&tmp_path).ok();
+                        println!(
+                            "{}Skipped variants for {} (original failed validation)",
+                            progress_prefix,
+                            path.display()
+                        );
+                        break;
+                    }
+
                     let kind = if out.status.code() == Some(1) {
                         "mismatch"
                     } else {
                         "crash"
                     };
 
-                    if !is_original {
-                        let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
-                        failures_to_save.push((
-                            i,
-                            kind,
-                            out.stdout.clone(),
-                            out.stderr.clone(),
-                            out_str.clone(),
-                            recond_src,
-                        ));
-                    }
+                    let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
+                    failures_to_save.push((
+                        i,
+                        kind,
+                        out.stdout.clone(),
+                        out.stderr.clone(),
+                        out_str.clone(),
+                        recond_src,
+                    ));
                 } else {
                     has_success = true;
                 }
@@ -751,17 +811,25 @@ fn process_shader(
                 failed_count += 1;
                 shader_has_runtime_failure = true;
 
-                if !is_original {
-                    let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
-                    failures_to_save.push((
-                        i,
-                        "crash",
-                        Vec::new(),
-                        format!("Error: {}", e).into_bytes(),
-                        out_str.clone(),
-                        recond_src,
-                    ));
+                if is_original {
+                    fs::remove_file(&tmp_path).ok();
+                    println!(
+                        "{}Skipped variants for {} (original failed execution)",
+                        progress_prefix,
+                        path.display()
+                    );
+                    break;
                 }
+
+                let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
+                failures_to_save.push((
+                    i,
+                    "crash",
+                    Vec::new(),
+                    format!("Error: {}", e).into_bytes(),
+                    out_str.clone(),
+                    recond_src,
+                ));
             }
         }
 
