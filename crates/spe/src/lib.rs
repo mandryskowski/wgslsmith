@@ -136,6 +136,10 @@ pub struct ProcessDirOptions {
     #[clap(short, long = "config", action)]
     pub configs: Vec<ConfigId>,
 
+    /// Address of harness server.
+    #[clap(short, long, action)]
+    server: Option<String>,
+
     #[clap(long, action, default_value = "false")]
     pub msl_validate: bool,
 
@@ -730,6 +734,11 @@ fn process_shader(
         }
 
         let mut cmd = process::Command::new(wgslsmith_exe);
+
+        if let Some(server) = &opt.server {
+            cmd.arg("remote").arg(server);
+        }
+
         cmd.arg("run");
 
         for config in &current_configs {
@@ -748,6 +757,8 @@ fn process_shader(
             cmd.arg("--use-daemon");
         }
 
+        cmd.arg("--print-consensus");
+
         cmd.arg(&tmp_path);
 
         if let Some(input_buffers) = &input_buffers {
@@ -757,15 +768,34 @@ fn process_shader(
         let output = cmd.output();
         match output {
             Ok(out) => {
+                let stdout_str = String::from_utf8_lossy(&out.stdout);
+                let stderr_str = String::from_utf8_lossy(&out.stderr);
+
+                let mut combined_output = String::new();
+                let mut consensus_json = String::new();
+
+                for line in stdout_str.lines() {
+                    if let Some(json_content) = line.strip_prefix("output-consensus: ") {
+                        consensus_json = json_content.to_string();
+                    } else {
+                        combined_output.push_str(line);
+                        combined_output.push('\n');
+                    }
+                }
+                for line in stderr_str.lines() {
+                    combined_output.push_str(line);
+                    combined_output.push('\n');
+                }
+
+                let combined_bytes = combined_output.replace('\0', "").into_bytes();
+
                 if !out.status.success() {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    let stdout = String::from_utf8_lossy(&out.stdout);
                     writeln!(
                         failures_log,
                         "Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
                         path.display(),
-                        stdout,
-                        stderr
+                        stdout_str,
+                        stderr_str
                     )
                     .unwrap();
                     failed_count += 1;
@@ -790,9 +820,9 @@ fn process_shader(
                     let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
                     failures_to_save.push((
                         i,
-                        kind,
-                        out.stdout.clone(),
-                        out.stderr.clone(),
+                        kind.to_string(),
+                        consensus_json.into_bytes(),
+                        combined_bytes,
                         out_str.clone(),
                         recond_src,
                     ));
@@ -824,7 +854,7 @@ fn process_shader(
                 let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
                 failures_to_save.push((
                     i,
-                    "crash",
+                    "crash".to_string(),
                     Vec::new(),
                     format!("Error: {}", e).into_bytes(),
                     out_str.clone(),
@@ -847,7 +877,7 @@ fn process_shader(
 
     if has_success && !failures_to_save.is_empty() {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-        for (i, kind, stdout, stderr, src, recond_src) in failures_to_save {
+        for (i, kind, consensus, combined, src, recond_src) in failures_to_save {
             let failure_out_dir = out_dir.join("out").join(format!("{}_{}-{kind}", stem, i));
             std::fs::create_dir_all(&failure_out_dir).unwrap();
 
@@ -874,11 +904,10 @@ fn process_shader(
             );
             std::fs::write(failure_out_dir.join("info.json"), info).unwrap();
 
-            if kind == "crash" {
-                std::fs::write(failure_out_dir.join("stderr.txt"), stderr).unwrap();
-            } else {
-                std::fs::write(failure_out_dir.join("consensus.json"), stdout).unwrap();
-                std::fs::write(failure_out_dir.join("stderr.txt"), stderr).unwrap();
+            std::fs::write(failure_out_dir.join("stderr.txt"), combined).unwrap();
+
+            if kind == "mismatch" && !consensus.is_empty() {
+                std::fs::write(failure_out_dir.join("consensus.json"), consensus).unwrap();
             }
         }
     }
