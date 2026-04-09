@@ -67,6 +67,10 @@ pub struct Options {
     #[clap(long, action)]
     pub enable_f16: bool,
 
+    /// Enable divergent variables and generate workgroup size up to 32.
+    #[clap(long, action)]
+    pub enable_divergence: bool,
+
     /// Minimum number of statements to generate in function bodies
     #[clap(long, action, default_value = "5")]
     pub fn_min_stmts: u32,

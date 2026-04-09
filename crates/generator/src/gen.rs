@@ -1,4 +1,5 @@
 mod cx;
+mod divergence;
 mod expr;
 mod fns;
 mod hash;
@@ -9,13 +10,16 @@ mod utils;
 
 pub mod builtins;
 
+use divergence::CopyInOut;
+
 use std::rc::Rc;
 
 use ast::types::{DataType, MemoryViewType};
 use ast::{
-    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, FnAttr, FnDecl, GlobalVarAttr,
-    GlobalVarDecl, LetDeclStatement, Module, Postfix, PostfixExpr, ScalarType, ShaderStage,
-    Statement, StorageClass, VarExpr, VarQualifier,
+    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, FnAttr, FnDecl,
+    FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement, LhsExprNode,
+    Module, Postfix, PostfixExpr, ScalarType, ShaderStage, Statement, StorageClass, VarExpr,
+    VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
@@ -47,10 +51,18 @@ pub struct Generator<'a> {
     f32_dist: StandardNormal,
     i32_dist: Binomial,
     u32_dist: Binomial,
+    wg_size: u32,
+    copy_in_out: Vec<CopyInOut>,
 }
 
 impl<'a> Generator<'a> {
     pub fn new(rng: &'a mut StdRng, options: Rc<Options>) -> Self {
+        let wg_size = if options.enable_divergence {
+            rng.gen_range(2..=32)
+        } else {
+            1
+        };
+
         Generator {
             rng,
             options: options.clone(),
@@ -65,6 +77,8 @@ impl<'a> Generator<'a> {
                 .expect("failed to create binomial distribution"),
             u32_dist: Binomial::new(u32::MAX as u64 * 2, 0.5)
                 .expect("failed to create binomial distribution"),
+            wg_size,
+            copy_in_out: Vec::new(),
         }
     }
 
@@ -88,6 +102,17 @@ impl<'a> Generator<'a> {
         self.global_scope
             .insert_readonly("u_input".to_owned(), DataType::Struct(ub_type_decl.clone()));
 
+        let mut out_buf_global_type = DataType::Struct(sb_type_decl.clone());
+        let mut hash_out_global_type = DataType::Scalar(ScalarType::U32);
+
+        if self.wg_size > 1 {
+            out_buf_global_type =
+                DataType::Array(Rc::new(out_buf_global_type.clone()), Some(self.wg_size));
+
+            hash_out_global_type =
+                DataType::Array(Rc::new(hash_out_global_type.clone()), Some(self.wg_size));
+        }
+
         let mut global_vars = vec![
             GlobalVarDecl {
                 attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(0)],
@@ -106,7 +131,7 @@ impl<'a> Generator<'a> {
                     access_mode: Some(AccessMode::ReadWrite),
                 }),
                 name: "s_output".to_owned(),
-                data_type: DataType::Struct(sb_type_decl.clone()),
+                data_type: out_buf_global_type.clone(),
                 initializer: None,
             },
             GlobalVarDecl {
@@ -116,7 +141,7 @@ impl<'a> Generator<'a> {
                     access_mode: Some(AccessMode::ReadWrite),
                 }),
                 name: "hash_output".to_owned(),
-                data_type: DataType::Scalar(ScalarType::U32),
+                data_type: hash_out_global_type.clone(),
                 initializer: None,
             },
         ];
@@ -130,37 +155,88 @@ impl<'a> Generator<'a> {
             extra_sb_decls.push(extra_sb_decl.clone());
 
             let name = format!("s_buf_{i}");
+            let data_type = DataType::Struct(extra_sb_decl.clone());
 
-            global_vars.push(GlobalVarDecl {
-                attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(3 + i)],
-                qualifier: Some(VarQualifier {
+            if self.wg_size > 1 {
+                let global_name = format!("{name}_global");
+                let array_type = DataType::Array(Rc::new(data_type.clone()), Some(self.wg_size));
+
+                global_vars.push(GlobalVarDecl {
+                    attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(3 + i)],
+                    qualifier: Some(VarQualifier {
+                        storage_class: StorageClass::Storage,
+                        access_mode: Some(AccessMode::ReadWrite),
+                    }),
+                    name: global_name.clone(),
+                    data_type: array_type.clone(),
+                    initializer: None,
+                });
+
+                global_vars.push(GlobalVarDecl {
+                    attrs: vec![],
+                    qualifier: Some(VarQualifier {
+                        storage_class: StorageClass::Private,
+                        access_mode: None,
+                    }),
+                    name: name.clone(),
+                    data_type: data_type.clone(),
+                    initializer: None,
+                });
+
+                self.global_scope.insert_mutable(
+                    name.clone(),
+                    DataType::Ref(MemoryViewType::new(
+                        data_type.clone(),
+                        StorageClass::Private,
+                    )),
+                );
+
+                self.copy_in_out.push(CopyInOut {
+                    name,
+                    global_name,
+                    data_type,
+                    wrapper_type: array_type,
                     storage_class: StorageClass::Storage,
-                    access_mode: Some(AccessMode::ReadWrite),
-                }),
-                name: name.clone(),
-                data_type: DataType::Struct(extra_sb_decl.clone()),
-                initializer: None,
-            });
+                });
+            } else {
+                global_vars.push(GlobalVarDecl {
+                    attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(3 + i)],
+                    qualifier: Some(VarQualifier {
+                        storage_class: StorageClass::Storage,
+                        access_mode: Some(AccessMode::ReadWrite),
+                    }),
+                    name: name.clone(),
+                    data_type: data_type.clone(),
+                    initializer: None,
+                });
 
-            self.global_scope.insert_mutable(
-                name,
-                DataType::Ref(MemoryViewType::new(
-                    DataType::Struct(extra_sb_decl),
-                    StorageClass::Storage,
-                )),
-            );
+                self.global_scope.insert_mutable(
+                    name,
+                    DataType::Ref(MemoryViewType::new(data_type, StorageClass::Storage)),
+                );
+            }
         }
 
         let mut workgroup_size = 0;
 
         for i in 0..self.rng.gen_range(0..=5) {
             let name = format!("global{i}");
-            global_vars.push(self.gen_global_var(name, &mut workgroup_size));
+            global_vars.extend(self.gen_global_var(name, &mut workgroup_size));
+        }
+
+        if self.wg_size > 1 {
+            let divergent_vars = divergence::generate_divergent_globals(
+                &mut self.global_scope,
+                self.options.enable_f16,
+            );
+            global_vars.extend(divergent_vars);
         }
 
         let entrypoint = self.gen_entrypoint_function(
             DataType::Struct(ub_type_decl.clone()),
             DataType::Struct(sb_type_decl.clone()),
+            out_buf_global_type,
+            hash_out_global_type,
         );
 
         let Context { types, fns } =
@@ -192,7 +268,7 @@ impl<'a> Generator<'a> {
         }
     }
 
-    fn gen_global_var(&mut self, name: String, workgroup_size: &mut u32) -> GlobalVarDecl {
+    fn gen_global_var(&mut self, name: String, workgroup_size: &mut u32) -> Vec<GlobalVarDecl> {
         let mut data_type;
         let mut storage_class;
 
@@ -212,47 +288,128 @@ impl<'a> Generator<'a> {
         if storage_class == StorageClass::WorkGroup {
             let align = structs::align_of(&data_type);
             let size = structs::size_of(&data_type);
+
+            let stride = structs::round_up(align, size);
+            let total_size = stride * self.wg_size;
+
             let offset = structs::round_up(align, *workgroup_size);
 
-            if offset + size <= self.options.max_compute_workgroup_storage_size {
-                *workgroup_size = offset + size;
+            if offset + total_size <= self.options.max_compute_workgroup_storage_size {
+                *workgroup_size = offset + total_size;
             } else {
                 storage_class = StorageClass::Private;
             }
         }
 
-        let mem_view = MemoryViewType::new(data_type.clone(), storage_class);
-        let ref_type = DataType::Ref(mem_view);
+        if self.wg_size > 1 && storage_class == StorageClass::WorkGroup {
+            let global_name = format!("{name}_wg");
+            let array_type = DataType::Array(Rc::new(data_type.clone()), Some(self.wg_size));
 
-        self.global_scope.insert_mutable(name.clone(), ref_type);
+            let wg_decl = GlobalVarDecl {
+                attrs: vec![],
+                qualifier: Some(VarQualifier {
+                    storage_class: StorageClass::WorkGroup,
+                    access_mode: None,
+                }),
+                name: global_name.clone(),
+                data_type: array_type.clone(),
+                initializer: None,
+            };
 
-        let initializer = if storage_class == StorageClass::Private && self.rng.gen_bool(0.75) {
-            Some(self.gen_const_expr(&data_type))
+            let priv_decl = GlobalVarDecl {
+                attrs: vec![],
+                qualifier: Some(VarQualifier {
+                    storage_class: StorageClass::Private,
+                    access_mode: None,
+                }),
+                name: name.clone(),
+                data_type: data_type.clone(),
+                initializer: None,
+            };
+
+            self.global_scope.insert_mutable(
+                name.clone(),
+                DataType::Ref(MemoryViewType::new(
+                    data_type.clone(),
+                    StorageClass::Private,
+                )),
+            );
+
+            self.copy_in_out.push(CopyInOut {
+                name,
+                global_name,
+                data_type,
+                wrapper_type: array_type,
+                storage_class: StorageClass::WorkGroup,
+            });
+
+            vec![wg_decl, priv_decl]
         } else {
-            None
-        };
+            let mem_view = MemoryViewType::new(data_type.clone(), storage_class);
+            let ref_type = DataType::Ref(mem_view);
 
-        GlobalVarDecl {
-            attrs: vec![],
-            qualifier: Some(VarQualifier {
-                storage_class,
-                access_mode: None,
-            }),
-            name,
-            data_type,
-            initializer,
+            self.global_scope.insert_mutable(name.clone(), ref_type);
+
+            let initializer = if storage_class == StorageClass::Private && self.rng.gen_bool(0.75) {
+                Some(self.gen_const_expr(&data_type))
+            } else {
+                None
+            };
+
+            vec![GlobalVarDecl {
+                attrs: vec![],
+                qualifier: Some(VarQualifier {
+                    storage_class,
+                    access_mode: None,
+                }),
+                name,
+                data_type,
+                initializer,
+            }]
         }
     }
 
     #[tracing::instrument(skip(self))]
-    fn gen_entrypoint_function(&mut self, in_buf_type: DataType, out_buf_type: DataType) -> FnDecl {
+    fn gen_entrypoint_function(
+        &mut self,
+        in_buf_type: DataType,
+        out_buf_type: DataType,
+        out_buf_global_type: DataType,
+        hash_out_global_type: DataType,
+    ) -> FnDecl {
+        let mut inputs = vec![];
+        if self.wg_size > 1 {
+            inputs.push(FnInput {
+                attrs: vec![FnParamReturnAttr::Builtin(
+                    BuiltinValue::LocalInvocationIndex,
+                )],
+                name: "local_invocation_index".to_owned(),
+                data_type: DataType::Scalar(ScalarType::U32),
+            });
+        }
+
         let stmt_count = self.rng.gen_range(5..10);
         let (_, block) = self.with_scope(self.global_scope.clone(), |this| {
+            let mut prelude = vec![];
+            let idx =
+                VarExpr::new("local_invocation_index").into_node(DataType::Scalar(ScalarType::U32));
+
+            if this.wg_size > 1 {
+                prelude.extend(divergence::generate_prelude(
+                    idx.clone(),
+                    this.options.enable_f16,
+                    &this.copy_in_out,
+                ));
+            }
+
             let (scope, mut block) = this.gen_stmt_block(stmt_count);
 
             if let Some(Statement::Return(_)) = block.last() {
                 block.pop();
             }
+
+            prelude.extend(block);
+            block = prelude;
 
             let prev_block = std::mem::replace(&mut this.current_block, block);
 
@@ -269,18 +426,46 @@ impl<'a> Generator<'a> {
                     .into(),
                 );
 
-                let out_lhs = AssignmentLhs::name("s_output", out_buf_type.clone());
                 let out_rhs = this.gen_expr(&out_buf_type);
+
+                let out_lhs = if this.wg_size > 1 {
+                    let out_buf_global_ref = DataType::Ref(MemoryViewType::new(
+                        out_buf_global_type.clone(),
+                        StorageClass::Storage,
+                    ));
+                    let wrapper_node = LhsExprNode::name("s_output".to_owned(), out_buf_global_ref);
+                    wrapper_node.array_index(idx.clone()).into()
+                } else {
+                    AssignmentLhs::name("s_output", out_buf_type.clone())
+                };
+
                 this.current_block
                     .push(AssignmentStatement::new(out_lhs, AssignmentOp::Simple, out_rhs).into());
 
                 let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
 
-                let hash_lhs = AssignmentLhs::name("hash_output", ScalarType::U32);
+                let hash_lhs = if this.wg_size > 1 {
+                    let hash_out_global_ref = DataType::Ref(MemoryViewType::new(
+                        hash_out_global_type.clone(),
+                        StorageClass::Storage,
+                    ));
+                    let wrapper_node =
+                        LhsExprNode::name("hash_output".to_owned(), hash_out_global_ref);
+                    wrapper_node.array_index(idx.clone()).into()
+                } else {
+                    AssignmentLhs::name("hash_output", ScalarType::U32)
+                };
 
                 this.current_block.push(
                     AssignmentStatement::new(hash_lhs, AssignmentOp::Simple, hash_val).into(),
                 );
+
+                if this.wg_size > 1 {
+                    this.current_block.extend(divergence::generate_postlude(
+                        idx.clone(),
+                        &this.copy_in_out,
+                    ));
+                }
             });
 
             std::mem::replace(&mut this.current_block, prev_block)
@@ -289,10 +474,10 @@ impl<'a> Generator<'a> {
         FnDecl {
             attrs: vec![
                 FnAttr::Stage(ShaderStage::Compute),
-                FnAttr::WorkgroupSize(1),
+                FnAttr::WorkgroupSize(self.wg_size),
             ],
             name: "main".to_owned(),
-            inputs: vec![],
+            inputs,
             output: None,
             body: block,
         }
