@@ -1,5 +1,7 @@
 use ast::types::DataType;
 use ast::*;
+use rand::seq::SliceRandom;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum HoleType {
     Declaration { mutable: bool },
@@ -354,7 +356,12 @@ impl Enumerator {
             .map(|m| m as i32)
             .unwrap_or(-1);
         let next_available = (max_id + 1) as usize;
-        for id in 0..=next_available {
+
+        let mut ids: Vec<usize> = (0..=next_available).collect();
+        // Randomize branch order to get a highly diverse sample when space is huge.
+        ids.shuffle(&mut rand::thread_rng());
+
+        for id in ids {
             if self.is_valid_assignment(hole_idx, id, current) {
                 current.push(id);
                 self.enumerate(current);
@@ -542,10 +549,17 @@ pub fn get_enumerations(
     enumerator.enumerate(&mut vec![]);
 
     let original_assignment = get_original_assignment(&ctx.holes, &ctx.scope_parents);
-    let original_idx = enumerator
+
+    // Ensure the original assignment is always present, even if we bailed early due to limit caps.
+    let mut original_idx = enumerator
         .results
         .iter()
         .position(|r| r == &original_assignment);
+
+    if original_idx.is_none() {
+        enumerator.results.insert(0, original_assignment.clone());
+        original_idx = Some(0);
+    }
 
     (ctx.holes.len(), enumerator.results, original_idx)
 }

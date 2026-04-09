@@ -284,6 +284,11 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
         return;
     }
 
+    if skip_original && enumerations.len() <= 1 {
+        println!("Skipped: only original enumeration exists.");
+        return;
+    }
+
     if let Some(enum_idx) = opt.enumeration {
         if enum_idx >= enumerations.len() {
             eprintln!(
@@ -306,9 +311,6 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
         }
 
         for (i, assigns) in enumerations.iter().enumerate() {
-            if skip_original && Some(i) == original_assignment_idx {
-                continue;
-            }
             let out_str = enumerator::apply_assignment(&module, assigns);
             println!("// === Enumeration {} ===", i);
             println!("{}", out_str);
@@ -490,23 +492,25 @@ fn process_shader(
 
     let (holes, mut enumerations, original_assignment_idx) = {
         let est = enumerator::estimate_enumerations(&module);
-        if est > 100_000 {
+        let limit = if est > 100_000 {
             writeln!(
                 skipped_log,
-                "Skipping: {} (estimated {} bounds, > 100,000)",
+                "Warning: {} (estimated {} bounds, > 100,000). Limiting search to 2000 variants.",
                 path.display(),
                 est
             )
             .unwrap();
             println!(
-                "{}Skipped prematurely: {} (estimated {} bounds)",
+                "{}Large enumeration space: {} (estimated {} bounds). Limiting search to 2000 variants.",
                 progress_prefix,
                 path.display(),
                 est
             );
-            return;
-        }
-        match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, None)) {
+            Some(2000)
+        } else {
+            None
+        };
+        match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, limit)) {
             Ok(res) => res,
             Err(_) => {
                 writeln!(failures_log, "Enumerate panic on: {}", path.display()).unwrap();
@@ -544,17 +548,15 @@ fn process_shader(
         return;
     }
 
-    // Rearrange so original is always at the beginning if we're not skipping it
-    if !skip_original {
-        if let Some(orig) = &original_assignment {
-            enumerations.retain(|e| e != orig);
-            enumerations.insert(0, orig.clone());
-        }
+    // Rearrange so original is always at the beginning
+    if let Some(orig) = &original_assignment {
+        enumerations.retain(|e| e != orig);
+        enumerations.insert(0, orig.clone());
     }
 
-    if enumerations.len() > 500 {
+    if enumerations.len() > 100 {
         println!(
-            "{}Downsampling: {} ({} enumerations -> 500 randomly sampled, {} holes)",
+            "{}Downsampling: {} ({} enumerations -> 100 randomly sampled, {} holes)",
             progress_prefix,
             path.display(),
             enumerations.len(),
@@ -562,15 +564,15 @@ fn process_shader(
         );
 
         let mut rng = rand::thread_rng();
-        // Ensure original isn't wiped out during truncation if we aren't skipping it
-        if !skip_original && original_assignment.is_some() {
+        // Ensure original isn't wiped out during truncation
+        if original_assignment.is_some() {
             let first = enumerations.remove(0);
             enumerations.shuffle(&mut rng);
-            enumerations.truncate(499);
+            enumerations.truncate(99);
             enumerations.insert(0, first);
         } else {
             enumerations.shuffle(&mut rng);
-            enumerations.truncate(500);
+            enumerations.truncate(100);
         }
     } else {
         println!(
@@ -594,10 +596,6 @@ fn process_shader(
         } else {
             format!("(case {i})")
         };
-
-        if skip_original && is_original {
-            continue;
-        }
 
         let out_str =
             match std::panic::catch_unwind(|| enumerator::apply_assignment(&module, assigns)) {
@@ -801,16 +799,6 @@ fn process_shader(
                     failed_count += 1;
                     shader_has_runtime_failure = true;
 
-                    if is_original {
-                        fs::remove_file(&tmp_path).ok();
-                        println!(
-                            "{}Skipped variants for {} (original failed validation)",
-                            progress_prefix,
-                            path.display()
-                        );
-                        break;
-                    }
-
                     let kind = if out.status.code() == Some(1) {
                         "mismatch"
                     } else {
@@ -825,7 +813,18 @@ fn process_shader(
                         combined_bytes,
                         out_str.clone(),
                         recond_src,
+                        is_original,
                     ));
+
+                    if is_original {
+                        fs::remove_file(&tmp_path).ok();
+                        println!(
+                            "{}Skipped variants for {} (original failed validation)",
+                            progress_prefix,
+                            path.display()
+                        );
+                        break;
+                    }
                 } else {
                     has_success = true;
                 }
@@ -841,6 +840,17 @@ fn process_shader(
                 failed_count += 1;
                 shader_has_runtime_failure = true;
 
+                let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
+                failures_to_save.push((
+                    i,
+                    "crash".to_string(),
+                    Vec::new(),
+                    format!("Error: {}", e).into_bytes(),
+                    out_str.clone(),
+                    recond_src,
+                    is_original,
+                ));
+
                 if is_original {
                     fs::remove_file(&tmp_path).ok();
                     println!(
@@ -850,16 +860,6 @@ fn process_shader(
                     );
                     break;
                 }
-
-                let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
-                failures_to_save.push((
-                    i,
-                    "crash".to_string(),
-                    Vec::new(),
-                    format!("Error: {}", e).into_bytes(),
-                    out_str.clone(),
-                    recond_src,
-                ));
             }
         }
 
@@ -875,10 +875,22 @@ fn process_shader(
         }
     }
 
-    if has_success && !failures_to_save.is_empty() {
+    if !failures_to_save.is_empty() {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-        for (i, kind, consensus, combined, src, recond_src) in failures_to_save {
-            let failure_out_dir = out_dir.join("out").join(format!("{}_{}-{kind}", stem, i));
+        for (i, kind, consensus, combined, src, recond_src, is_original) in failures_to_save {
+            // Only output variant failure files if we had at least one success recorded
+            // from earlier processing (original succeeded, variants failed).
+            if !is_original && !has_success {
+                continue;
+            }
+
+            let base_out = if is_original {
+                out_dir.join("original-out")
+            } else {
+                out_dir.join("out")
+            };
+
+            let failure_out_dir = base_out.join(format!("{}_{}-{kind}", stem, i));
             std::fs::create_dir_all(&failure_out_dir).unwrap();
 
             std::fs::write(failure_out_dir.join("shader.wgsl"), src).unwrap();
