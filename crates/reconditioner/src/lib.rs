@@ -236,8 +236,8 @@ impl Reconditioner {
                         )
                     });
                     if let Some(idx) = last_decl_idx {
-                        for i in 0..idx {
-                            Self::replace_continue(&mut body[i]);
+                        for stmt in body.iter_mut().take(idx) {
+                            Self::replace_continue(stmt);
                         }
                     }
                 }
