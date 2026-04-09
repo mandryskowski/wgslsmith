@@ -157,6 +157,7 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
         .args(["--block-min-stmts", "1"])
         .args(["--block-max-stmts", "2"])
         .args(["--max-fns", "3"])
+        .args(["--enable-divergence"])
         .tap_mut(|cmd| {
             if options.enable_pointers {
                 cmd.arg("--enable-pointers");
