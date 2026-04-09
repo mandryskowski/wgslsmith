@@ -35,6 +35,7 @@ pub enum Builtin {
     Pack4xU8,
     Pack4xU8Clamp,
     Select,
+    Smoothstep,
     Unpack2x16float,
     Unpack2x16snorm,
     Unpack2x16unorm,
@@ -77,6 +78,7 @@ impl Builtin {
             "pack4xU8" => Some(Builtin::Pack4xU8),
             "pack4xU8Clamp" => Some(Builtin::Pack4xU8Clamp),
             "select" => Some(Builtin::Select),
+            "smoothstep" => Some(Builtin::Smoothstep),
             "unpack2x16float" => Some(Builtin::Unpack2x16float),
             "unpack2x16snorm" => Some(Builtin::Unpack2x16snorm),
             "unpack2x16unorm" => Some(Builtin::Unpack2x16unorm),
@@ -101,7 +103,7 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
             evaluate_four_arg_builtin(ident, arg1, arg2, arg3, arg4)
         }
 
-        Builtin::Select | Builtin::ExtractBits | Builtin::Clamp => {
+        Builtin::Select | Builtin::ExtractBits | Builtin::Clamp | Builtin::Smoothstep => {
             let arg1 = args[0].clone().unwrap();
             let arg2 = args[1].clone().unwrap();
             let arg3 = args[2].clone().unwrap();
@@ -325,6 +327,7 @@ fn evaluate_three_args(ident: &Builtin, val1: Lit, val2: Lit, val3: Lit) -> Opti
         Builtin::Select => select(val1, val2, val3),
         Builtin::ExtractBits => extract_bits(val1, val2, val3),
         Builtin::Clamp => clamp(val1, val2, val3),
+        Builtin::Smoothstep => smoothstep(val1, val2, val3),
         _ => todo!(),
     }
 }
@@ -707,6 +710,41 @@ fn clamp(e: Lit, low: Lit, high: Lit) -> Option<Value> {
                 return None;
             }
             Some(e_val.clamp(low_val, high_val).into())
+        }
+        _ => None,
+    }
+}
+
+fn smoothstep(low: Lit, high: Lit, x: Lit) -> Option<Value> {
+    match (low, high, x) {
+        (Lit::F32(low_val), Lit::F32(high_val), Lit::F32(x_val)) => {
+            if low_val == high_val {
+                return None;
+            }
+            let diff = high_val - low_val;
+            let mut t = (x_val - low_val) / diff;
+            if t.is_nan() {
+                return None;
+            }
+            t = t.clamp(0.0, 1.0);
+            let result = t * t * (3.0 - 2.0 * t);
+            Some(result.into())
+        }
+        (Lit::F16(low_val), Lit::F16(high_val), Lit::F16(x_val)) => {
+            if low_val == high_val {
+                return None;
+            }
+            let l = low_val.to_f32();
+            let h = high_val.to_f32();
+            let x_f = x_val.to_f32();
+            let diff = h - l;
+            let mut t = (x_f - l) / diff;
+            if t.is_nan() {
+                return None;
+            }
+            t = t.clamp(0.0, 1.0);
+            let result = t * t * (3.0 - 2.0 * t);
+            Some(half::f16::from_f32(result).into())
         }
         _ => None,
     }

@@ -70,3 +70,30 @@ pub fn is_invalid_clamp_bounds(low: &Value, high: &Value) -> bool {
         }
     }
 }
+
+// Smoothstep
+pub fn is_invalid_smoothstep_bounds(low: &Value, high: &Value) -> bool {
+    match (low, high) {
+        (Value::Lit(l), Value::Lit(h)) => match (l, h) {
+            (Lit::F32(lv), Lit::F32(hv)) => lv == hv,
+            (Lit::F16(lv), Lit::F16(hv)) => lv == hv,
+            _ => false,
+        },
+        (Value::Vector(l_vec), Value::Vector(h_vec)) => {
+            if l_vec.len() != h_vec.len() {
+                return false;
+            }
+            l_vec
+                .iter()
+                .zip(h_vec.iter())
+                .any(|(l, h)| is_invalid_smoothstep_bounds(l, h))
+        }
+        // mixed scalar and vector (broadcasting)
+        (Value::Lit(_), Value::Vector(h_vec)) => {
+            h_vec.iter().any(|h| is_invalid_smoothstep_bounds(low, h))
+        }
+        (Value::Vector(l_vec), Value::Lit(_)) => {
+            l_vec.iter().any(|l| is_invalid_smoothstep_bounds(l, high))
+        }
+    }
+}

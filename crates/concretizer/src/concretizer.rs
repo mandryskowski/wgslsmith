@@ -557,6 +557,14 @@ impl Concretizer {
                 }
             }
 
+            if ident == "smoothstep" {
+                if let (Some(Some(low)), Some(Some(high))) = (vals.get(1), vals.get(2)) {
+                    if helper::is_invalid_smoothstep_bounds(low, high) {
+                        return self.default_node(data_type);
+                    }
+                }
+            }
+
             return ConNode {
                 node: FnCallExpr {
                     ident,
