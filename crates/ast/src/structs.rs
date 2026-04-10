@@ -193,6 +193,7 @@ fn collect_struct_accessors(
             DataType::Texture(_) | DataType::Sampler(_) => {
                 unreachable!("textures and samplers are not storable")
             }
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => {}
         }
     }
 

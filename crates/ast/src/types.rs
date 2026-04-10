@@ -58,6 +58,8 @@ pub enum DataType {
     Scalar(ScalarType),
     Vector(u8, ScalarType),
     Matrix(u8, u8, ScalarType),
+    Atomic(ScalarType),
+    AtomicCompareExchangeResult(ScalarType),
     Array(Rc<DataType>, Option<u32>),
     Struct(Rc<StructDecl>),
     Texture(TextureType),
@@ -147,6 +149,11 @@ impl fmt::Debug for DataType {
             Self::Scalar(arg0) => f.debug_tuple("Scalar").field(arg0).finish(),
             Self::Vector(arg0, arg1) => f.debug_tuple("Vector").field(arg0).field(arg1).finish(),
             Self::Matrix(c, r, t) => f.debug_tuple("Matrix").field(c).field(r).field(t).finish(),
+            Self::Atomic(arg0) => f.debug_tuple("Atomic").field(arg0).finish(),
+            Self::AtomicCompareExchangeResult(arg0) => f
+                .debug_tuple("AtomicCompareExchangeResult")
+                .field(arg0)
+                .finish(),
             Self::Array(arg0, arg1) => f.debug_tuple("Array").field(arg0).field(arg1).finish(),
             Self::Struct(arg0) => f.debug_tuple("Struct").field(&arg0.name).finish(),
             Self::Texture(arg0) => f.debug_tuple("Texture").field(arg0).finish(),
@@ -163,6 +170,10 @@ impl Display for DataType {
             DataType::Scalar(t) => write!(f, "{}", t),
             DataType::Vector(n, t) => write!(f, "vec{}<{}>", n, t),
             DataType::Matrix(c, r, t) => write!(f, "mat{}x{}<{}>", c, r, t),
+            DataType::Atomic(t) => write!(f, "atomic<{}>", t),
+            DataType::AtomicCompareExchangeResult(t) => {
+                write!(f, "__atomic_compare_exchange_result<{}>", t)
+            }
             DataType::Array(inner, n) => {
                 write!(f, "array<{inner}")?;
                 if let Some(n) = n {

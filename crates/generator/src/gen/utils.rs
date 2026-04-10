@@ -53,6 +53,7 @@ pub fn accessible_types_of(ty: &DataType) -> Vec<DataType> {
         DataType::Struct(decl) => decl.accessible_types().cloned().collect(),
         DataType::Ptr(view) | DataType::Ref(view) => accessible_types_of(&view.inner),
         DataType::Texture(_) | DataType::Sampler(_) => vec![],
+        DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => vec![],
     }
 }
 

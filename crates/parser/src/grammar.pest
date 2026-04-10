@@ -46,6 +46,7 @@ t_matrix = {
     t_mat_type |
     t_mat_prefix
 }
+t_atomic = { "atomic" ~ "<" ~ t_scalar ~ ">" }
 t_texture = {
     "texture_external" |
     ( "texture_depth_2d_array" | "texture_depth_cube_array" | "texture_depth_multisampled_2d" | "texture_depth_2d" | "texture_depth_cube" ) |
@@ -60,8 +61,8 @@ array_type_decl = { "array" ~ ("<" ~ type_decl ~ ("," ~ array_length)? ~ ">")? }
 array_length    = _{ expression_no_gt }
 ptr_type_decl   = { "ptr" ~ "<" ~ storage_class ~ "," ~ type_decl ~ ("," ~ access_mode)? ~ ">" }
 
-type_decl          = { t_scalar | t_vector | t_matrix | t_texture | t_sampler | array_type_decl | ptr_type_decl | ident }
-built_in_type_decl = { t_scalar | t_vector | t_matrix | t_texture | t_sampler | array_type_decl }
+type_decl          = { t_scalar | t_vector | t_matrix | t_atomic | t_texture | t_sampler | array_type_decl | ptr_type_decl | ident }
+built_in_type_decl = { t_scalar | t_vector | t_matrix | t_atomic | t_texture | t_sampler | array_type_decl }
 
 // OPERATORS
 

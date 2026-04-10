@@ -236,6 +236,15 @@ impl Postfix {
                         DataType::Vector(ident.len() as u8, *t)
                     }
                 }
+                DataType::AtomicCompareExchangeResult(t) => {
+                    if ident == "old_value" {
+                        DataType::Scalar(*t)
+                    } else if ident == "exchanged" {
+                        DataType::Scalar(ScalarType::Bool)
+                    } else {
+                        panic!("invalid member access on __atomic_compare_exchange_result")
+                    }
+                }
                 ty => panic!("member access operator cannot be applied to type `{ty}`"),
             },
         }

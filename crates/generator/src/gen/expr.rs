@@ -32,6 +32,7 @@ impl super::Generator<'_> {
             DataType::Ptr(view) => return self.gen_pointer_expr(view),
             DataType::Ref(_) => panic!("explicit request to generate ref expression: `{ty}`"),
             DataType::Texture(_) | DataType::Sampler(_) => {}
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => todo!(),
         }
 
         if self.fn_state.expression_depth < 5 {
@@ -137,6 +138,7 @@ impl super::Generator<'_> {
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
             DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => unreachable!(),
         };
 
         self.fn_state.expression_depth -= 1;
@@ -162,6 +164,7 @@ impl super::Generator<'_> {
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
             DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => unreachable!(),
         };
 
         TypeConsExpr::new(ty.clone(), args).into()
@@ -346,6 +349,7 @@ impl super::Generator<'_> {
             DataType::Struct(decl) => self.gen_struct_accessor(&decl.clone(), target, expr),
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
             DataType::Ref(_) | DataType::Texture(_) | DataType::Sampler(_) => todo!(),
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => todo!(),
         }
     }
 
@@ -420,6 +424,7 @@ impl super::Generator<'_> {
             DataType::Ptr(_) => todo!(),
             DataType::Ref(_) => todo!(),
             DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => unreachable!(),
         };
 
         match scalar_ty {
@@ -444,6 +449,7 @@ impl super::Generator<'_> {
             DataType::Ptr(_) => todo!(),
             DataType::Ref(_) => todo!(),
             DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => unreachable!(),
         };
 
         let allowed: &[BinOp] = match scalar_ty {
