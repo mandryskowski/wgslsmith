@@ -5,6 +5,7 @@ use derive_more::Display;
 use crate::builtins::BuiltinValue;
 use crate::stmt::Statement;
 use crate::types::DataType;
+use crate::{InterpolationSampling, InterpolationType};
 
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 pub enum ShaderStage {
@@ -32,6 +33,8 @@ pub enum FnParamReturnAttr {
     Invariant,
     #[display("location({_0})")]
     Location(u32),
+    #[display("interpolate({_0}{})", _1.as_ref().map(|s| format!(", {s}")).unwrap_or_default())]
+    Interpolate(InterpolationType, Option<InterpolationSampling>),
 }
 
 #[derive(Debug, Display, PartialEq, Eq, Clone)]

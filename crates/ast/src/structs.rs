@@ -43,6 +43,8 @@ pub enum InterpolationSampling {
     Center,
     Centroid,
     Sample,
+    First,
+    Either,
 }
 
 #[derive(Clone, Debug, Display, Hash, PartialEq, Eq)]

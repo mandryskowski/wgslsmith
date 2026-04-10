@@ -485,6 +485,11 @@ fn parse_fn_param_return_attr(pair: Pair<Rule>) -> FnParamReturnAttr {
             let arg = pairs.next().unwrap().as_str();
             FnParamReturnAttr::Location(arg.parse().unwrap())
         }
+        "interpolate" => {
+            let ty = pairs.next().unwrap().as_str().parse().unwrap();
+            let sample = pairs.next().map(|arg| arg.as_str().parse().unwrap());
+            FnParamReturnAttr::Interpolate(ty, sample)
+        }
         _ => panic!("invalid param attribute: {}", name),
     }
 }
