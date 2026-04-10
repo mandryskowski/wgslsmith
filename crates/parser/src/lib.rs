@@ -1370,10 +1370,15 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
             let c = s.chars().nth(3).unwrap().to_digit(10).unwrap() as u8;
             let r = s.chars().nth(5).unwrap().to_digit(10).unwrap() as u8;
 
-            let scalar_type = if let Some(inner) = pairs.next() {
-                parse_t_scalar(inner)
-            } else {
-                ScalarType::F32
+            let scalar_type = match pairs.next() {
+                Some(inner) if inner.as_rule() == Rule::t_scalar => parse_t_scalar(inner),
+                _ => match s.chars().nth(6) {
+                    Some('i') => ScalarType::I32,
+                    Some('u') => ScalarType::U32,
+                    Some('f') => ScalarType::F32,
+                    Some('h') => ScalarType::F16,
+                    _ => ScalarType::F32,
+                },
             };
 
             DataType::Matrix(c, r, scalar_type)

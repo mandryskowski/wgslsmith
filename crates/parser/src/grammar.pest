@@ -38,9 +38,13 @@ t_vec4 = { "vec4<" ~ t_scalar ~ ">" | "vec4i" | "vec4u" | "vec4f" | "vec4h" | "v
 
 t_scalar = { t_bool | t_i32 | t_u32 | t_f32 | t_f16 }
 t_vector = { t_vec2 | t_vec3 | t_vec4 }
+t_mat_prefix = _{ "mat2x2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4x4" }
+t_mat_type   = @{ t_mat_prefix ~ ("i" | "u" | "f" | "h") }
+
 t_matrix = {
-    ( "mat2x2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4x4" )
-    ~ ( "<" ~ t_scalar ~ ">" )?
+    t_mat_prefix ~ "<" ~ t_scalar ~ ">" |
+    t_mat_type |
+    t_mat_prefix
 }
 t_texture = {
     "texture_external" |
