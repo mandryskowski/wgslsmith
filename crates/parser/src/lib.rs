@@ -660,8 +660,7 @@ fn parse_compound_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
 
 fn parse_if_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let mut pairs = pair.into_inner();
-    let condition =
-        parse_paren_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    let condition = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
     let block = parse_compound_statement(pairs.next().unwrap(), env).into_compount_statement();
 
     let els = pairs
@@ -712,8 +711,7 @@ fn parse_loop_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
 
 fn parse_while_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let mut pairs = pair.into_inner();
-    let condition =
-        parse_paren_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    let condition = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
     let block = parse_compound_statement(pairs.next().unwrap(), env).into_compount_statement();
 
     WhileStatement::new(condition, block).into()
