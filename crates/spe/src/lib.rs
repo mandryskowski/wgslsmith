@@ -907,9 +907,11 @@ fn process_shader(
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            let name = std::env::var("HOSTNAME")
-                .or_else(|_| std::env::var("COMPUTERNAME"))
-                .unwrap_or_else(|_| "unknown-machine".to_string());
+            let name = opt.server.clone().unwrap_or_else(|| {
+                std::env::var("HOSTNAME")
+                    .or_else(|_| std::env::var("COMPUTERNAME"))
+                    .unwrap_or_else(|_| "unknown-machine".to_string())
+            });
             let info = format!(
                 "{{\n  \"configs\": [{}],\n  \"kind\": \"{}\",\n  \"name\": \"{name}\",\n  \"flags\": []\n}}",
                 configs_str, kind
