@@ -261,6 +261,10 @@ pub enum AssignmentOp {
     Or,
     #[display("^=")]
     Xor,
+    #[display("<<=")]
+    LShift,
+    #[display(">>=")]
+    RShift,
 }
 
 #[derive(Debug, Display, PartialEq, Clone)]

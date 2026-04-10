@@ -95,6 +95,8 @@ op_mod_equal    = { "%=" }
 op_and_equal    = { "&=" }
 op_or_equal     = { "|=" }
 op_xor_equal    = { "^=" }
+op_lshift_equal = { "<<=" }
+op_rshift_equal = { ">>=" }
 op_address_of   = { "&" }
 op_indirection  = { "*" }
 op_increment    = { "++" }
@@ -104,7 +106,8 @@ assignment_operator          = { op_assign | compound_assignment_operator }
 compound_assignment_operator = {
     op_plus_equal | op_minus_equal |
     op_times_equal | op_divide_equal | op_mod_equal |
-    op_and_equal | op_or_equal | op_xor_equal
+    op_and_equal | op_or_equal | op_xor_equal |
+    op_lshift_equal | op_rshift_equal
 }
 
 unary_operator  = _{ op_minus | op_log_not | op_bit_not | op_address_of | op_indirection }

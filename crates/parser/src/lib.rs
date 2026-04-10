@@ -633,6 +633,8 @@ fn parse_assignment_statement(pair: Pair<Rule>, env: &Environment) -> Statement 
             Rule::op_and_equal => AssignmentOp::And,
             Rule::op_or_equal => AssignmentOp::Or,
             Rule::op_xor_equal => AssignmentOp::Xor,
+            Rule::op_lshift_equal => AssignmentOp::LShift,
+            Rule::op_rshift_equal => AssignmentOp::RShift,
             _ => unreachable!(),
         },
         _ => unreachable!(),
