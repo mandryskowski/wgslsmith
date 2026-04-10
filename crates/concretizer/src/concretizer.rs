@@ -196,6 +196,17 @@ impl Concretizer {
         }
     }
 
+    pub fn register_global_overrides(&mut self, overrides: &[OverrideDecl]) {
+        for decl in overrides {
+            if let Some(init) = &decl.initializer {
+                let con_node = self.concretize_expr(init.clone());
+                if let Some(val) = con_node.value {
+                    self.global_constants.insert(decl.name.clone(), val);
+                }
+            }
+        }
+    }
+
     pub fn register_const(&mut self, name: String, val: Value) {
         self.global_constants.insert(name, val);
     }

@@ -124,6 +124,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
     let mut functions = vec![];
     let mut structs = vec![];
     let mut consts = vec![];
+    let mut overrides = vec![];
     let mut vars = vec![];
 
     for decl in decls {
@@ -132,6 +133,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
             GlobalDecl::Requires(decl) => requires.push(decl),
             GlobalDecl::Alias(decl) => aliases.push(decl),
             GlobalDecl::Const(decl) => consts.push(decl),
+            GlobalDecl::Override(decl) => overrides.push(decl),
             GlobalDecl::Var(decl) => vars.push(decl),
             GlobalDecl::Struct(decl) => structs.push(decl),
             GlobalDecl::Fn(decl) => functions.push(decl),
@@ -145,6 +147,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
         functions,
         structs,
         consts,
+        overrides,
         vars,
     }
 }
@@ -154,6 +157,7 @@ enum GlobalDecl {
     Requires(ast::RequiresExtension),
     Alias(AliasDecl),
     Const(ConstDeclStatement),
+    Override(OverrideDecl),
     Var(GlobalVarDecl),
     Struct(Rc<StructDecl>),
     Fn(FnDecl),
@@ -166,6 +170,7 @@ fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
         Rule::requires_directive => GlobalDecl::Requires(parse_requires_directive(pair)),
         Rule::type_alias_decl => GlobalDecl::Alias(parse_alias_decl(pair, env)),
         Rule::global_constant_decl => GlobalDecl::Const(parse_global_const_decl(pair, env)),
+        Rule::global_override_decl => GlobalDecl::Override(parse_global_override_decl(pair, env)),
         Rule::global_variable_decl => GlobalDecl::Var(parse_global_variable_decl(pair, env)),
         Rule::struct_decl => GlobalDecl::Struct(parse_struct_decl(pair, env)),
         Rule::function_decl => GlobalDecl::Fn(parse_function_decl(pair, env)),
@@ -221,6 +226,74 @@ fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> ConstDecl
     ConstDeclStatement {
         ident,
         data_type: Some(data_type),
+        initializer: expr,
+    }
+}
+
+fn parse_global_override_decl(pair: Pair<Rule>, env: &mut Environment) -> OverrideDecl {
+    let mut pairs = pair.into_inner().peekable();
+
+    let attrs = pairs
+        .by_ref()
+        .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)
+        .flat_map(|pair| {
+            pair.into_inner().map(|pair| {
+                let mut pairs = pair.into_inner();
+                let name = pairs.next().unwrap().as_str();
+                let arg = pairs.next().unwrap().as_str();
+                match name {
+                    "id" => OverrideAttr::Id(arg.parse().unwrap()),
+                    _ => panic!("invalid override attribute: {}", name),
+                }
+            })
+        })
+        .collect();
+
+    let name = pairs.next().unwrap().as_str().to_owned();
+    let mut data_type = None;
+    let mut expr = None;
+
+    if let Some(pair) = pairs.peek() {
+        if pair.as_rule() == Rule::type_decl {
+            let pair = pairs.next().unwrap();
+            data_type = Some(parse_type_decl(pair, env));
+        }
+    }
+
+    if let Some(pair) = pairs.peek() {
+        if pair.as_rule() == Rule::expression {
+            let pair = pairs.next().unwrap();
+            expr = Some(parse_expression(pair, env, data_type.as_ref()));
+        }
+    }
+
+    let inferred_type = data_type.clone().unwrap_or_else(|| {
+        expr.as_ref()
+            .expect("override must have type or initializer")
+            .data_type
+            .clone()
+    });
+
+    env.insert_var(name.clone(), inferred_type);
+
+    if let Some(e) = &expr {
+        let mut concretizer = Concretizer::new(Options {
+            error_handling: ErrorHandling::Panic,
+        });
+        for (k, v) in env.iter_consts() {
+            concretizer.register_const(k.clone(), v.clone());
+        }
+
+        let val = concretizer.concretize_expr(e.clone()).value;
+        if let Some(val) = val {
+            env.insert_const(name.clone(), val);
+        }
+    }
+
+    OverrideDecl {
+        attrs,
+        name,
+        data_type,
         initializer: expr,
     }
 }

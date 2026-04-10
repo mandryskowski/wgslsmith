@@ -28,6 +28,7 @@ pub struct Module {
     pub aliases: Vec<AliasDecl>,
     pub structs: Vec<Rc<StructDecl>>,
     pub consts: Vec<ConstDeclStatement>,
+    pub overrides: Vec<OverrideDecl>,
     pub vars: Vec<GlobalVarDecl>,
     pub functions: Vec<FnDecl>,
 }
