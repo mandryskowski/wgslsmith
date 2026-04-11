@@ -16,10 +16,10 @@ use std::rc::Rc;
 
 use ast::types::{DataType, MemoryViewType};
 use ast::{
-    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, FnAttr, FnDecl,
-    FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement, LhsExprNode,
-    Module, Postfix, PostfixExpr, ScalarType, ShaderStage, Statement, StorageClass, VarExpr,
-    VarQualifier,
+    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, Expr, ExprNode,
+    FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement,
+    LhsExprNode, Lit, Module, Postfix, PostfixExpr, ScalarType, ShaderStage, Statement,
+    StorageClass, VarExpr, VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
@@ -476,7 +476,10 @@ impl<'a> Generator<'a> {
         FnDecl {
             attrs: vec![
                 FnAttr::Stage(ShaderStage::Compute),
-                FnAttr::WorkgroupSize(self.wg_size),
+                FnAttr::WorkgroupSize(vec![ExprNode {
+                    data_type: DataType::Scalar(ScalarType::U32),
+                    expr: Expr::Lit(Lit::U32(self.wg_size)),
+                }]),
             ],
             name: "main".to_owned(),
             inputs,

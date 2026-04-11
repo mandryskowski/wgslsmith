@@ -17,12 +17,12 @@ pub enum ShaderStage {
     Fragment,
 }
 
-#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Display, PartialEq, Clone)]
 pub enum FnAttr {
     #[display("stage({_0})")]
     Stage(ShaderStage),
-    #[display("workgroup_size({_0})")]
-    WorkgroupSize(u32),
+    #[display("workgroup_size({})", crate::FmtArgs(_0.as_slice()))]
+    WorkgroupSize(Vec<crate::ExprNode>),
     #[display("must_use")]
     MustUse,
 }
