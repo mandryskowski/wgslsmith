@@ -255,6 +255,26 @@ impl Postfix {
                         panic!("invalid member access on __atomic_compare_exchange_result")
                     }
                 }
+                DataType::FrexpResult(t) => {
+                    if ident == "fract" {
+                        (**t).clone()
+                    } else if ident == "exp" {
+                        match &**t {
+                            DataType::Scalar(_) => DataType::Scalar(ScalarType::I32),
+                            DataType::Vector(n, _) => DataType::Vector(*n, ScalarType::I32),
+                            _ => panic!("invalid frexp result type"),
+                        }
+                    } else {
+                        panic!("invalid member access on frexp result")
+                    }
+                }
+                DataType::ModfResult(t) => {
+                    if ident == "fract" || ident == "whole" {
+                        (**t).clone()
+                    } else {
+                        panic!("invalid member access on modf result")
+                    }
+                }
                 DataType::Ptr(view) => match view.inner.as_ref() {
                     DataType::Struct(decl) => DataType::Ref(
                         view.clone_with_type(decl.member_type(ident).unwrap().clone()),

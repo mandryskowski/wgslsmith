@@ -59,6 +59,7 @@ pub enum BuiltinFn {
     Floor,
     Fma,
     Fract,
+    Frexp,
     Fwidth,
     FwidthCoarse,
     FwidthFine,
@@ -71,6 +72,7 @@ pub enum BuiltinFn {
     Max,
     Min,
     Mix,
+    Modf,
     Normalize,
     #[strum(serialize = "pack2x16float")]
     Pack2x16float,
@@ -171,6 +173,9 @@ pub enum BuiltinFn {
     QuadSwapDiagonal,
     QuadSwapX,
     QuadSwapY,
+
+    // Synchronization
+    WorkgroupUniformLoad,
 }
 
 impl BuiltinFn {
@@ -256,6 +261,7 @@ impl BuiltinFn {
             Floor => first_param()?,
             Fma => first_param()?,
             Fract => first_param()?,
+            Frexp => DataType::FrexpResult(Box::new(first_param()?)),
             Fwidth | FwidthCoarse | FwidthFine => first_param()?,
             InsertBits => first_param()?,
             InverseSqrt => first_param()?,
@@ -266,6 +272,7 @@ impl BuiltinFn {
             Max => first_param()?,
             Min => first_param()?,
             Mix => first_param()?,
+            Modf => DataType::ModfResult(Box::new(first_param()?)),
             Normalize => first_param()?,
             Pow => first_param()?,
             Pack2x16float | Pack2x16snorm | Pack2x16unorm | Pack4x8snorm | Pack4x8unorm
@@ -391,6 +398,18 @@ impl BuiltinFn {
                 }
             }
             TextureStore => return None,
+            WorkgroupUniformLoad => {
+                let ty = first_param()?;
+                if let DataType::Ptr(view) = ty {
+                    if let DataType::Atomic(t) = view.inner.as_ref() {
+                        DataType::Scalar(*t)
+                    } else {
+                        view.inner.as_ref().clone()
+                    }
+                } else {
+                    return None;
+                }
+            }
         };
 
         Some(ret)

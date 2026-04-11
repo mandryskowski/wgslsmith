@@ -54,6 +54,7 @@ pub fn accessible_types_of(ty: &DataType) -> Vec<DataType> {
         DataType::Ptr(view) | DataType::Ref(view) => accessible_types_of(&view.inner),
         DataType::Texture(_) | DataType::Sampler(_) => vec![],
         DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => vec![],
+        DataType::FrexpResult(_) | DataType::ModfResult(_) => vec![],
     }
 }
 

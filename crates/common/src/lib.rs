@@ -246,6 +246,8 @@ impl TryFrom<&ast::DataType> for Type {
             ast::DataType::AtomicCompareExchangeResult(_) => {
                 Err("atomic compare exchange result is not storable")
             }
+            ast::DataType::FrexpResult(_) => Err("frexp result is not storable"),
+            ast::DataType::ModfResult(_) => Err("modf result is not storable"),
             ast::DataType::Ptr(_) => Err("pointers are not storable"),
             ast::DataType::Ref(_) => Err("references are not storable"),
             ast::DataType::Texture(_) => Err("textures are not storable"),

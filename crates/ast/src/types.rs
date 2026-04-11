@@ -60,6 +60,8 @@ pub enum DataType {
     Matrix(u8, u8, ScalarType),
     Atomic(ScalarType),
     AtomicCompareExchangeResult(ScalarType),
+    FrexpResult(Box<DataType>),
+    ModfResult(Box<DataType>),
     Array(Rc<DataType>, Option<u32>),
     Struct(Rc<StructDecl>),
     Texture(TextureType),
@@ -154,6 +156,8 @@ impl fmt::Debug for DataType {
                 .debug_tuple("AtomicCompareExchangeResult")
                 .field(arg0)
                 .finish(),
+            Self::FrexpResult(arg0) => f.debug_tuple("FrexpResult").field(arg0).finish(),
+            Self::ModfResult(arg0) => f.debug_tuple("ModfResult").field(arg0).finish(),
             Self::Array(arg0, arg1) => f.debug_tuple("Array").field(arg0).field(arg1).finish(),
             Self::Struct(arg0) => f.debug_tuple("Struct").field(&arg0.name).finish(),
             Self::Texture(arg0) => f.debug_tuple("Texture").field(arg0).finish(),
@@ -173,6 +177,20 @@ impl Display for DataType {
             DataType::Atomic(t) => write!(f, "atomic<{}>", t),
             DataType::AtomicCompareExchangeResult(t) => {
                 write!(f, "__atomic_compare_exchange_result<{}>", t)
+            }
+            DataType::FrexpResult(t) => {
+                if let DataType::Vector(n, s) = &**t {
+                    write!(f, "__frexp_result_vec{}_{}", n, s)
+                } else {
+                    write!(f, "__frexp_result_{}", t)
+                }
+            }
+            DataType::ModfResult(t) => {
+                if let DataType::Vector(n, s) = &**t {
+                    write!(f, "__modf_result_vec{}_{}", n, s)
+                } else {
+                    write!(f, "__modf_result_{}", t)
+                }
             }
             DataType::Array(inner, n) => {
                 write!(f, "array<{inner}")?;
