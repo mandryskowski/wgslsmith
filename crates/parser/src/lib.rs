@@ -111,10 +111,194 @@ pub fn parse(input: &str) -> Module {
     parse_translation_unit(pair, &mut Environment::new())
 }
 
+fn get_defined_name(pair: &Pair<Rule>) -> Option<String> {
+    let inner = pair.clone().into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::enable_directive | Rule::requires_directive => None,
+        Rule::type_alias_decl
+        | Rule::struct_decl
+        | Rule::global_constant_decl
+        | Rule::global_override_decl
+        | Rule::global_variable_decl
+        | Rule::function_decl => inner
+            .into_inner()
+            .find(|p| p.as_rule() == Rule::ident)
+            .map(|p| p.as_str().to_owned()),
+        _ => None,
+    }
+}
+
+fn extract_references(
+    pair: Pair<Rule>,
+    refs: &mut Vec<String>,
+    local_scopes: &mut Vec<Vec<String>>,
+) {
+    match pair.as_rule() {
+        Rule::compound_statement | Rule::for_statement => {
+            local_scopes.push(Vec::new());
+            for child in pair.into_inner() {
+                extract_references(child, refs, local_scopes);
+            }
+            local_scopes.pop();
+        }
+        Rule::function_decl => {
+            local_scopes.push(Vec::new());
+            for child in pair.into_inner() {
+                if child.as_rule() != Rule::ident {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+            local_scopes.pop();
+        }
+        Rule::param => {
+            let mut ident = None;
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::ident {
+                    ident = Some(child.as_str().to_owned());
+                } else if child.as_rule() == Rule::type_decl
+                    || child.as_rule() == Rule::attribute_list
+                {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+            if let Some(id) = ident {
+                if let Some(scope) = local_scopes.last_mut() {
+                    scope.push(id);
+                }
+            }
+        }
+        Rule::var_statement | Rule::let_statement | Rule::const_statement => {
+            let mut ident = None;
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::ident {
+                    ident = Some(child.as_str().to_owned());
+                } else if child.as_rule() == Rule::type_decl || child.as_rule() == Rule::expression
+                {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+            if let Some(id) = ident {
+                if let Some(scope) = local_scopes.last_mut() {
+                    scope.push(id);
+                }
+            }
+        }
+        Rule::struct_member => {
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::type_decl || child.as_rule() == Rule::attribute_list {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::global_constant_decl
+        | Rule::global_override_decl
+        | Rule::global_variable_decl
+        | Rule::struct_decl => {
+            for child in pair.into_inner() {
+                if child.as_rule() != Rule::ident {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::type_alias_decl => {
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::type_decl {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::postfix_expression => {
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::expression {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::ident => {
+            let name = pair.as_str().to_owned();
+            let is_local = local_scopes.iter().any(|scope| scope.contains(&name));
+            if !is_local {
+                refs.push(name);
+            }
+        }
+        _ => {
+            for child in pair.into_inner() {
+                extract_references(child, refs, local_scopes);
+            }
+        }
+    }
+}
+
 fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
-    let decls = pair
+    let decl_pairs: Vec<_> = pair
         .into_inner()
         .take_while(|pair| pair.as_rule() != Rule::EOI)
+        .collect();
+
+    // Out of order declarations
+    struct DeclNode<'a> {
+        pair: Pair<'a, Rule>,
+        defined_name: Option<String>,
+        referenced_names: Vec<String>,
+    }
+
+    let mut nodes = Vec::new();
+    for p in decl_pairs {
+        let defined_name = get_defined_name(&p);
+        let mut referenced_names = Vec::new();
+
+        let inner = p.clone().into_inner().next().unwrap();
+        extract_references(inner, &mut referenced_names, &mut Vec::new());
+
+        nodes.push(DeclNode {
+            pair: p,
+            defined_name,
+            referenced_names,
+        });
+    }
+
+    let num_nodes = nodes.len();
+    let mut adj = vec![vec![]; num_nodes];
+    let mut in_degree = vec![0; num_nodes];
+
+    for i in 0..num_nodes {
+        for j in 0..num_nodes {
+            if i == j {
+                continue;
+            }
+            if let Some(ref def_name) = nodes[j].defined_name {
+                if nodes[i].referenced_names.contains(def_name) {
+                    adj[j].push(i);
+                    in_degree[i] += 1;
+                }
+            }
+        }
+    }
+
+    // topological sort
+    let mut sorted_pairs = Vec::new();
+    let mut processed = vec![false; num_nodes];
+
+    for _ in 0..num_nodes {
+        let mut found = false;
+        for i in 0..num_nodes {
+            if !processed[i] && in_degree[i] == 0 {
+                sorted_pairs.push(nodes[i].pair.clone());
+                processed[i] = true;
+                for &v in &adj[i] {
+                    in_degree[v] -= 1;
+                }
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            panic!("recursive declaration detected at module scope");
+        }
+    }
+
+    let decls = sorted_pairs
+        .into_iter()
         .map(|pair| parse_global_decl(pair, env))
         .collect::<Vec<_>>();
 
