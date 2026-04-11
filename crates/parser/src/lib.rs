@@ -608,17 +608,28 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
                     pair.into_inner().map(|pair| {
                         let mut pairs = pair.into_inner();
                         let name = pairs.next().unwrap().as_str();
-                        let arg = pairs.next().unwrap().as_str();
                         match name {
-                            "align" => StructMemberAttr::Align(arg.parse().unwrap()),
-                            "size" => StructMemberAttr::Size(arg.parse().unwrap()),
-                            "builtin" => StructMemberAttr::Builtin(arg.parse().unwrap()),
+                            "align" => StructMemberAttr::Align(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
+                            "blend_src" => StructMemberAttr::BlendSrc(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
+                            "size" => StructMemberAttr::Size(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
+                            "builtin" => StructMemberAttr::Builtin(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
                             "interpolate" => {
-                                let ty = arg.parse().unwrap();
+                                let ty = pairs.next().unwrap().as_str().parse().unwrap();
                                 let sample = pairs.next().map(|arg| arg.as_str().parse().unwrap());
                                 StructMemberAttr::Interpolate(ty, sample)
                             }
-                            "location" => StructMemberAttr::Location(arg.parse().unwrap()),
+                            "invariant" => StructMemberAttr::Invariant,
+                            "location" => StructMemberAttr::Location(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
                             _ => panic!("invalid struct member attribute: {}", name),
                         }
                     })

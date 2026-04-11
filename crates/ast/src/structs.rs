@@ -51,10 +51,14 @@ pub enum InterpolationSampling {
 pub enum StructMemberAttr {
     #[display("align({_0})")]
     Align(u32),
+    #[display("blend_src({_0})")]
+    BlendSrc(u32),
     #[display("builtin({_0})")]
     Builtin(BuiltinValue),
     #[display("interpolate({_0}{})", _1.as_ref().map(|s| format!(", {s}")).unwrap_or_default())]
     Interpolate(InterpolationType, Option<InterpolationSampling>),
+    #[display("invariant")]
+    Invariant,
     #[display("location({_0})")]
     Location(u32),
     #[display("size({_0})")]

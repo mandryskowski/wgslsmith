@@ -224,8 +224,10 @@ impl TryFrom<&ast::DataType> for Type {
                         match attr {
                             ast::StructMemberAttr::Align(n) => alignment = Some(*n),
                             ast::StructMemberAttr::Size(n) => size = Some(*n),
+                            ast::StructMemberAttr::BlendSrc(_) => {}
                             ast::StructMemberAttr::Builtin(_) => {}
                             ast::StructMemberAttr::Interpolate(_, _) => {}
+                            ast::StructMemberAttr::Invariant => {}
                             ast::StructMemberAttr::Location(_) => {}
                         }
                     }
