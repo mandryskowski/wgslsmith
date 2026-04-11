@@ -194,9 +194,22 @@ switch_case      = {
 }
 
 for_statement = { "for" ~ "(" ~ for_init? ~ ";" ~ expression? ~ ";" ~ for_update? ~ ")" ~ compound_statement }
-for_init      = { var_statement }
+for_init      = {
+    var_statement |
+    let_statement |
+    const_statement |
+    assignment_statement |
+    increment_statement |
+    decrement_statement |
+    call_statement
+}
 
-for_update    = { assignment_statement | increment_statement | decrement_statement }
+for_update    = {
+    assignment_statement |
+    increment_statement |
+    decrement_statement |
+    call_statement
+}
 
 statement = {
     assignment_statement ~ ";" |

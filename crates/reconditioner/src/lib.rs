@@ -328,6 +328,45 @@ impl Reconditioner {
                 data_type,
                 initializer.map(|e| self.recondition_expr(e)),
             )),
+            ForLoopInit::LetDecl(LetDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => ForLoopInit::LetDecl(LetDeclStatement::new(
+                ident,
+                data_type,
+                self.recondition_expr(initializer),
+            )),
+            ForLoopInit::ConstDecl(ConstDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => ForLoopInit::ConstDecl(ConstDeclStatement::new(
+                ident,
+                data_type,
+                self.recondition_expr(initializer),
+            )),
+            ForLoopInit::Assignment(AssignmentStatement { lhs, op, rhs }) => {
+                ForLoopInit::Assignment(AssignmentStatement::new(
+                    self.recondition_assignment_lhs(lhs),
+                    op,
+                    self.recondition_expr(rhs),
+                ))
+            }
+            ForLoopInit::Increment(IncrementStatement { lhs }) => ForLoopInit::Increment(
+                IncrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
+            ForLoopInit::Decrement(DecrementStatement { lhs }) => ForLoopInit::Decrement(
+                DecrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
+            ForLoopInit::Call(FnCallStatement { ident, args }) => {
+                ForLoopInit::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|it| self.recondition_expr(it))
+                        .collect(),
+                ))
+            }
         }
     }
 
@@ -346,6 +385,14 @@ impl Reconditioner {
             ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
                 DecrementStatement::new(self.recondition_assignment_lhs(lhs)),
             ),
+            ForLoopUpdate::Call(FnCallStatement { ident, args }) => {
+                ForLoopUpdate::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|it| self.recondition_expr(it))
+                        .collect(),
+                ))
+            }
         }
     }
 

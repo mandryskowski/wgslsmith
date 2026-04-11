@@ -205,6 +205,27 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                         let ty = d.inferred_type().clone();
                         ctx.process_decl(&mut d.ident, &ty, true);
                     }
+                    ForLoopInit::LetDecl(d) => {
+                        visit_expr_node(&mut d.initializer, ctx);
+                        let ty = d.inferred_type().clone();
+                        ctx.process_decl(&mut d.ident, &ty, false);
+                    }
+                    ForLoopInit::ConstDecl(d) => {
+                        visit_expr_node(&mut d.initializer, ctx);
+                        let ty = d.inferred_type().clone();
+                        ctx.process_decl(&mut d.ident, &ty, false);
+                    }
+                    ForLoopInit::Assignment(a) => {
+                        visit_lhs(&mut a.lhs, ctx);
+                        visit_expr_node(&mut a.rhs, ctx);
+                    }
+                    ForLoopInit::Increment(i) => visit_lhs(&mut i.lhs, ctx),
+                    ForLoopInit::Decrement(d) => visit_lhs(&mut d.lhs, ctx),
+                    ForLoopInit::Call(c) => {
+                        for arg in &mut c.args {
+                            visit_expr_node(arg, ctx);
+                        }
+                    }
                 }
             }
             if let Some(cond) = &mut s.header.condition {
@@ -218,6 +239,11 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                     }
                     ForLoopUpdate::Increment(i) => visit_lhs(&mut i.lhs, ctx),
                     ForLoopUpdate::Decrement(d) => visit_lhs(&mut d.lhs, ctx),
+                    ForLoopUpdate::Call(c) => {
+                        for arg in &mut c.args {
+                            visit_expr_node(arg, ctx);
+                        }
+                    }
                 }
             }
             ctx.enter_scope();
@@ -705,6 +731,20 @@ fn collect_live_functions(
                                     self.visit_expr(i);
                                 }
                             }
+                            ForLoopInit::LetDecl(d) => self.visit_expr(&d.initializer),
+                            ForLoopInit::ConstDecl(d) => self.visit_expr(&d.initializer),
+                            ForLoopInit::Assignment(a) => {
+                                self.visit_lhs(&a.lhs);
+                                self.visit_expr(&a.rhs);
+                            }
+                            ForLoopInit::Increment(i) => self.visit_lhs(&i.lhs),
+                            ForLoopInit::Decrement(d) => self.visit_lhs(&d.lhs),
+                            ForLoopInit::Call(c) => {
+                                collect_live_functions(&c.ident, self.module, self.live_functions);
+                                for arg in &c.args {
+                                    self.visit_expr(arg);
+                                }
+                            }
                         }
                     }
                     if let Some(cond) = &s.header.condition {
@@ -718,6 +758,12 @@ fn collect_live_functions(
                             }
                             ForLoopUpdate::Increment(i) => self.visit_lhs(&i.lhs),
                             ForLoopUpdate::Decrement(d) => self.visit_lhs(&d.lhs),
+                            ForLoopUpdate::Call(c) => {
+                                collect_live_functions(&c.ident, self.module, self.live_functions);
+                                for arg in &c.args {
+                                    self.visit_expr(arg);
+                                }
+                            }
                         }
                     }
                     for bs in &s.body {

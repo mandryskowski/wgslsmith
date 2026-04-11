@@ -422,6 +422,49 @@ impl Concretizer {
                 data_type,
                 initializer.map(|e| self.concretize_expr(e).into()),
             )),
+            ForLoopInit::LetDecl(LetDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => {
+                let con_init = self.concretize_expr(initializer);
+                if let Some(val) = &con_init.value {
+                    self.insert_const(ident.clone(), val.clone());
+                }
+                ForLoopInit::LetDecl(LetDeclStatement::new(ident, data_type, con_init))
+            }
+            ForLoopInit::ConstDecl(ConstDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => {
+                let con_init = self.concretize_expr(initializer);
+                if let Some(val) = &con_init.value {
+                    self.insert_const(ident.clone(), val.clone());
+                }
+                ForLoopInit::ConstDecl(ConstDeclStatement::new(ident, data_type, con_init))
+            }
+            ForLoopInit::Assignment(AssignmentStatement { lhs, op, rhs }) => {
+                ForLoopInit::Assignment(AssignmentStatement::new(
+                    self.concretize_assignment_lhs(lhs),
+                    op,
+                    self.concretize_expr(rhs),
+                ))
+            }
+            ForLoopInit::Increment(IncrementStatement { lhs }) => {
+                ForLoopInit::Increment(IncrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
+            ForLoopInit::Decrement(DecrementStatement { lhs }) => {
+                ForLoopInit::Decrement(DecrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
+            ForLoopInit::Call(FnCallStatement { ident, args }) => {
+                ForLoopInit::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|e| self.concretize_expr(e).into())
+                        .collect(),
+                ))
+            }
         }
     }
 
@@ -440,6 +483,14 @@ impl Concretizer {
             ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
                 DecrementStatement::new(self.concretize_assignment_lhs(lhs)),
             ),
+            ForLoopUpdate::Call(FnCallStatement { ident, args }) => {
+                ForLoopUpdate::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|e| self.concretize_expr(e).into())
+                        .collect(),
+                ))
+            }
         }
     }
 
