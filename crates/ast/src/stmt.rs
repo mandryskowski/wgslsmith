@@ -656,11 +656,41 @@ impl Display for FnCallStatement {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ConstAssertStatement {
+    pub condition: ExprNode,
+}
+
+impl ConstAssertStatement {
+    pub fn new(condition: impl Into<ExprNode>) -> Self {
+        Self {
+            condition: condition.into(),
+        }
+    }
+}
+
+impl Display for ConstAssertStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "const_assert {}", self.condition)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct DiscardStatement;
+
+impl Display for DiscardStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "discard")
+    }
+}
+
 #[derive(Debug, PartialEq, From, Clone)]
 pub enum Statement {
     LetDecl(LetDeclStatement),
     ConstDecl(ConstDeclStatement),
     VarDecl(VarDeclStatement),
+    ConstAssert(ConstAssertStatement),
+    Discard(DiscardStatement),
     Assignment(AssignmentStatement),
     Increment(IncrementStatement),
     Decrement(DecrementStatement),
@@ -695,6 +725,8 @@ impl Display for Statement {
             Statement::LetDecl(stmt) => write!(f, "{stmt};"),
             Statement::ConstDecl(stmt) => write!(f, "{stmt};"),
             Statement::VarDecl(stmt) => write!(f, "{stmt};"),
+            Statement::ConstAssert(stmt) => write!(f, "{stmt};"),
+            Statement::Discard(stmt) => write!(f, "{stmt};"),
             Statement::Assignment(stmt) => write!(f, "{stmt};"),
             Statement::Increment(stmt) => write!(f, "{stmt};"),
             Statement::Decrement(stmt) => write!(f, "{stmt};"),

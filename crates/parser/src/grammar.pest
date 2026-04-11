@@ -170,6 +170,8 @@ lhs_phony           = { "_" }
 var_statement        = { "var" ~ ident ~ (":" ~ type_decl)? ~ ("=" ~ expression)? }
 let_statement        = { "let" ~ ident ~ (":" ~ type_decl)? ~ "=" ~ expression }
 const_statement      = { "const" ~ ident ~ (":" ~ type_decl)? ~ "=" ~ expression }
+const_assert_statement = { "const_assert" ~ expression }
+discard_statement    = { "discard" }
 assignment_statement = { (lhs_phony | lhs_expression) ~ assignment_operator ~ expression }
 increment_statement  = { lhs_expression ~ op_increment }
 decrement_statement  = { lhs_expression ~ op_decrement }
@@ -203,6 +205,8 @@ statement = {
     var_statement ~ ";" |
     let_statement ~ ";" |
     const_statement ~ ";" |
+    const_assert_statement ~ ";" |
+    discard_statement ~ ";" |
     if_statement |
     loop_statement |
     while_statement |
@@ -245,6 +249,7 @@ type_alias_decl = { "alias" ~ ident ~ "=" ~ type_decl }
 
 enable_directive   = { "enable" ~ ident ~ ";" }
 requires_directive = { "requires" ~ ident ~ ";" }
+global_const_assert = { "const_assert" ~ expression }
 
 global_decl = {
     enable_directive |
@@ -253,6 +258,7 @@ global_decl = {
     global_constant_decl ~ ";" |
     global_override_decl ~ ";" |
     global_variable_decl ~ ";" |
+    global_const_assert ~ ";" |
     struct_decl ~ ";"? |
     function_decl
 }

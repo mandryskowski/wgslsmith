@@ -404,6 +404,10 @@ impl Concretizer {
             Statement::Decrement(DecrementStatement { lhs }) => {
                 Statement::Decrement(DecrementStatement::new(self.concretize_assignment_lhs(lhs)))
             }
+            Statement::ConstAssert(ConstAssertStatement { condition }) => {
+                Statement::ConstAssert(ConstAssertStatement::new(self.concretize_expr(condition)))
+            }
+            Statement::Discard(_) => Statement::Discard(DiscardStatement),
         }
     }
 

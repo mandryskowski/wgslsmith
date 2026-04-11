@@ -185,6 +185,10 @@ impl<'a> VarVisitor<'a> {
             Statement::Decrement(s) => {
                 self.visit_assignment_lhs(&s.lhs);
             }
+            Statement::ConstAssert(s) => {
+                self.visit_expr_node(&s.condition);
+            }
+            Statement::Discard(_) => {}
         }
     }
 

@@ -48,6 +48,10 @@ impl Writer {
             writeln!(f, "{decl};")?;
         }
 
+        for decl in &module.const_asserts {
+            writeln!(f, "{decl};")?;
+        }
+
         for decl in &module.overrides {
             self.write_override(f, decl)?;
         }

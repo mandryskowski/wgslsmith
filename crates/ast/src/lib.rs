@@ -30,6 +30,7 @@ pub struct Module {
     pub consts: Vec<ConstDeclStatement>,
     pub overrides: Vec<OverrideDecl>,
     pub vars: Vec<GlobalVarDecl>,
+    pub const_asserts: Vec<ConstAssertStatement>,
     pub functions: Vec<FnDecl>,
 }
 

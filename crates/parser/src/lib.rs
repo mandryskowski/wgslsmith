@@ -114,7 +114,7 @@ pub fn parse(input: &str) -> Module {
 fn get_defined_name(pair: &Pair<Rule>) -> Option<String> {
     let inner = pair.clone().into_inner().next().unwrap();
     match inner.as_rule() {
-        Rule::enable_directive | Rule::requires_directive => None,
+        Rule::enable_directive | Rule::requires_directive | Rule::global_const_assert => None,
         Rule::type_alias_decl
         | Rule::struct_decl
         | Rule::global_constant_decl
@@ -310,6 +310,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
     let mut consts = vec![];
     let mut overrides = vec![];
     let mut vars = vec![];
+    let mut const_asserts = vec![];
 
     for decl in decls {
         match decl {
@@ -321,6 +322,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
             GlobalDecl::Var(decl) => vars.push(decl),
             GlobalDecl::Struct(decl) => structs.push(decl),
             GlobalDecl::Fn(decl) => functions.push(decl),
+            GlobalDecl::ConstAssert(decl) => const_asserts.push(decl),
         }
     }
 
@@ -333,6 +335,7 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
         consts,
         overrides,
         vars,
+        const_asserts,
     }
 }
 
@@ -345,6 +348,7 @@ enum GlobalDecl {
     Var(GlobalVarDecl),
     Struct(Rc<StructDecl>),
     Fn(FnDecl),
+    ConstAssert(ConstAssertStatement),
 }
 
 fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
@@ -358,8 +362,15 @@ fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
         Rule::global_variable_decl => GlobalDecl::Var(parse_global_variable_decl(pair, env)),
         Rule::struct_decl => GlobalDecl::Struct(parse_struct_decl(pair, env)),
         Rule::function_decl => GlobalDecl::Fn(parse_function_decl(pair, env)),
+        Rule::global_const_assert => GlobalDecl::ConstAssert(parse_global_const_assert(pair, env)),
         _ => unreachable!(),
     }
+}
+
+fn parse_global_const_assert(pair: Pair<Rule>, env: &Environment) -> ConstAssertStatement {
+    let mut pairs = pair.into_inner();
+    let expr = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    ConstAssertStatement::new(expr)
 }
 
 fn parse_enable_directive(pair: Pair<Rule>) -> ast::EnableExtension {
@@ -762,6 +773,8 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
         Rule::let_statement => parse_let_statement(pair, env),
         Rule::const_statement => parse_const_statement(pair, env),
         Rule::var_statement => parse_var_statement(pair, env),
+        Rule::const_assert_statement => parse_const_assert_statement(pair, env),
+        Rule::discard_statement => Statement::Discard(DiscardStatement),
         Rule::assignment_statement => parse_assignment_statement(pair, env),
         Rule::compound_statement => parse_compound_statement(pair, env),
         Rule::if_statement => parse_if_statement(pair, env),
@@ -778,6 +791,12 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
         Rule::decrement_statement => parse_decrement_statement(pair, env),
         _ => unreachable!(),
     }
+}
+
+fn parse_const_assert_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
+    let mut pairs = pair.into_inner();
+    let expr = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    ConstAssertStatement::new(expr).into()
 }
 
 fn parse_increment_statement(pair: Pair<Rule>, env: &Environment) -> Statement {

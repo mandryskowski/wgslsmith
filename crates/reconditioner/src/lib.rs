@@ -309,6 +309,11 @@ impl Reconditioner {
             Statement::Decrement(DecrementStatement { lhs }) => {
                 DecrementStatement::new(self.recondition_assignment_lhs(lhs)).into()
             }
+
+            Statement::ConstAssert(s) => Statement::ConstAssert(ConstAssertStatement::new(
+                self.recondition_expr(s.condition),
+            )),
+            Statement::Discard(s) => Statement::Discard(s),
         }
     }
 

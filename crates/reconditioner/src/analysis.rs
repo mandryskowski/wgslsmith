@@ -290,6 +290,8 @@ fn visit_stmt<'a>(
         Statement::Fallthrough => {}
         Statement::Increment(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
         Statement::Decrement(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
+        Statement::ConstAssert(stmt) => visit_expr(analysis, scope, cx, &stmt.condition),
+        Statement::Discard(_) => {}
     }
 }
 

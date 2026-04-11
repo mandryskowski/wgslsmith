@@ -263,6 +263,7 @@ impl<'a> Generator<'a> {
                 structs
             },
             consts: vec![],
+            const_asserts: vec![],
             overrides: vec![],
             vars: global_vars,
             functions,
