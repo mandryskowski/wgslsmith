@@ -10,11 +10,24 @@ ident = @{
 // LITERALS
 
 bool_literal = { "true" | "false" }
-uint_literal = @{ ASCII_DIGIT+ ~ "u" }
-int_literal = @{ ("-")? ~ ASCII_DIGIT+ ~ "i"? ~ !("u" | "f" | ".") }
 
+hex_prefix = _{ "0x" | "0X" }
+hex_exponent = _{ ("p" | "P") ~ ("+" | "-")? ~ ASCII_DIGIT+ }
+
+uint_literal = @{ (hex_prefix ~ ASCII_HEX_DIGIT+ ~ "u") | (ASCII_DIGIT+ ~ "u") }
+int_literal = @{
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT+ ~ "i"? ~ !("u" | "f" | "h" | "." | "p" | "P") )
+    |
+    ( ("-")? ~ ASCII_DIGIT+ ~ "i"? ~ !("u" | "f" | "h" | "." | "e" | "E") )
+}
 
 float_literal = @{
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT* ~ "." ~ ASCII_HEX_DIGIT+ ~ hex_exponent? ~ ("f" | "h")? )
+    |
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT+ ~ "." ~ ASCII_HEX_DIGIT* ~ hex_exponent? ~ ("f" | "h")? )
+    |
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT+ ~ hex_exponent ~ ("f" | "h")? )
+    |
     ( ("-")? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ exponent? ~ ("f" | "h")? )
     |
     ( ("-")? ~ "." ~ ASCII_DIGIT+ ~ exponent? ~ ("f" | "h")? )

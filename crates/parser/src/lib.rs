@@ -1108,47 +1108,97 @@ fn parse_literal_expression(pair: Pair<Rule>, expected_type: Option<&DataType>) 
     let pair = pair.into_inner().next().unwrap();
     let (t, lit) = match pair.as_rule() {
         Rule::bool_literal => (ScalarType::Bool, Lit::Bool(pair.as_str().parse().unwrap())),
-        Rule::uint_literal => (
-            ScalarType::U32,
-            Lit::U32(pair.as_str().trim_end_matches('u').parse().unwrap()),
-        ),
+        Rule::uint_literal => {
+            let s = pair.as_str().trim_end_matches('u');
+            let is_hex = s.starts_with("0x") || s.starts_with("0X");
+            let val = if is_hex {
+                u32::from_str_radix(&s[2..], 16).unwrap()
+            } else {
+                s.parse().unwrap()
+            };
+            (ScalarType::U32, Lit::U32(val))
+        }
         Rule::int_literal => {
             let s = pair.as_str();
+            let is_hex = s.contains("0x") || s.contains("0X");
+
+            let parse_i32 = |s: &str| -> i32 {
+                if is_hex {
+                    let (s, neg) = if let Some(stripped) = s.strip_prefix('-') {
+                        (stripped, true)
+                    } else {
+                        (s, false)
+                    };
+                    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+                    let val = i64::from_str_radix(s, 16).unwrap();
+                    let val = if neg { -val } else { val };
+                    val as i32
+                } else {
+                    s.parse().unwrap()
+                }
+            };
+
+            let parse_u32 = |s: &str| -> u32 {
+                if is_hex {
+                    let (s, neg) = if let Some(stripped) = s.strip_prefix('-') {
+                        (stripped, true)
+                    } else {
+                        (s, false)
+                    };
+                    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+                    let val = u32::from_str_radix(s, 16).unwrap();
+                    if neg {
+                        val.wrapping_neg()
+                    } else {
+                        val
+                    }
+                } else {
+                    s.parse().unwrap()
+                }
+            };
+
+            let parse_f32 = |s: &str| -> f32 {
+                if is_hex {
+                    parse_hex_float(s)
+                } else {
+                    s.parse().unwrap()
+                }
+            };
+
             if s.ends_with('i') {
                 (
                     ScalarType::I32,
-                    Lit::I32(s.trim_end_matches('i').parse().unwrap()),
+                    Lit::I32(parse_i32(s.trim_end_matches('i'))),
                 )
             } else {
                 // No suffix
                 match expected_type.and_then(|t| t.as_scalar()) {
-                    Some(ScalarType::U32) => (ScalarType::U32, Lit::U32(s.parse().unwrap())),
-                    Some(ScalarType::F32) => (ScalarType::F32, Lit::F32(s.parse().unwrap())),
-                    Some(ScalarType::F16) => (
-                        ScalarType::F16,
-                        Lit::F16(s.parse::<f32>().map(half::f16::from_f32).unwrap()),
-                    ),
-                    _ => (ScalarType::I32, Lit::I32(s.parse().unwrap())),
+                    Some(ScalarType::U32) => (ScalarType::U32, Lit::U32(parse_u32(s))),
+                    Some(ScalarType::F32) => (ScalarType::F32, Lit::F32(parse_f32(s))),
+                    Some(ScalarType::F16) => {
+                        (ScalarType::F16, Lit::F16(half::f16::from_f32(parse_f32(s))))
+                    }
+                    _ => (ScalarType::I32, Lit::I32(parse_i32(s))),
                 }
             }
         }
         Rule::float_literal => {
             let s = pair.as_str();
+            let is_hex = s.contains("0x") || s.contains("0X");
             if s.ends_with('h') {
-                (
-                    ScalarType::F16,
-                    Lit::F16(
-                        s.trim_end_matches('h')
-                            .parse::<f32>()
-                            .map(half::f16::from_f32)
-                            .unwrap(),
-                    ),
-                )
+                let val = if is_hex {
+                    parse_hex_float(s)
+                } else {
+                    s.trim_end_matches('h').parse::<f32>().unwrap()
+                };
+                (ScalarType::F16, Lit::F16(half::f16::from_f32(val)))
             } else {
-                (
-                    ScalarType::F32,
-                    Lit::F32(s.trim_end_matches('f').parse().unwrap()),
-                )
+                let val = if is_hex {
+                    parse_hex_float(s)
+                } else {
+                    s.trim_end_matches('f').parse::<f32>().unwrap()
+                };
+                (ScalarType::F32, Lit::F32(val))
             }
         }
         _ => unreachable!(),
@@ -1655,6 +1705,51 @@ impl From<Rule> for ScalarType {
             _ => unreachable!(),
         }
     }
+}
+
+fn parse_hex_float(s: &str) -> f32 {
+    let (s, is_negative) = if let Some(stripped) = s.strip_prefix('-') {
+        (stripped, true)
+    } else {
+        (s, false)
+    };
+    let s = s.trim_end_matches(['f', 'h']);
+    let s = &s[2..];
+    let (sig, exp_str) = if let Some(idx) = s.find(['p', 'P']) {
+        (&s[..idx], &s[idx + 1..])
+    } else {
+        (s, "0")
+    };
+
+    let mut exp_val = exp_str.parse::<i32>().unwrap();
+    let mut int_part = String::new();
+    for (i, c) in sig.chars().enumerate() {
+        if c == '.' {
+            let frac_digits = sig.len() - 1 - i;
+            exp_val -= (frac_digits as i32) * 4;
+        } else {
+            int_part.push(c);
+        }
+    }
+
+    let mut start_idx = 0;
+    while start_idx < int_part.len() && int_part.as_bytes()[start_idx] == b'0' {
+        start_idx += 1;
+    }
+    let sig_str = &int_part[start_idx..];
+
+    let mut val = 0.0_f64;
+    if !sig_str.is_empty() {
+        let take_len = sig_str.len().min(16);
+        let truncated = &sig_str[..take_len];
+        let parsed = u64::from_str_radix(truncated, 16).unwrap() as f64;
+        let skipped_digits = sig_str.len() - take_len;
+        exp_val += (skipped_digits as i32) * 4;
+        val = parsed * 2.0_f64.powi(exp_val);
+    }
+
+    let result = if is_negative { -val } else { val };
+    result as f32
 }
 
 #[cfg(test)]
