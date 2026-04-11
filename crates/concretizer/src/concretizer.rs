@@ -879,7 +879,99 @@ impl Concretizer {
                     _ => None,
                 }
             }
-            _ => None,
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXOr => match (lv, rv) {
+                (Lit::I32(l), Lit::I32(r)) => {
+                    let result = match op {
+                        BinOp::BitAnd => l & r,
+                        BinOp::BitOr => l | r,
+                        BinOp::BitXOr => l ^ r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_i32(Some(result))
+                }
+                (Lit::U32(l), Lit::U32(r)) => {
+                    let result = match op {
+                        BinOp::BitAnd => l & r,
+                        BinOp::BitOr => l | r,
+                        BinOp::BitXOr => l ^ r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_u32(Some(result))
+                }
+                (Lit::Bool(l), Lit::Bool(r)) => {
+                    let result = match op {
+                        BinOp::BitAnd => l & r,
+                        BinOp::BitOr => l | r,
+                        BinOp::BitXOr => l ^ r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_bool(Some(result))
+                }
+                _ => None,
+            },
+            BinOp::LogAnd | BinOp::LogOr => match (lv, rv) {
+                (Lit::Bool(l), Lit::Bool(r)) => {
+                    let result = match op {
+                        BinOp::LogAnd => l && r,
+                        BinOp::LogOr => l || r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_bool(Some(result))
+                }
+                _ => None,
+            },
+            BinOp::Equal
+            | BinOp::NotEqual
+            | BinOp::Less
+            | BinOp::LessEqual
+            | BinOp::Greater
+            | BinOp::GreaterEqual => {
+                let result = match (lv, rv) {
+                    (Lit::I32(l), Lit::I32(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::U32(l), Lit::U32(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::F32(l), Lit::F32(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::F16(l), Lit::F16(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::Bool(l), Lit::Bool(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                Value::from_bool(Some(result))
+            }
         }
     }
 
@@ -989,32 +1081,30 @@ impl Concretizer {
 
     fn eval_unop_scalar(&self, op: UnOp, inner: Lit) -> Option<Value> {
         match op {
-            UnOp::Neg => {
-                match inner {
-                    Lit::I32(i) => {
-                        // WGSL negation of  e : T where T is an
-                        // integer scalar and e evaluates to the
-                        // largest negative value, gives result e
-                        if i == -2147483648 {
-                            Value::from_i32(Some(i))
-                        } else {
-                            Value::from_i32(Some(-i))
-                        }
-                    }
-                    Lit::F32(f) => Value::from_f32(Some(-f)),
-                    Lit::F16(f) => Value::from_f16(Some(-f)),
-                    _ => {
-                        panic!("cannot negate {:?}", inner); // can't negate other types
+            UnOp::Neg => match inner {
+                Lit::I32(i) => {
+                    // WGSL negation of  e : T where T is an
+                    // integer scalar and e evaluates to the
+                    // largest negative value, gives result e
+                    if i == -2147483648 {
+                        Value::from_i32(Some(i))
+                    } else {
+                        Value::from_i32(Some(-i))
                     }
                 }
-            }
-            UnOp::BitNot => {
-                match inner {
-                    Lit::I32(i) => Value::from_i32(Some(!i)),
-                    Lit::U32(u) => Value::from_u32(Some(!u)),
-                    _ => panic!(), // can't bitnot other types
-                }
-            }
+                Lit::F32(f) => Value::from_f32(Some(-f)),
+                Lit::F16(f) => Value::from_f16(Some(-f)),
+                _ => None,
+            },
+            UnOp::BitNot => match inner {
+                Lit::I32(i) => Value::from_i32(Some(!i)),
+                Lit::U32(u) => Value::from_u32(Some(!u)),
+                _ => None,
+            },
+            UnOp::Not => match inner {
+                Lit::Bool(b) => Value::from_bool(Some(!b)),
+                _ => None,
+            },
             _ => None,
         }
     }
