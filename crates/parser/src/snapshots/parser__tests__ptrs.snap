@@ -9,6 +9,7 @@ Module {
     aliases: [],
     structs: [],
     consts: [],
+    overrides: [],
     vars: [
         GlobalVarDecl {
             attrs: [],

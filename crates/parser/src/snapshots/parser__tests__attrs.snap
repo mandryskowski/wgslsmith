@@ -155,6 +155,7 @@ Module {
         },
     ],
     consts: [],
+    overrides: [],
     vars: [],
     functions: [],
 }
