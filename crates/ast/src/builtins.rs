@@ -412,4 +412,12 @@ pub enum BuiltinValue {
     NumWorkgroups,
     SampleIndex,
     SampleMask,
+    ClipDistances,
+    PrimitiveIndex,
+    GlobalInvocationIndex,
+    WorkgroupIndex,
+    SubgroupInvocationId,
+    SubgroupSize,
+    SubgroupId,
+    NumSubgroups,
 }
