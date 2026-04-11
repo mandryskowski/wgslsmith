@@ -23,6 +23,8 @@ pub enum FnAttr {
     Stage(ShaderStage),
     #[display("workgroup_size({_0})")]
     WorkgroupSize(u32),
+    #[display("must_use")]
+    MustUse,
 }
 
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]

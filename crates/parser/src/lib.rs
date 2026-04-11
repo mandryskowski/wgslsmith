@@ -671,6 +671,7 @@ fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
                             _ => panic!("invalid argument for workgroup_size attr"),
                         },
                     ),
+                    "must_use" => FnAttr::MustUse,
                     _ => panic!("invalid function attribute: {}", name),
                 }
             })
