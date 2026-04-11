@@ -9,7 +9,6 @@ Module {
     aliases: [],
     structs: [],
     consts: [],
-    const_asserts: [],
     overrides: [],
     vars: [
         GlobalVarDecl {
@@ -71,7 +70,74 @@ Module {
             initializer: None,
         },
     ],
+    const_asserts: [],
     functions: [
+        FnDecl {
+            attrs: [],
+            name: "foo",
+            inputs: [
+                FnInput {
+                    attrs: [],
+                    name: "p",
+                    data_type: Ptr(
+                        MemoryViewType {
+                            inner: Scalar(
+                                I32,
+                            ),
+                            storage_class: Private,
+                            access_mode: ReadWrite,
+                        },
+                    ),
+                },
+            ],
+            output: None,
+            body: [
+                Assignment(
+                    AssignmentStatement {
+                        lhs: Expr(
+                            LhsExprNode {
+                                data_type: Ref(
+                                    MemoryViewType {
+                                        inner: Scalar(
+                                            I32,
+                                        ),
+                                        storage_class: Private,
+                                        access_mode: ReadWrite,
+                                    },
+                                ),
+                                expr: Deref(
+                                    LhsExprNode {
+                                        data_type: Ptr(
+                                            MemoryViewType {
+                                                inner: Scalar(
+                                                    I32,
+                                                ),
+                                                storage_class: Private,
+                                                access_mode: ReadWrite,
+                                            },
+                                        ),
+                                        expr: Ident(
+                                            "p",
+                                        ),
+                                    },
+                                ),
+                            },
+                        ),
+                        op: Simple,
+                        rhs: ExprNode {
+                            data_type: Scalar(
+                                I32,
+                            ),
+                            expr: Lit(
+                                I32(
+                                    3,
+                                ),
+                            ),
+                        },
+                    },
+                ),
+            ],
+        },
         FnDecl {
             attrs: [],
             name: "main",
@@ -899,72 +965,6 @@ Module {
                             },
                         ),
                     ],
-                ),
-            ],
-        },
-        FnDecl {
-            attrs: [],
-            name: "foo",
-            inputs: [
-                FnInput {
-                    attrs: [],
-                    name: "p",
-                    data_type: Ptr(
-                        MemoryViewType {
-                            inner: Scalar(
-                                I32,
-                            ),
-                            storage_class: Private,
-                            access_mode: ReadWrite,
-                        },
-                    ),
-                },
-            ],
-            output: None,
-            body: [
-                Assignment(
-                    AssignmentStatement {
-                        lhs: Expr(
-                            LhsExprNode {
-                                data_type: Ref(
-                                    MemoryViewType {
-                                        inner: Scalar(
-                                            I32,
-                                        ),
-                                        storage_class: Private,
-                                        access_mode: ReadWrite,
-                                    },
-                                ),
-                                expr: Deref(
-                                    LhsExprNode {
-                                        data_type: Ptr(
-                                            MemoryViewType {
-                                                inner: Scalar(
-                                                    I32,
-                                                ),
-                                                storage_class: Private,
-                                                access_mode: ReadWrite,
-                                            },
-                                        ),
-                                        expr: Ident(
-                                            "p",
-                                        ),
-                                    },
-                                ),
-                            },
-                        ),
-                        op: Simple,
-                        rhs: ExprNode {
-                            data_type: Scalar(
-                                I32,
-                            ),
-                            expr: Lit(
-                                I32(
-                                    3,
-                                ),
-                            ),
-                        },
-                    },
                 ),
             ],
         },

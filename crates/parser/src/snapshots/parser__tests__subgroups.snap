@@ -11,37 +11,10 @@ Module {
     aliases: [],
     structs: [],
     consts: [],
-    const_asserts: [],
     overrides: [],
     vars: [],
+    const_asserts: [],
     functions: [
-        FnDecl {
-            attrs: [
-                Stage(
-                    Compute,
-                ),
-                WorkgroupSize(
-                    64,
-                ),
-            ],
-            name: "main",
-            inputs: [],
-            output: None,
-            body: [
-                FnCall(
-                    FnCallStatement {
-                        ident: "test_subgroup",
-                        args: [],
-                    },
-                ),
-                FnCall(
-                    FnCallStatement {
-                        ident: "test_quad",
-                        args: [],
-                    },
-                ),
-            ],
-        },
         FnDecl {
             attrs: [],
             name: "test_subgroup",
@@ -1063,6 +1036,44 @@ Module {
                                 },
                             ),
                         },
+                    },
+                ),
+            ],
+        },
+        FnDecl {
+            attrs: [
+                Stage(
+                    Compute,
+                ),
+                WorkgroupSize(
+                    [
+                        ExprNode {
+                            data_type: Scalar(
+                                U32,
+                            ),
+                            expr: Lit(
+                                U32(
+                                    64,
+                                ),
+                            ),
+                        },
+                    ],
+                ),
+            ],
+            name: "main",
+            inputs: [],
+            output: None,
+            body: [
+                FnCall(
+                    FnCallStatement {
+                        ident: "test_subgroup",
+                        args: [],
+                    },
+                ),
+                FnCall(
+                    FnCallStatement {
+                        ident: "test_quad",
+                        args: [],
                     },
                 ),
             ],

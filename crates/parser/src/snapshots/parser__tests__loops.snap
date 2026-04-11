@@ -9,9 +9,9 @@ Module {
     aliases: [],
     structs: [],
     consts: [],
-    const_asserts: [],
     overrides: [],
     vars: [],
+    const_asserts: [],
     functions: [
         FnDecl {
             attrs: [],
