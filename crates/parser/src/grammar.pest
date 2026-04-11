@@ -1,5 +1,7 @@
 WHITESPACE = _{ " " | "\t" | NEWLINE }
-COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
+line_comment = _{ "//" ~ (!NEWLINE ~ ANY)* }
+block_comment = _{ "/*" ~ (block_comment | (!"*/" ~ !"/*" ~ ANY))* ~ "*/" }
+COMMENT    = _{ line_comment | block_comment }
 
 ident = @{
     (ASCII_ALPHA | "_") ~ ASCII_ALPHANUMERIC ~ (ASCII_ALPHANUMERIC | "_")* | ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*
