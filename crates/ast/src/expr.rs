@@ -139,18 +139,23 @@ pub enum BinOp {
 
 impl BinOp {
     /// Determines the return type of a binary operator given its operand types.
-    pub fn type_eval(&self, left: &DataType, #[allow(unused)] right: &DataType) -> DataType {
+    pub fn type_eval(&self, left: &DataType, right: &DataType) -> DataType {
         let left = if let DataType::Ref(view) = left {
             view.inner.as_ref()
         } else {
             left
         };
 
+        let right = if let DataType::Ref(view) = right {
+            view.inner.as_ref()
+        } else {
+            right
+        };
+
         match self {
             // These operators produce the same result type as the first operand.
             | BinOp::Plus
             | BinOp::Minus
-            | BinOp::Times
             | BinOp::Divide
             | BinOp::Mod
             | BinOp::BitAnd
@@ -158,6 +163,19 @@ impl BinOp {
             | BinOp::BitXOr
             | BinOp::LShift
             | BinOp::RShift => left.clone(),
+
+            BinOp::Times => match (left, right) {
+                (DataType::Matrix(_c1, r1, t1), DataType::Matrix(c2, _r2, _t2)) => {
+                    DataType::Matrix(*c2, *r1, *t1)
+                }
+                (DataType::Matrix(_c, r, t), DataType::Vector(_n, _)) => DataType::Vector(*r, *t),
+                (DataType::Vector(_n, t), DataType::Matrix(c, _r, _)) => DataType::Vector(*c, *t),
+                (DataType::Matrix(c, r, t), DataType::Scalar(_)) => DataType::Matrix(*c, *r, *t),
+                (DataType::Scalar(_), DataType::Matrix(c, r, t)) => DataType::Matrix(*c, *r, *t),
+                (DataType::Vector(n, t), DataType::Scalar(_)) => DataType::Vector(*n, *t),
+                (DataType::Scalar(_), DataType::Vector(n, t)) => DataType::Vector(*n, *t),
+                _ => left.clone(),
+            },
 
             // These operators always produce scalar bools.
             BinOp::LogAnd | BinOp::LogOr => DataType::Scalar(ScalarType::Bool),
