@@ -81,6 +81,9 @@ pub fn reflect(
                             ast::TexelFormat::Rgba32Sint => types::TextureFormat::Rgba32Sint,
                             ast::TexelFormat::Rgba32Float => types::TextureFormat::Rgba32Float,
                             ast::TexelFormat::Bgra8Unorm => types::TextureFormat::Bgra8Unorm,
+                            ast::TexelFormat::Bgra8UnormSrgb => {
+                                types::TextureFormat::Bgra8UnormSrgb
+                            }
                             ast::TexelFormat::R8Unorm => types::TextureFormat::R8Unorm,
                             ast::TexelFormat::R8Snorm => types::TextureFormat::R8Snorm,
                             ast::TexelFormat::R8Uint => types::TextureFormat::R8Uint,

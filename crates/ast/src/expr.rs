@@ -225,6 +225,16 @@ impl Postfix {
                 DataType::Vector(_, t) => DataType::Scalar(*t),
                 DataType::Matrix(_, r, t) => DataType::Vector(*r, *t),
                 DataType::Array(t, _) => (**t).clone(),
+                DataType::Ptr(view) => match view.inner.as_ref() {
+                    DataType::Vector(_, t) => {
+                        DataType::Ref(view.clone_with_type(DataType::Scalar(*t)))
+                    }
+                    DataType::Matrix(_, r, t) => {
+                        DataType::Ref(view.clone_with_type(DataType::Vector(*r, *t)))
+                    }
+                    DataType::Array(t, _) => DataType::Ref(view.clone_with_type((**t).clone())),
+                    _ => panic!("index operator cannot be applied to type `{ty}`"),
+                },
                 ty => panic!("index operator cannot be applied to type `{ty}`"),
             },
             Postfix::Member(ident) => match ty {
@@ -245,6 +255,20 @@ impl Postfix {
                         panic!("invalid member access on __atomic_compare_exchange_result")
                     }
                 }
+                DataType::Ptr(view) => match view.inner.as_ref() {
+                    DataType::Struct(decl) => DataType::Ref(
+                        view.clone_with_type(decl.member_type(ident).unwrap().clone()),
+                    ),
+                    DataType::Vector(_, t) => {
+                        let inner_t = if ident.len() == 1 {
+                            DataType::Scalar(*t)
+                        } else {
+                            DataType::Vector(ident.len() as u8, *t)
+                        };
+                        DataType::Ref(view.clone_with_type(inner_t))
+                    }
+                    _ => panic!("member access operator cannot be applied to type `{ty}`"),
+                },
                 ty => panic!("member access operator cannot be applied to type `{ty}`"),
             },
         }
