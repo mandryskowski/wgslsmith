@@ -408,7 +408,6 @@ impl Enumerator {
         let next_available = (max_id + 1) as usize;
 
         let mut ids: Vec<usize> = (0..=next_available).collect();
-        // Randomize branch order to get a highly diverse sample when space is huge.
         ids.shuffle(&mut rand::thread_rng());
 
         for id in ids {
@@ -618,7 +617,6 @@ pub fn get_enumerations(
 
     let original_assignment = get_original_assignment(&ctx.holes, &ctx.scope_parents);
 
-    // Ensure the original assignment is always present, even if we bailed early due to limit caps.
     let mut original_idx = enumerator
         .results
         .iter()

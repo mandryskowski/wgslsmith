@@ -878,8 +878,6 @@ fn process_shader(
     if !failures_to_save.is_empty() {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         for (i, kind, consensus, combined, src, recond_src, is_original) in failures_to_save {
-            // Only output variant failure files if we had at least one success recorded
-            // from earlier processing (original succeeded, variants failed).
             if !is_original && !has_success {
                 continue;
             }
