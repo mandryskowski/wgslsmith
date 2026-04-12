@@ -117,25 +117,25 @@ fn visit_fn(func: &mut FnDecl, ctx: &mut Context) {
 fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
     match stmt {
         Statement::LetDecl(s) => {
-            visit_expr_node(&mut s.initializer, ctx);
+            visit_expr_node(&mut s.initializer, ctx, false);
             let ty = s.inferred_type().clone();
             ctx.process_decl(&mut s.ident, &ty, false);
         }
         Statement::VarDecl(s) => {
             if let Some(init) = &mut s.initializer {
-                visit_expr_node(init, ctx);
+                visit_expr_node(init, ctx, false);
             }
             let ty = s.inferred_type().clone();
             ctx.process_decl(&mut s.ident, &ty, true);
         }
         Statement::ConstDecl(s) => {
-            visit_expr_node(&mut s.initializer, ctx);
+            visit_expr_node(&mut s.initializer, ctx, false);
             let ty = s.inferred_type().clone();
             ctx.process_decl(&mut s.ident, &ty, false);
         }
         Statement::Assignment(s) => {
             visit_lhs(&mut s.lhs, ctx);
-            visit_expr_node(&mut s.rhs, ctx);
+            visit_expr_node(&mut s.rhs, ctx, false);
         }
         Statement::Compound(stmts) => {
             ctx.enter_scope();
@@ -145,7 +145,7 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
             ctx.exit_scope();
         }
         Statement::If(s) => {
-            visit_expr_node(&mut s.condition, ctx);
+            visit_expr_node(&mut s.condition, ctx, false);
             ctx.enter_scope();
             for bs in &mut s.body {
                 visit_stmt(bs, ctx);
@@ -166,7 +166,7 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
         }
         Statement::Return(s) => {
             if let Some(val) = &mut s.value {
-                visit_expr_node(val, ctx);
+                visit_expr_node(val, ctx, false);
             }
         }
         Statement::Loop(s) => {
@@ -180,14 +180,14 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                     visit_stmt(cs, ctx);
                 }
                 if let Some(br) = &mut cont.break_if {
-                    visit_expr_node(br, ctx);
+                    visit_expr_node(br, ctx, false);
                 }
                 ctx.exit_scope();
             }
             ctx.exit_scope();
         }
         Statement::While(s) => {
-            visit_expr_node(&mut s.condition, ctx);
+            visit_expr_node(&mut s.condition, ctx, false);
             ctx.enter_scope();
             for bs in &mut s.body {
                 visit_stmt(bs, ctx);
@@ -200,48 +200,48 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                 match init {
                     ForLoopInit::VarDecl(d) => {
                         if let Some(i) = &mut d.initializer {
-                            visit_expr_node(i, ctx);
+                            visit_expr_node(i, ctx, false);
                         }
                         let ty = d.inferred_type().clone();
                         ctx.process_decl(&mut d.ident, &ty, true);
                     }
                     ForLoopInit::LetDecl(d) => {
-                        visit_expr_node(&mut d.initializer, ctx);
+                        visit_expr_node(&mut d.initializer, ctx, false);
                         let ty = d.inferred_type().clone();
                         ctx.process_decl(&mut d.ident, &ty, false);
                     }
                     ForLoopInit::ConstDecl(d) => {
-                        visit_expr_node(&mut d.initializer, ctx);
+                        visit_expr_node(&mut d.initializer, ctx, false);
                         let ty = d.inferred_type().clone();
                         ctx.process_decl(&mut d.ident, &ty, false);
                     }
                     ForLoopInit::Assignment(a) => {
                         visit_lhs(&mut a.lhs, ctx);
-                        visit_expr_node(&mut a.rhs, ctx);
+                        visit_expr_node(&mut a.rhs, ctx, false);
                     }
                     ForLoopInit::Increment(i) => visit_lhs(&mut i.lhs, ctx),
                     ForLoopInit::Decrement(d) => visit_lhs(&mut d.lhs, ctx),
                     ForLoopInit::Call(c) => {
                         for arg in &mut c.args {
-                            visit_expr_node(arg, ctx);
+                            visit_expr_node(arg, ctx, false);
                         }
                     }
                 }
             }
             if let Some(cond) = &mut s.header.condition {
-                visit_expr_node(cond, ctx);
+                visit_expr_node(cond, ctx, false);
             }
             if let Some(upd) = &mut s.header.update {
                 match upd {
                     ForLoopUpdate::Assignment(a) => {
                         visit_lhs(&mut a.lhs, ctx);
-                        visit_expr_node(&mut a.rhs, ctx);
+                        visit_expr_node(&mut a.rhs, ctx, false);
                     }
                     ForLoopUpdate::Increment(i) => visit_lhs(&mut i.lhs, ctx),
                     ForLoopUpdate::Decrement(d) => visit_lhs(&mut d.lhs, ctx),
                     ForLoopUpdate::Call(c) => {
                         for arg in &mut c.args {
-                            visit_expr_node(arg, ctx);
+                            visit_expr_node(arg, ctx, false);
                         }
                     }
                 }
@@ -255,13 +255,13 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
         }
         Statement::FnCall(s) => {
             for arg in &mut s.args {
-                visit_expr_node(arg, ctx);
+                visit_expr_node(arg, ctx, false);
             }
         }
         Statement::Increment(s) => visit_lhs(&mut s.lhs, ctx),
         Statement::Decrement(s) => visit_lhs(&mut s.lhs, ctx),
         Statement::Switch(s) => {
-            visit_expr_node(&mut s.selector, ctx);
+            visit_expr_node(&mut s.selector, ctx, false);
             for case in &mut s.cases {
                 ctx.enter_scope();
                 for bs in &mut case.body {
@@ -279,7 +279,7 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
     }
 }
 fn visit_if_statement(stmt: &mut IfStatement, ctx: &mut Context) {
-    visit_expr_node(&mut stmt.condition, ctx);
+    visit_expr_node(&mut stmt.condition, ctx, false);
     ctx.enter_scope();
     for s in &mut stmt.body {
         visit_stmt(s, ctx);
@@ -312,40 +312,41 @@ fn visit_lhs_expr_node(node: &mut LhsExprNode, ctx: &mut Context) {
         LhsExpr::Postfix(inner, postfix) => {
             visit_lhs_expr_node(inner, ctx);
             if let Postfix::Index(idx_expr) = postfix {
-                visit_expr_node(idx_expr, ctx);
+                visit_expr_node(idx_expr, ctx, false);
             }
         }
         LhsExpr::Deref(inner) => visit_lhs_expr_node(inner, ctx),
         LhsExpr::AddressOf(inner) => visit_lhs_expr_node(inner, ctx),
     }
 }
-fn visit_expr_node(node: &mut ExprNode, ctx: &mut Context) {
+fn visit_expr_node(node: &mut ExprNode, ctx: &mut Context, needs_ref: bool) {
     match &mut node.expr {
         Expr::Var(v) => {
             let ty = node.data_type.dereference().clone();
-            ctx.process_usage(&mut v.ident, &ty, false);
+            ctx.process_usage(&mut v.ident, &ty, needs_ref);
         }
         Expr::FnCall(call) => {
             for arg in &mut call.args {
-                visit_expr_node(arg, ctx);
+                visit_expr_node(arg, ctx, false);
             }
         }
         Expr::BinOp(op) => {
-            visit_expr_node(&mut op.left, ctx);
-            visit_expr_node(&mut op.right, ctx);
+            visit_expr_node(&mut op.left, ctx, false);
+            visit_expr_node(&mut op.right, ctx, false);
         }
         Expr::UnOp(op) => {
-            visit_expr_node(&mut op.inner, ctx);
+            let is_addr_of = matches!(op.op, UnOp::AddressOf);
+            visit_expr_node(&mut op.inner, ctx, needs_ref || is_addr_of);
         }
         Expr::Postfix(p) => {
-            visit_expr_node(&mut p.inner, ctx);
+            visit_expr_node(&mut p.inner, ctx, needs_ref);
             if let Postfix::Index(idx) = &mut p.postfix {
-                visit_expr_node(idx, ctx);
+                visit_expr_node(idx, ctx, false);
             }
         }
         Expr::TypeCons(t) => {
             for arg in &mut t.args {
-                visit_expr_node(arg, ctx);
+                visit_expr_node(arg, ctx, false);
             }
         }
         _ => {}
