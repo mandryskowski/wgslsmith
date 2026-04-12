@@ -198,6 +198,53 @@ impl Device<'_> {
         })
     }
 
+    pub fn create_render_pipeline(
+        &self,
+        vertex_module: &ShaderModule,
+        vertex_entry: &str,
+        fragment_module: Option<&ShaderModule>,
+        fragment_entry: Option<&str>,
+    ) -> Result<RenderPipeline> {
+        ErrorScope::new(self, "render pipeline creation failed").execute(|| unsafe {
+            let mut descriptor: WGPURenderPipelineDescriptor = zeroed();
+            descriptor.label = make_string_view("Render Pipeline");
+
+            descriptor.vertex.module = vertex_module.handle;
+            descriptor.vertex.entryPoint = make_string_view(vertex_entry);
+            descriptor.vertex.bufferCount = 0;
+            descriptor.vertex.buffers = null();
+
+            let mut fragment_state: WGPUFragmentState = zeroed();
+            let mut color_target: WGPUColorTargetState = zeroed();
+
+            if let (Some(frag_mod), Some(frag_ep)) = (fragment_module, fragment_entry) {
+                color_target.format = WGPUTextureFormat_WGPUTextureFormat_RGBA8Unorm;
+                color_target.writeMask = 0; // WGPUColorWriteMask_None
+
+                fragment_state.module = frag_mod.handle;
+                fragment_state.entryPoint = make_string_view(frag_ep);
+                fragment_state.targetCount = 1;
+                fragment_state.targets = &color_target;
+
+                descriptor.fragment = &fragment_state;
+            } else {
+                descriptor.fragment = null();
+            }
+
+            descriptor.primitive.topology =
+                WGPUPrimitiveTopology_WGPUPrimitiveTopology_TriangleList;
+            descriptor.primitive.cullMode = WGPUCullMode_WGPUCullMode_None;
+            descriptor.primitive.frontFace = WGPUFrontFace_WGPUFrontFace_CCW;
+
+            descriptor.multisample.count = 1;
+            descriptor.multisample.mask = !0;
+
+            RenderPipeline {
+                handle: wgpuDeviceCreateRenderPipeline(self.handle, &descriptor).assert_not_null(),
+            }
+        })
+    }
+
     pub fn create_buffer(
         &self,
         mapped: crate::webgpu::WGPUBool,
@@ -363,6 +410,18 @@ impl Drop for ShaderModule {
     fn drop(&mut self) {
         unsafe {
             wgpuShaderModuleRelease(self.handle);
+        }
+    }
+}
+
+pub struct RenderPipeline {
+    handle: WGPURenderPipeline,
+}
+
+impl Drop for RenderPipeline {
+    fn drop(&mut self) {
+        unsafe {
+            wgpuRenderPipelineRelease(self.handle);
         }
     }
 }

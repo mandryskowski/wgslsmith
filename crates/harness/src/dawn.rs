@@ -155,7 +155,37 @@ pub async fn run(
     let instance = dawn_state.instance;
 
     let shader_module = device.create_shader_module(shader)?;
-    let pipeline = device.create_compute_pipeline(&shader_module, &meta.entry_point)?;
+    let mut compute_pipelines = vec![];
+
+    for (ep_name, stage) in &meta.entry_points {
+        match stage {
+            reflection::ShaderStage::Compute => {
+                let pipeline = device.create_compute_pipeline(&shader_module, ep_name)?;
+                compute_pipelines.push(pipeline);
+            }
+            reflection::ShaderStage::Vertex => {
+                let dummy_module =
+                    device.create_shader_module("@fragment fn dummy_fragment() {}")?;
+                device.create_render_pipeline(
+                    &shader_module,
+                    ep_name,
+                    Some(&dummy_module),
+                    Some("dummy_fragment"),
+                )?;
+            }
+            reflection::ShaderStage::Fragment => {
+                let dummy_module = device.create_shader_module(
+                    "@vertex fn dummy_vertex() -> @builtin(position) vec4<f32> { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }"
+                )?;
+                device.create_render_pipeline(
+                    &dummy_module,
+                    "dummy_vertex",
+                    Some(&shader_module),
+                    Some(ep_name),
+                )?;
+            }
+        }
+    }
 
     let mut buffer_sets = vec![];
 
@@ -250,24 +280,27 @@ pub async fn run(
             });
     }
 
-    let bind_groups: HashMap<_, _> = bind_groups
-        .into_iter()
-        .map(|(group, entries)| -> color_eyre::Result<_> {
+    let mut final_bind_groups = HashMap::new();
+
+    if let Some(pipeline) = compute_pipelines.first() {
+        for (group, entries) in bind_groups {
             let layout = pipeline.get_bind_group_layout(group);
             let bind_group = device.create_bind_group(&layout, &entries)?;
-            Ok((group, bind_group))
-        })
-        .collect::<Result<_, _>>()?;
+            final_bind_groups.insert(group, bind_group);
+        }
+    }
 
     let encoder = device.create_command_encoder()?;
 
-    {
+    if !compute_pipelines.is_empty() {
         let compute_pass = encoder.begin_compute_pass();
-        compute_pass.set_pipeline(&pipeline);
-        for (group, bind_group) in &bind_groups {
-            compute_pass.set_bind_group(*group, bind_group);
+        for pipeline in &compute_pipelines {
+            compute_pass.set_pipeline(pipeline);
+            for (group, bind_group) in &final_bind_groups {
+                compute_pass.set_bind_group(*group, bind_group);
+            }
+            compute_pass.dispatch(1, 1, 1);
         }
-        compute_pass.dispatch(1, 1, 1);
     }
 
     for buffers in &buffer_sets {

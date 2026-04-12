@@ -182,21 +182,120 @@ pub async fn run(
         })
         .await?;
 
-    let pipeline = ErrorScope::new(
-        &device,
-        vec![ErrorFilter::Internal, ErrorFilter::Validation],
-    )
-    .execute(|| {
-        device.create_compute_pipeline(&ComputePipelineDescriptor {
-            entry_point: Some(&meta.entry_point),
-            label: None,
-            module: &shader_module,
-            layout: None,
-            cache: None,
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        })
-    })
-    .await?;
+    let mut compute_pipelines = vec![];
+
+    for (ep_name, stage) in &meta.entry_points {
+        match stage {
+            reflection::ShaderStage::Compute => {
+                let pipeline = ErrorScope::new(
+                    &device,
+                    vec![ErrorFilter::Internal, ErrorFilter::Validation],
+                )
+                .execute(|| {
+                    device.create_compute_pipeline(&ComputePipelineDescriptor {
+                        entry_point: Some(ep_name),
+                        label: None,
+                        module: &shader_module,
+                        layout: None,
+                        cache: None,
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    })
+                })
+                .await?;
+                compute_pipelines.push(pipeline);
+            }
+            reflection::ShaderStage::Vertex => {
+                let dummy_module = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+                    .execute(|| {
+                        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                            label: None,
+                            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                                "@fragment fn dummy_fragment() {}",
+                            )),
+                        })
+                    })
+                    .await?;
+
+                let _pipeline = ErrorScope::new(
+                    &device,
+                    vec![ErrorFilter::Internal, ErrorFilter::Validation],
+                )
+                .execute(|| {
+                    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: None,
+                        layout: None,
+                        vertex: wgpu::VertexState {
+                            module: &shader_module,
+                            entry_point: Some(ep_name),
+                            compilation_options: Default::default(),
+                            buffers: &[],
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &dummy_module,
+                            entry_point: Some("dummy_fragment"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: wgpu::TextureFormat::Rgba8Unorm,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::empty(),
+                            })],
+                        }),
+                        primitive: Default::default(),
+                        depth_stencil: None,
+                        multisample: Default::default(),
+                        multiview_mask: None,
+                        cache: None,
+                    })
+                })
+                .await?;
+            }
+            reflection::ShaderStage::Fragment => {
+                let dummy_module = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+                    .execute(|| {
+                        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                            label: None,
+                            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                                "@vertex fn dummy_vertex() -> @builtin(position) vec4<f32> { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }",
+                            )),
+                        })
+                    })
+                    .await?;
+
+                let _pipeline = ErrorScope::new(
+                    &device,
+                    vec![ErrorFilter::Internal, ErrorFilter::Validation],
+                )
+                .execute(|| {
+                    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: None,
+                        layout: None,
+                        vertex: wgpu::VertexState {
+                            module: &dummy_module,
+                            entry_point: Some("dummy_vertex"),
+                            compilation_options: Default::default(),
+                            buffers: &[],
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &shader_module,
+                            entry_point: Some(ep_name),
+                            compilation_options: Default::default(),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: wgpu::TextureFormat::Rgba8Unorm,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::empty(),
+                            })],
+                        }),
+                        primitive: Default::default(),
+                        depth_stencil: None,
+                        multisample: Default::default(),
+                        multiview_mask: None,
+                        cache: None,
+                    })
+                })
+                .await?;
+            }
+        }
+    }
 
     let mut resource_buffers = vec![];
 
@@ -322,35 +421,40 @@ pub async fn run(
 
     let mut final_bind_groups = HashMap::new();
 
-    for group in groups {
-        let bind_group_layout = ErrorScope::new(&device, vec![ErrorFilter::Validation])
-            .execute(|| pipeline.get_bind_group_layout(group))
-            .await?;
+    if let Some(pipeline) = compute_pipelines.first() {
+        for group in groups {
+            let bind_group_layout = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+                .execute(|| pipeline.get_bind_group_layout(group))
+                .await?;
 
-        let entries = bind_groups.get(&group).unwrap();
+            let entries = bind_groups.get(&group).unwrap();
 
-        let bind_group = ErrorScope::new(&device, vec![ErrorFilter::Validation])
-            .execute(|| {
-                device.create_bind_group(&BindGroupDescriptor {
-                    layout: &bind_group_layout,
-                    label: None,
-                    entries,
+            let bind_group = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+                .execute(|| {
+                    device.create_bind_group(&BindGroupDescriptor {
+                        layout: &bind_group_layout,
+                        label: None,
+                        entries,
+                    })
                 })
-            })
-            .await?;
+                .await?;
 
-        final_bind_groups.insert(group, bind_group);
+            final_bind_groups.insert(group, bind_group);
+        }
     }
 
     let commands = {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
-        {
+
+        if !compute_pipelines.is_empty() {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
-            pass.set_pipeline(&pipeline);
-            for (group, bind_group) in &final_bind_groups {
-                pass.set_bind_group(*group, bind_group, &[]);
+            for pipeline in &compute_pipelines {
+                pass.set_pipeline(pipeline);
+                for (group, bind_group) in &final_bind_groups {
+                    pass.set_bind_group(*group, bind_group, &[]);
+                }
+                pass.dispatch_workgroups(1, 1, 1);
             }
-            pass.dispatch_workgroups(1, 1, 1);
         }
 
         for res in &resource_buffers {
