@@ -50,6 +50,20 @@ pub enum AccessMode {
     ReadWrite,
 }
 
+#[derive(Debug, Display, PartialEq, Eq, Clone)]
+pub enum OverrideAttr {
+    #[display("id({_0})")]
+    Id(u32),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct OverrideDecl {
+    pub attrs: Vec<OverrideAttr>,
+    pub name: String,
+    pub data_type: Option<DataType>,
+    pub initializer: Option<ExprNode>,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct VarQualifier {
     pub storage_class: StorageClass,

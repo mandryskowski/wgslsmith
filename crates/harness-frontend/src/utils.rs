@@ -144,6 +144,29 @@ impl<'a> VarVisitor<'a> {
                             }
                             self.add_local(&v.ident);
                         }
+                        ForLoopInit::LetDecl(l) => {
+                            self.visit_expr_node(&l.initializer);
+                            self.add_local(&l.ident);
+                        }
+                        ForLoopInit::ConstDecl(c) => {
+                            self.visit_expr_node(&c.initializer);
+                            self.add_local(&c.ident);
+                        }
+                        ForLoopInit::Assignment(a) => {
+                            self.visit_assignment_lhs(&a.lhs);
+                            self.visit_expr_node(&a.rhs);
+                        }
+                        ForLoopInit::Increment(inc) => {
+                            self.visit_assignment_lhs(&inc.lhs);
+                        }
+                        ForLoopInit::Decrement(dec) => {
+                            self.visit_assignment_lhs(&dec.lhs);
+                        }
+                        ForLoopInit::Call(c) => {
+                            for arg in &c.args {
+                                self.visit_expr_node(arg);
+                            }
+                        }
                     }
                 }
 
@@ -162,6 +185,11 @@ impl<'a> VarVisitor<'a> {
                         }
                         ForLoopUpdate::Decrement(dec) => {
                             self.visit_assignment_lhs(&dec.lhs);
+                        }
+                        ForLoopUpdate::Call(c) => {
+                            for arg in &c.args {
+                                self.visit_expr_node(arg);
+                            }
                         }
                     }
                 }
@@ -185,6 +213,10 @@ impl<'a> VarVisitor<'a> {
             Statement::Decrement(s) => {
                 self.visit_assignment_lhs(&s.lhs);
             }
+            Statement::ConstAssert(s) => {
+                self.visit_expr_node(&s.condition);
+            }
+            Statement::Discard(_) => {}
         }
     }
 

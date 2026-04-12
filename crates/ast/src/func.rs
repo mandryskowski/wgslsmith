@@ -5,6 +5,7 @@ use derive_more::Display;
 use crate::builtins::BuiltinValue;
 use crate::stmt::Statement;
 use crate::types::DataType;
+use crate::{InterpolationSampling, InterpolationType};
 
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
 pub enum ShaderStage {
@@ -16,12 +17,14 @@ pub enum ShaderStage {
     Fragment,
 }
 
-#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Display, PartialEq, Clone)]
 pub enum FnAttr {
     #[display("stage({_0})")]
     Stage(ShaderStage),
-    #[display("workgroup_size({_0})")]
-    WorkgroupSize(u32),
+    #[display("workgroup_size({})", crate::FmtArgs(_0.as_slice()))]
+    WorkgroupSize(Vec<crate::ExprNode>),
+    #[display("must_use")]
+    MustUse,
 }
 
 #[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
@@ -32,6 +35,8 @@ pub enum FnParamReturnAttr {
     Invariant,
     #[display("location({_0})")]
     Location(u32),
+    #[display("interpolate({_0}{})", _1.as_ref().map(|s| format!(", {s}")).unwrap_or_default())]
+    Interpolate(InterpolationType, Option<InterpolationSampling>),
 }
 
 #[derive(Debug, Display, PartialEq, Eq, Clone)]

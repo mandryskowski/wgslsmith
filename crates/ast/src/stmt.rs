@@ -261,6 +261,10 @@ pub enum AssignmentOp {
     Or,
     #[display("^=")]
     Xor,
+    #[display("<<=")]
+    LShift,
+    #[display(">>=")]
+    RShift,
 }
 
 #[derive(Debug, Display, PartialEq, Clone)]
@@ -556,6 +560,12 @@ pub struct SwitchCase {
 #[derive(Debug, PartialEq, Clone)]
 pub enum ForLoopInit {
     VarDecl(VarDeclStatement),
+    LetDecl(LetDeclStatement),
+    ConstDecl(ConstDeclStatement),
+    Assignment(AssignmentStatement),
+    Increment(IncrementStatement),
+    Decrement(DecrementStatement),
+    Call(FnCallStatement),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -563,6 +573,7 @@ pub enum ForLoopUpdate {
     Assignment(AssignmentStatement),
     Increment(IncrementStatement),
     Decrement(DecrementStatement),
+    Call(FnCallStatement),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -596,6 +607,12 @@ impl Display for ForLoopStatement {
         if let Some(init) = &header.init {
             match init {
                 ForLoopInit::VarDecl(stmt) => stmt.fmt(f)?,
+                ForLoopInit::LetDecl(stmt) => stmt.fmt(f)?,
+                ForLoopInit::ConstDecl(stmt) => stmt.fmt(f)?,
+                ForLoopInit::Assignment(stmt) => stmt.fmt(f)?,
+                ForLoopInit::Increment(stmt) => stmt.fmt(f)?,
+                ForLoopInit::Decrement(stmt) => stmt.fmt(f)?,
+                ForLoopInit::Call(stmt) => stmt.fmt(f)?,
             }
         }
 
@@ -612,6 +629,7 @@ impl Display for ForLoopStatement {
                 ForLoopUpdate::Assignment(stmt) => stmt.fmt(f)?,
                 ForLoopUpdate::Increment(stmt) => stmt.fmt(f)?,
                 ForLoopUpdate::Decrement(stmt) => stmt.fmt(f)?,
+                ForLoopUpdate::Call(stmt) => stmt.fmt(f)?,
             }
         }
 
@@ -652,11 +670,41 @@ impl Display for FnCallStatement {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ConstAssertStatement {
+    pub condition: ExprNode,
+}
+
+impl ConstAssertStatement {
+    pub fn new(condition: impl Into<ExprNode>) -> Self {
+        Self {
+            condition: condition.into(),
+        }
+    }
+}
+
+impl Display for ConstAssertStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "const_assert {}", self.condition)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct DiscardStatement;
+
+impl Display for DiscardStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "discard")
+    }
+}
+
 #[derive(Debug, PartialEq, From, Clone)]
 pub enum Statement {
     LetDecl(LetDeclStatement),
     ConstDecl(ConstDeclStatement),
     VarDecl(VarDeclStatement),
+    ConstAssert(ConstAssertStatement),
+    Discard(DiscardStatement),
     Assignment(AssignmentStatement),
     Increment(IncrementStatement),
     Decrement(DecrementStatement),
@@ -691,6 +739,8 @@ impl Display for Statement {
             Statement::LetDecl(stmt) => write!(f, "{stmt};"),
             Statement::ConstDecl(stmt) => write!(f, "{stmt};"),
             Statement::VarDecl(stmt) => write!(f, "{stmt};"),
+            Statement::ConstAssert(stmt) => write!(f, "{stmt};"),
+            Statement::Discard(stmt) => write!(f, "{stmt};"),
             Statement::Assignment(stmt) => write!(f, "{stmt};"),
             Statement::Increment(stmt) => write!(f, "{stmt};"),
             Statement::Decrement(stmt) => write!(f, "{stmt};"),

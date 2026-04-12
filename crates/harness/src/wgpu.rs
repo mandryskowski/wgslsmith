@@ -240,7 +240,7 @@ pub async fn run(
 
                     gpu_buffer
                         .slice(..)
-                        .get_mapped_range_mut()
+                        .get_mapped_range_mut()?
                         .copy_from_slice(&initial_data);
                 }
                 gpu_buffer.unmap();
@@ -271,7 +271,7 @@ pub async fn run(
                 if let Some(init) = resource.init.as_deref() {
                     buffer
                         .slice(..)
-                        .get_mapped_range_mut()
+                        .get_mapped_range_mut()?
                         .copy_from_slice(init);
                 }
 
@@ -408,7 +408,7 @@ pub async fn run(
         let map_result = rx.await?;
         map_result?; // propagate mapping errors
 
-        let view = slice.get_mapped_range();
+        let view = slice.get_mapped_range()?;
 
         let left_canary = &view[..CANARY_SIZE as usize];
         let right_canary = &view[(CANARY_SIZE as usize + size as usize)..];

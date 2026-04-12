@@ -2,7 +2,7 @@ use std::fmt::{Display, Result, Write};
 
 use indenter::indented;
 
-use crate::{FnAttr, FnDecl, GlobalVarDecl, Module, StructDecl};
+use crate::{FnAttr, FnDecl, GlobalVarDecl, Module, OverrideDecl, StructDecl};
 
 #[derive(Default)]
 pub struct Writer {
@@ -48,6 +48,14 @@ impl Writer {
             writeln!(f, "{decl};")?;
         }
 
+        for decl in &module.const_asserts {
+            writeln!(f, "{decl};")?;
+        }
+
+        for decl in &module.overrides {
+            self.write_override(f, decl)?;
+        }
+
         for decl in &module.vars {
             self.write_global_var(f, decl)?;
             writeln!(f)?;
@@ -72,6 +80,22 @@ impl Writer {
         writeln!(f, "}}")?;
 
         Ok(())
+    }
+
+    pub fn write_override(&self, f: &mut dyn Write, decl: &OverrideDecl) -> Result {
+        self.write_attrs(f, decl.attrs.iter())?;
+
+        write!(f, "override {}", decl.name)?;
+
+        if let Some(data_type) = &decl.data_type {
+            write!(f, ": {}", data_type)?;
+        }
+
+        if let Some(initializer) = &decl.initializer {
+            write!(f, " = {}", initializer)?;
+        }
+
+        writeln!(f, ";")
     }
 
     pub fn write_global_var(&self, f: &mut dyn Write, decl: &GlobalVarDecl) -> Result {

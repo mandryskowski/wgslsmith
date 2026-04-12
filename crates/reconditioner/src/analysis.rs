@@ -259,6 +259,25 @@ fn visit_stmt<'a>(
                             .idents
                             .insert(&stmt.ident, RootIdentifier::Mem(analysis.next_mem_loc()));
                     }
+                    ForLoopInit::LetDecl(stmt) => {
+                        visit_expr(analysis, &mut scope, cx, &stmt.initializer);
+                    }
+                    ForLoopInit::ConstDecl(stmt) => {
+                        visit_expr(analysis, &mut scope, cx, &stmt.initializer);
+                    }
+                    ForLoopInit::Assignment(stmt) => {
+                        visit_lhs(analysis, &mut scope, cx, &stmt.lhs);
+                        visit_expr(analysis, &mut scope, cx, &stmt.rhs);
+                    }
+                    ForLoopInit::Increment(stmt) => {
+                        handle_inc_dec(analysis, &mut scope, cx, &stmt.lhs);
+                    }
+                    ForLoopInit::Decrement(stmt) => {
+                        handle_inc_dec(analysis, &mut scope, cx, &stmt.lhs);
+                    }
+                    ForLoopInit::Call(stmt) => {
+                        visit_function_call(analysis, &mut scope, cx, &stmt.ident, &stmt.args);
+                    }
                 }
             }
 
@@ -278,6 +297,9 @@ fn visit_stmt<'a>(
                     ForLoopUpdate::Decrement(stmt) => {
                         handle_inc_dec(analysis, &mut scope, cx, &stmt.lhs);
                     }
+                    ForLoopUpdate::Call(stmt) => {
+                        visit_function_call(analysis, &mut scope, cx, &stmt.ident, &stmt.args);
+                    }
                 }
             }
 
@@ -290,6 +312,8 @@ fn visit_stmt<'a>(
         Statement::Fallthrough => {}
         Statement::Increment(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
         Statement::Decrement(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
+        Statement::ConstAssert(stmt) => visit_expr(analysis, scope, cx, &stmt.condition),
+        Statement::Discard(_) => {}
     }
 }
 

@@ -17,6 +17,17 @@ pub enum BuiltinFn {
     Atan,
     Atanh,
     Atan2,
+    AtomicAdd,
+    AtomicAnd,
+    AtomicCompareExchangeWeak,
+    AtomicExchange,
+    AtomicLoad,
+    AtomicMax,
+    AtomicMin,
+    AtomicOr,
+    AtomicStore,
+    AtomicSub,
+    AtomicXor,
     Ceil,
     Clamp,
     Cos,
@@ -33,6 +44,12 @@ pub enum BuiltinFn {
     Dot4I8Packed,
     #[strum(serialize = "dot4U8Packed")]
     Dot4U8Packed,
+    Dpdx,
+    DpdxCoarse,
+    DpdxFine,
+    Dpdy,
+    DpdyCoarse,
+    DpdyFine,
     Exp,
     Exp2,
     ExtractBits,
@@ -42,6 +59,10 @@ pub enum BuiltinFn {
     Floor,
     Fma,
     Fract,
+    Frexp,
+    Fwidth,
+    FwidthCoarse,
+    FwidthFine,
     InsertBits,
     InverseSqrt,
     Ldexp,
@@ -51,6 +72,7 @@ pub enum BuiltinFn {
     Max,
     Min,
     Mix,
+    Modf,
     Normalize,
     #[strum(serialize = "pack2x16float")]
     Pack2x16float,
@@ -151,6 +173,9 @@ pub enum BuiltinFn {
     QuadSwapDiagonal,
     QuadSwapX,
     QuadSwapY,
+
+    // Synchronization
+    WorkgroupUniformLoad,
 }
 
 impl BuiltinFn {
@@ -178,6 +203,32 @@ impl BuiltinFn {
             Atanh => first_param()?,
             Atan2 => first_param()?,
             All => Bool.into(),
+            AtomicAdd | AtomicAnd | AtomicExchange | AtomicLoad | AtomicMax | AtomicMin
+            | AtomicOr | AtomicSub | AtomicXor => {
+                let ty = first_param()?;
+                if let DataType::Ptr(view) = ty {
+                    if let DataType::Atomic(t) = view.inner.as_ref() {
+                        DataType::Scalar(*t)
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+            AtomicCompareExchangeWeak => {
+                let ty = first_param()?;
+                if let DataType::Ptr(view) = ty {
+                    if let DataType::Atomic(t) = view.inner.as_ref() {
+                        DataType::AtomicCompareExchangeResult(*t)
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+            AtomicStore => return None,
             Any => Bool.into(),
             ArrayLength => U32.into(),
             Ceil => first_param()?,
@@ -200,6 +251,7 @@ impl BuiltinFn {
             Dot => first_param()?.as_scalar()?.into(),
             Dot4I8Packed => I32.into(),
             Dot4U8Packed => U32.into(),
+            Dpdx | DpdxCoarse | DpdxFine | Dpdy | DpdyCoarse | DpdyFine => first_param()?,
             ExtractBits => first_param()?,
             Exp => first_param()?,
             Exp2 => first_param()?,
@@ -209,6 +261,8 @@ impl BuiltinFn {
             Floor => first_param()?,
             Fma => first_param()?,
             Fract => first_param()?,
+            Frexp => DataType::FrexpResult(Box::new(first_param()?)),
+            Fwidth | FwidthCoarse | FwidthFine => first_param()?,
             InsertBits => first_param()?,
             InverseSqrt => first_param()?,
             Ldexp => first_param()?,
@@ -218,6 +272,7 @@ impl BuiltinFn {
             Max => first_param()?,
             Min => first_param()?,
             Mix => first_param()?,
+            Modf => DataType::ModfResult(Box::new(first_param()?)),
             Normalize => first_param()?,
             Pow => first_param()?,
             Pack2x16float | Pack2x16snorm | Pack2x16unorm | Pack4x8snorm | Pack4x8unorm
@@ -343,6 +398,18 @@ impl BuiltinFn {
                 }
             }
             TextureStore => return None,
+            WorkgroupUniformLoad => {
+                let ty = first_param()?;
+                if let DataType::Ptr(view) = ty {
+                    if let DataType::Atomic(t) = view.inner.as_ref() {
+                        DataType::Scalar(*t)
+                    } else {
+                        view.inner.as_ref().clone()
+                    }
+                } else {
+                    return None;
+                }
+            }
         };
 
         Some(ret)
@@ -375,4 +442,12 @@ pub enum BuiltinValue {
     NumWorkgroups,
     SampleIndex,
     SampleMask,
+    ClipDistances,
+    PrimitiveIndex,
+    GlobalInvocationIndex,
+    WorkgroupIndex,
+    SubgroupInvocationId,
+    SubgroupSize,
+    SubgroupId,
+    NumSubgroups,
 }

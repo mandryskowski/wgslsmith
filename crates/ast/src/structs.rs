@@ -43,16 +43,22 @@ pub enum InterpolationSampling {
     Center,
     Centroid,
     Sample,
+    First,
+    Either,
 }
 
 #[derive(Clone, Debug, Display, Hash, PartialEq, Eq)]
 pub enum StructMemberAttr {
     #[display("align({_0})")]
     Align(u32),
+    #[display("blend_src({_0})")]
+    BlendSrc(u32),
     #[display("builtin({_0})")]
     Builtin(BuiltinValue),
     #[display("interpolate({_0}{})", _1.as_ref().map(|s| format!(", {s}")).unwrap_or_default())]
     Interpolate(InterpolationType, Option<InterpolationSampling>),
+    #[display("invariant")]
+    Invariant,
     #[display("location({_0})")]
     Location(u32),
     #[display("size({_0})")]
@@ -193,6 +199,8 @@ fn collect_struct_accessors(
             DataType::Texture(_) | DataType::Sampler(_) => {
                 unreachable!("textures and samplers are not storable")
             }
+            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => {}
+            DataType::FrexpResult(_) | DataType::ModfResult(_) => {}
         }
     }
 

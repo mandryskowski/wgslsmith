@@ -130,6 +130,8 @@ pub enum TexelFormat {
     Rgba32Float,
     #[display("bgra8unorm")]
     Bgra8Unorm,
+    #[display("bgra8unorm_srgb")]
+    Bgra8UnormSrgb,
     #[display("r8unorm")]
     R8Unorm,
     #[display("r8snorm")]

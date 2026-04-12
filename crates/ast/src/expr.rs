@@ -139,18 +139,23 @@ pub enum BinOp {
 
 impl BinOp {
     /// Determines the return type of a binary operator given its operand types.
-    pub fn type_eval(&self, left: &DataType, #[allow(unused)] right: &DataType) -> DataType {
+    pub fn type_eval(&self, left: &DataType, right: &DataType) -> DataType {
         let left = if let DataType::Ref(view) = left {
             view.inner.as_ref()
         } else {
             left
         };
 
+        let right = if let DataType::Ref(view) = right {
+            view.inner.as_ref()
+        } else {
+            right
+        };
+
         match self {
             // These operators produce the same result type as the first operand.
             | BinOp::Plus
             | BinOp::Minus
-            | BinOp::Times
             | BinOp::Divide
             | BinOp::Mod
             | BinOp::BitAnd
@@ -158,6 +163,19 @@ impl BinOp {
             | BinOp::BitXOr
             | BinOp::LShift
             | BinOp::RShift => left.clone(),
+
+            BinOp::Times => match (left, right) {
+                (DataType::Matrix(_c1, r1, t1), DataType::Matrix(c2, _r2, _t2)) => {
+                    DataType::Matrix(*c2, *r1, *t1)
+                }
+                (DataType::Matrix(_c, r, t), DataType::Vector(_n, _)) => DataType::Vector(*r, *t),
+                (DataType::Vector(_n, t), DataType::Matrix(c, _r, _)) => DataType::Vector(*c, *t),
+                (DataType::Matrix(c, r, t), DataType::Scalar(_)) => DataType::Matrix(*c, *r, *t),
+                (DataType::Scalar(_), DataType::Matrix(c, r, t)) => DataType::Matrix(*c, *r, *t),
+                (DataType::Vector(n, t), DataType::Scalar(_)) => DataType::Vector(*n, *t),
+                (DataType::Scalar(_), DataType::Vector(n, t)) => DataType::Vector(*n, *t),
+                _ => left.clone(),
+            },
 
             // These operators always produce scalar bools.
             BinOp::LogAnd | BinOp::LogOr => DataType::Scalar(ScalarType::Bool),
@@ -225,6 +243,16 @@ impl Postfix {
                 DataType::Vector(_, t) => DataType::Scalar(*t),
                 DataType::Matrix(_, r, t) => DataType::Vector(*r, *t),
                 DataType::Array(t, _) => (**t).clone(),
+                DataType::Ptr(view) => match view.inner.as_ref() {
+                    DataType::Vector(_, t) => {
+                        DataType::Ref(view.clone_with_type(DataType::Scalar(*t)))
+                    }
+                    DataType::Matrix(_, r, t) => {
+                        DataType::Ref(view.clone_with_type(DataType::Vector(*r, *t)))
+                    }
+                    DataType::Array(t, _) => DataType::Ref(view.clone_with_type((**t).clone())),
+                    _ => panic!("index operator cannot be applied to type `{ty}`"),
+                },
                 ty => panic!("index operator cannot be applied to type `{ty}`"),
             },
             Postfix::Member(ident) => match ty {
@@ -236,6 +264,49 @@ impl Postfix {
                         DataType::Vector(ident.len() as u8, *t)
                     }
                 }
+                DataType::AtomicCompareExchangeResult(t) => {
+                    if ident == "old_value" {
+                        DataType::Scalar(*t)
+                    } else if ident == "exchanged" {
+                        DataType::Scalar(ScalarType::Bool)
+                    } else {
+                        panic!("invalid member access on __atomic_compare_exchange_result")
+                    }
+                }
+                DataType::FrexpResult(t) => {
+                    if ident == "fract" {
+                        (**t).clone()
+                    } else if ident == "exp" {
+                        match &**t {
+                            DataType::Scalar(_) => DataType::Scalar(ScalarType::I32),
+                            DataType::Vector(n, _) => DataType::Vector(*n, ScalarType::I32),
+                            _ => panic!("invalid frexp result type"),
+                        }
+                    } else {
+                        panic!("invalid member access on frexp result")
+                    }
+                }
+                DataType::ModfResult(t) => {
+                    if ident == "fract" || ident == "whole" {
+                        (**t).clone()
+                    } else {
+                        panic!("invalid member access on modf result")
+                    }
+                }
+                DataType::Ptr(view) => match view.inner.as_ref() {
+                    DataType::Struct(decl) => DataType::Ref(
+                        view.clone_with_type(decl.member_type(ident).unwrap().clone()),
+                    ),
+                    DataType::Vector(_, t) => {
+                        let inner_t = if ident.len() == 1 {
+                            DataType::Scalar(*t)
+                        } else {
+                            DataType::Vector(ident.len() as u8, *t)
+                        };
+                        DataType::Ref(view.clone_with_type(inner_t))
+                    }
+                    _ => panic!("member access operator cannot be applied to type `{ty}`"),
+                },
                 ty => panic!("member access operator cannot be applied to type `{ty}`"),
             },
         }

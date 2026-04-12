@@ -6,6 +6,8 @@ expression: module
 Module {
     structs: [],
     consts: [],
+    const_asserts: [],
+    overrides: [],
     vars: [
         GlobalVarDecl {
             attrs: [],

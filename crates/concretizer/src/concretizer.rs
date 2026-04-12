@@ -196,6 +196,17 @@ impl Concretizer {
         }
     }
 
+    pub fn register_global_overrides(&mut self, overrides: &[OverrideDecl]) {
+        for decl in overrides {
+            if let Some(init) = &decl.initializer {
+                let con_node = self.concretize_expr(init.clone());
+                if let Some(val) = con_node.value {
+                    self.global_constants.insert(decl.name.clone(), val);
+                }
+            }
+        }
+    }
+
     pub fn register_const(&mut self, name: String, val: Value) {
         self.global_constants.insert(name, val);
     }
@@ -393,6 +404,10 @@ impl Concretizer {
             Statement::Decrement(DecrementStatement { lhs }) => {
                 Statement::Decrement(DecrementStatement::new(self.concretize_assignment_lhs(lhs)))
             }
+            Statement::ConstAssert(ConstAssertStatement { condition }) => {
+                Statement::ConstAssert(ConstAssertStatement::new(self.concretize_expr(condition)))
+            }
+            Statement::Discard(_) => Statement::Discard(DiscardStatement),
         }
     }
 
@@ -407,6 +422,49 @@ impl Concretizer {
                 data_type,
                 initializer.map(|e| self.concretize_expr(e).into()),
             )),
+            ForLoopInit::LetDecl(LetDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => {
+                let con_init = self.concretize_expr(initializer);
+                if let Some(val) = &con_init.value {
+                    self.insert_const(ident.clone(), val.clone());
+                }
+                ForLoopInit::LetDecl(LetDeclStatement::new(ident, data_type, con_init))
+            }
+            ForLoopInit::ConstDecl(ConstDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => {
+                let con_init = self.concretize_expr(initializer);
+                if let Some(val) = &con_init.value {
+                    self.insert_const(ident.clone(), val.clone());
+                }
+                ForLoopInit::ConstDecl(ConstDeclStatement::new(ident, data_type, con_init))
+            }
+            ForLoopInit::Assignment(AssignmentStatement { lhs, op, rhs }) => {
+                ForLoopInit::Assignment(AssignmentStatement::new(
+                    self.concretize_assignment_lhs(lhs),
+                    op,
+                    self.concretize_expr(rhs),
+                ))
+            }
+            ForLoopInit::Increment(IncrementStatement { lhs }) => {
+                ForLoopInit::Increment(IncrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
+            ForLoopInit::Decrement(DecrementStatement { lhs }) => {
+                ForLoopInit::Decrement(DecrementStatement::new(self.concretize_assignment_lhs(lhs)))
+            }
+            ForLoopInit::Call(FnCallStatement { ident, args }) => {
+                ForLoopInit::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|e| self.concretize_expr(e).into())
+                        .collect(),
+                ))
+            }
         }
     }
 
@@ -425,6 +483,14 @@ impl Concretizer {
             ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
                 DecrementStatement::new(self.concretize_assignment_lhs(lhs)),
             ),
+            ForLoopUpdate::Call(FnCallStatement { ident, args }) => {
+                ForLoopUpdate::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|e| self.concretize_expr(e).into())
+                        .collect(),
+                ))
+            }
         }
     }
 
@@ -552,6 +618,14 @@ impl Concretizer {
             if ident == "clamp" {
                 if let (Some(Some(low)), Some(Some(high))) = (vals.get(1), vals.get(2)) {
                     if helper::is_invalid_clamp_bounds(low, high) {
+                        return self.default_node(data_type);
+                    }
+                }
+            }
+
+            if ident == "smoothstep" {
+                if let (Some(Some(low)), Some(Some(high))) = (vals.get(1), vals.get(2)) {
+                    if helper::is_invalid_smoothstep_bounds(low, high) {
                         return self.default_node(data_type);
                     }
                 }
@@ -799,6 +873,14 @@ impl Concretizer {
                     ])),
                 },
             },
+            DataType::Matrix(c, r, ty) => {
+                let vec_type = DataType::Vector(r, ty);
+                let col_node = self.default_node(vec_type);
+                ConNode {
+                    node: TypeConsExpr::new(data_type, vec![col_node.node; c as usize]).into(),
+                    value: Some(Value::Vector(vec![col_node.value.unwrap(); c as usize])),
+                }
+            }
             _ => {
                 println!("data type: {data_type}");
                 todo!();
@@ -860,7 +942,99 @@ impl Concretizer {
                     _ => None,
                 }
             }
-            _ => None,
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXOr => match (lv, rv) {
+                (Lit::I32(l), Lit::I32(r)) => {
+                    let result = match op {
+                        BinOp::BitAnd => l & r,
+                        BinOp::BitOr => l | r,
+                        BinOp::BitXOr => l ^ r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_i32(Some(result))
+                }
+                (Lit::U32(l), Lit::U32(r)) => {
+                    let result = match op {
+                        BinOp::BitAnd => l & r,
+                        BinOp::BitOr => l | r,
+                        BinOp::BitXOr => l ^ r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_u32(Some(result))
+                }
+                (Lit::Bool(l), Lit::Bool(r)) => {
+                    let result = match op {
+                        BinOp::BitAnd => l & r,
+                        BinOp::BitOr => l | r,
+                        BinOp::BitXOr => l ^ r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_bool(Some(result))
+                }
+                _ => None,
+            },
+            BinOp::LogAnd | BinOp::LogOr => match (lv, rv) {
+                (Lit::Bool(l), Lit::Bool(r)) => {
+                    let result = match op {
+                        BinOp::LogAnd => l && r,
+                        BinOp::LogOr => l || r,
+                        _ => unreachable!(),
+                    };
+                    Value::from_bool(Some(result))
+                }
+                _ => None,
+            },
+            BinOp::Equal
+            | BinOp::NotEqual
+            | BinOp::Less
+            | BinOp::LessEqual
+            | BinOp::Greater
+            | BinOp::GreaterEqual => {
+                let result = match (lv, rv) {
+                    (Lit::I32(l), Lit::I32(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::U32(l), Lit::U32(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::F32(l), Lit::F32(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::F16(l), Lit::F16(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        BinOp::Less => l < r,
+                        BinOp::LessEqual => l <= r,
+                        BinOp::Greater => l > r,
+                        BinOp::GreaterEqual => l >= r,
+                        _ => unreachable!(),
+                    },
+                    (Lit::Bool(l), Lit::Bool(r)) => match op {
+                        BinOp::Equal => l == r,
+                        BinOp::NotEqual => l != r,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                Value::from_bool(Some(result))
+            }
         }
     }
 
@@ -970,32 +1144,30 @@ impl Concretizer {
 
     fn eval_unop_scalar(&self, op: UnOp, inner: Lit) -> Option<Value> {
         match op {
-            UnOp::Neg => {
-                match inner {
-                    Lit::I32(i) => {
-                        // WGSL negation of  e : T where T is an
-                        // integer scalar and e evaluates to the
-                        // largest negative value, gives result e
-                        if i == -2147483648 {
-                            Value::from_i32(Some(i))
-                        } else {
-                            Value::from_i32(Some(-i))
-                        }
-                    }
-                    Lit::F32(f) => Value::from_f32(Some(-f)),
-                    Lit::F16(f) => Value::from_f16(Some(-f)),
-                    _ => {
-                        panic!("cannot negate {:?}", inner); // can't negate other types
+            UnOp::Neg => match inner {
+                Lit::I32(i) => {
+                    // WGSL negation of  e : T where T is an
+                    // integer scalar and e evaluates to the
+                    // largest negative value, gives result e
+                    if i == -2147483648 {
+                        Value::from_i32(Some(i))
+                    } else {
+                        Value::from_i32(Some(-i))
                     }
                 }
-            }
-            UnOp::BitNot => {
-                match inner {
-                    Lit::I32(i) => Value::from_i32(Some(!i)),
-                    Lit::U32(u) => Value::from_u32(Some(!u)),
-                    _ => panic!(), // can't bitnot other types
-                }
-            }
+                Lit::F32(f) => Value::from_f32(Some(-f)),
+                Lit::F16(f) => Value::from_f16(Some(-f)),
+                _ => None,
+            },
+            UnOp::BitNot => match inner {
+                Lit::I32(i) => Value::from_i32(Some(!i)),
+                Lit::U32(u) => Value::from_u32(Some(!u)),
+                _ => None,
+            },
+            UnOp::Not => match inner {
+                Lit::Bool(b) => Value::from_bool(Some(!b)),
+                _ => None,
+            },
             _ => None,
         }
     }

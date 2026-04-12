@@ -114,6 +114,11 @@ impl DaemonServer {
             match accept_res {
                 Ok((stream, _)) => {
                     *last_activity.lock().unwrap() = Instant::now();
+
+                    if let Err(e) = stream.set_nonblocking(false) {
+                        eprintln!("Warning: failed to set stream to blocking: {}", e);
+                    }
+
                     if let Err(e) = self.process_request(stream, listener_arc.clone()) {
                         eprintln!("Error handling client: {}", e);
                     }

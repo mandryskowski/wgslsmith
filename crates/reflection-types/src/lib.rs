@@ -59,6 +59,7 @@ pub enum TextureFormat {
     Rgba32Sint,
     Rgba32Float,
     Bgra8Unorm,
+    Bgra8UnormSrgb,
     R8Unorm,
     R8Snorm,
     R8Uint,

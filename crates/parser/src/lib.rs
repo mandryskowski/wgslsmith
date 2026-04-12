@@ -111,10 +111,194 @@ pub fn parse(input: &str) -> Module {
     parse_translation_unit(pair, &mut Environment::new())
 }
 
+fn get_defined_name(pair: &Pair<Rule>) -> Option<String> {
+    let inner = pair.clone().into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::enable_directive | Rule::requires_directive | Rule::global_const_assert => None,
+        Rule::type_alias_decl
+        | Rule::struct_decl
+        | Rule::global_constant_decl
+        | Rule::global_override_decl
+        | Rule::global_variable_decl
+        | Rule::function_decl => inner
+            .into_inner()
+            .find(|p| p.as_rule() == Rule::ident)
+            .map(|p| p.as_str().to_owned()),
+        _ => None,
+    }
+}
+
+fn extract_references(
+    pair: Pair<Rule>,
+    refs: &mut Vec<String>,
+    local_scopes: &mut Vec<Vec<String>>,
+) {
+    match pair.as_rule() {
+        Rule::compound_statement | Rule::for_statement => {
+            local_scopes.push(Vec::new());
+            for child in pair.into_inner() {
+                extract_references(child, refs, local_scopes);
+            }
+            local_scopes.pop();
+        }
+        Rule::function_decl => {
+            local_scopes.push(Vec::new());
+            for child in pair.into_inner() {
+                if child.as_rule() != Rule::ident {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+            local_scopes.pop();
+        }
+        Rule::param => {
+            let mut ident = None;
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::ident {
+                    ident = Some(child.as_str().to_owned());
+                } else if child.as_rule() == Rule::type_decl
+                    || child.as_rule() == Rule::attribute_list
+                {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+            if let Some(id) = ident {
+                if let Some(scope) = local_scopes.last_mut() {
+                    scope.push(id);
+                }
+            }
+        }
+        Rule::var_statement | Rule::let_statement | Rule::const_statement => {
+            let mut ident = None;
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::ident {
+                    ident = Some(child.as_str().to_owned());
+                } else if child.as_rule() == Rule::type_decl || child.as_rule() == Rule::expression
+                {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+            if let Some(id) = ident {
+                if let Some(scope) = local_scopes.last_mut() {
+                    scope.push(id);
+                }
+            }
+        }
+        Rule::struct_member => {
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::type_decl || child.as_rule() == Rule::attribute_list {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::global_constant_decl
+        | Rule::global_override_decl
+        | Rule::global_variable_decl
+        | Rule::struct_decl => {
+            for child in pair.into_inner() {
+                if child.as_rule() != Rule::ident {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::type_alias_decl => {
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::type_decl {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::postfix_expression => {
+            for child in pair.into_inner() {
+                if child.as_rule() == Rule::expression {
+                    extract_references(child, refs, local_scopes);
+                }
+            }
+        }
+        Rule::ident => {
+            let name = pair.as_str().to_owned();
+            let is_local = local_scopes.iter().any(|scope| scope.contains(&name));
+            if !is_local {
+                refs.push(name);
+            }
+        }
+        _ => {
+            for child in pair.into_inner() {
+                extract_references(child, refs, local_scopes);
+            }
+        }
+    }
+}
+
 fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
-    let decls = pair
+    let decl_pairs: Vec<_> = pair
         .into_inner()
         .take_while(|pair| pair.as_rule() != Rule::EOI)
+        .collect();
+
+    // Out of order declarations
+    struct DeclNode<'a> {
+        pair: Pair<'a, Rule>,
+        defined_name: Option<String>,
+        referenced_names: Vec<String>,
+    }
+
+    let mut nodes = Vec::new();
+    for p in decl_pairs {
+        let defined_name = get_defined_name(&p);
+        let mut referenced_names = Vec::new();
+
+        let inner = p.clone().into_inner().next().unwrap();
+        extract_references(inner, &mut referenced_names, &mut Vec::new());
+
+        nodes.push(DeclNode {
+            pair: p,
+            defined_name,
+            referenced_names,
+        });
+    }
+
+    let num_nodes = nodes.len();
+    let mut adj = vec![vec![]; num_nodes];
+    let mut in_degree = vec![0; num_nodes];
+
+    for i in 0..num_nodes {
+        for j in 0..num_nodes {
+            if i == j {
+                continue;
+            }
+            if let Some(ref def_name) = nodes[j].defined_name {
+                if nodes[i].referenced_names.contains(def_name) {
+                    adj[j].push(i);
+                    in_degree[i] += 1;
+                }
+            }
+        }
+    }
+
+    // topological sort
+    let mut sorted_pairs = Vec::new();
+    let mut processed = vec![false; num_nodes];
+
+    for _ in 0..num_nodes {
+        let mut found = false;
+        for i in 0..num_nodes {
+            if !processed[i] && in_degree[i] == 0 {
+                sorted_pairs.push(nodes[i].pair.clone());
+                processed[i] = true;
+                for &v in &adj[i] {
+                    in_degree[v] -= 1;
+                }
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            panic!("recursive declaration detected at module scope");
+        }
+    }
+
+    let decls = sorted_pairs
+        .into_iter()
         .map(|pair| parse_global_decl(pair, env))
         .collect::<Vec<_>>();
 
@@ -124,7 +308,9 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
     let mut functions = vec![];
     let mut structs = vec![];
     let mut consts = vec![];
+    let mut overrides = vec![];
     let mut vars = vec![];
+    let mut const_asserts = vec![];
 
     for decl in decls {
         match decl {
@@ -132,9 +318,11 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
             GlobalDecl::Requires(decl) => requires.push(decl),
             GlobalDecl::Alias(decl) => aliases.push(decl),
             GlobalDecl::Const(decl) => consts.push(decl),
+            GlobalDecl::Override(decl) => overrides.push(decl),
             GlobalDecl::Var(decl) => vars.push(decl),
             GlobalDecl::Struct(decl) => structs.push(decl),
             GlobalDecl::Fn(decl) => functions.push(decl),
+            GlobalDecl::ConstAssert(decl) => const_asserts.push(decl),
         }
     }
 
@@ -145,7 +333,9 @@ fn parse_translation_unit(pair: Pair<Rule>, env: &mut Environment) -> Module {
         functions,
         structs,
         consts,
+        overrides,
         vars,
+        const_asserts,
     }
 }
 
@@ -154,9 +344,11 @@ enum GlobalDecl {
     Requires(ast::RequiresExtension),
     Alias(AliasDecl),
     Const(ConstDeclStatement),
+    Override(OverrideDecl),
     Var(GlobalVarDecl),
     Struct(Rc<StructDecl>),
     Fn(FnDecl),
+    ConstAssert(ConstAssertStatement),
 }
 
 fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
@@ -166,11 +358,19 @@ fn parse_global_decl(pair: Pair<Rule>, env: &mut Environment) -> GlobalDecl {
         Rule::requires_directive => GlobalDecl::Requires(parse_requires_directive(pair)),
         Rule::type_alias_decl => GlobalDecl::Alias(parse_alias_decl(pair, env)),
         Rule::global_constant_decl => GlobalDecl::Const(parse_global_const_decl(pair, env)),
+        Rule::global_override_decl => GlobalDecl::Override(parse_global_override_decl(pair, env)),
         Rule::global_variable_decl => GlobalDecl::Var(parse_global_variable_decl(pair, env)),
         Rule::struct_decl => GlobalDecl::Struct(parse_struct_decl(pair, env)),
         Rule::function_decl => GlobalDecl::Fn(parse_function_decl(pair, env)),
+        Rule::global_const_assert => GlobalDecl::ConstAssert(parse_global_const_assert(pair, env)),
         _ => unreachable!(),
     }
+}
+
+fn parse_global_const_assert(pair: Pair<Rule>, env: &Environment) -> ConstAssertStatement {
+    let mut pairs = pair.into_inner();
+    let expr = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    ConstAssertStatement::new(expr)
 }
 
 fn parse_enable_directive(pair: Pair<Rule>) -> ast::EnableExtension {
@@ -221,6 +421,74 @@ fn parse_global_const_decl(pair: Pair<Rule>, env: &mut Environment) -> ConstDecl
     ConstDeclStatement {
         ident,
         data_type: Some(data_type),
+        initializer: expr,
+    }
+}
+
+fn parse_global_override_decl(pair: Pair<Rule>, env: &mut Environment) -> OverrideDecl {
+    let mut pairs = pair.into_inner().peekable();
+
+    let attrs = pairs
+        .by_ref()
+        .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)
+        .flat_map(|pair| {
+            pair.into_inner().map(|pair| {
+                let mut pairs = pair.into_inner();
+                let name = pairs.next().unwrap().as_str();
+                let arg = pairs.next().unwrap().as_str();
+                match name {
+                    "id" => OverrideAttr::Id(arg.parse().unwrap()),
+                    _ => panic!("invalid override attribute: {}", name),
+                }
+            })
+        })
+        .collect();
+
+    let name = pairs.next().unwrap().as_str().to_owned();
+    let mut data_type = None;
+    let mut expr = None;
+
+    if let Some(pair) = pairs.peek() {
+        if pair.as_rule() == Rule::type_decl {
+            let pair = pairs.next().unwrap();
+            data_type = Some(parse_type_decl(pair, env));
+        }
+    }
+
+    if let Some(pair) = pairs.peek() {
+        if pair.as_rule() == Rule::expression {
+            let pair = pairs.next().unwrap();
+            expr = Some(parse_expression(pair, env, data_type.as_ref()));
+        }
+    }
+
+    let inferred_type = data_type.clone().unwrap_or_else(|| {
+        expr.as_ref()
+            .expect("override must have type or initializer")
+            .data_type
+            .clone()
+    });
+
+    env.insert_var(name.clone(), inferred_type);
+
+    if let Some(e) = &expr {
+        let mut concretizer = Concretizer::new(Options {
+            error_handling: ErrorHandling::Panic,
+        });
+        for (k, v) in env.iter_consts() {
+            concretizer.register_const(k.clone(), v.clone());
+        }
+
+        let val = concretizer.concretize_expr(e.clone()).value;
+        if let Some(val) = val {
+            env.insert_const(name.clone(), val);
+        }
+    }
+
+    OverrideDecl {
+        attrs,
+        name,
+        data_type,
         initializer: expr,
     }
 }
@@ -340,17 +608,28 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
                     pair.into_inner().map(|pair| {
                         let mut pairs = pair.into_inner();
                         let name = pairs.next().unwrap().as_str();
-                        let arg = pairs.next().unwrap().as_str();
                         match name {
-                            "align" => StructMemberAttr::Align(arg.parse().unwrap()),
-                            "size" => StructMemberAttr::Size(arg.parse().unwrap()),
-                            "builtin" => StructMemberAttr::Builtin(arg.parse().unwrap()),
+                            "align" => StructMemberAttr::Align(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
+                            "blend_src" => StructMemberAttr::BlendSrc(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
+                            "size" => StructMemberAttr::Size(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
+                            "builtin" => StructMemberAttr::Builtin(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
                             "interpolate" => {
-                                let ty = arg.parse().unwrap();
+                                let ty = pairs.next().unwrap().as_str().parse().unwrap();
                                 let sample = pairs.next().map(|arg| arg.as_str().parse().unwrap());
                                 StructMemberAttr::Interpolate(ty, sample)
                             }
-                            "location" => StructMemberAttr::Location(arg.parse().unwrap()),
+                            "invariant" => StructMemberAttr::Invariant,
+                            "location" => StructMemberAttr::Location(
+                                pairs.next().unwrap().as_str().parse().unwrap(),
+                            ),
                             _ => panic!("invalid struct member attribute: {}", name),
                         }
                     })
@@ -379,35 +658,37 @@ fn parse_struct_decl(pair: Pair<Rule>, env: &mut Environment) -> Rc<StructDecl> 
 fn parse_function_decl(pair: Pair<Rule>, env: &mut Environment) -> FnDecl {
     let mut pairs = pair.into_inner().peekable();
 
-    let attrs = pairs
-        .by_ref()
-        .peeking_take_while(|pair| pair.as_rule() == Rule::attribute_list)
-        .flat_map(|pair| {
-            pair.into_inner().map(|pair| {
-                let mut pairs = pair.into_inner();
-                let name = pairs.next().unwrap().as_str();
-                match name {
+    let mut attrs = Vec::new();
+    while let Some(pair) = pairs.peek() {
+        if pair.as_rule() == Rule::attribute_list {
+            let pair = pairs.next().unwrap();
+            for attr_pair in pair.into_inner() {
+                let mut attr_pairs = attr_pair.into_inner();
+                let name = attr_pairs.next().unwrap().as_str();
+                let attr = match name {
                     "compute" => FnAttr::Stage(ShaderStage::Compute),
                     "vertex" => FnAttr::Stage(ShaderStage::Vertex),
                     "fragment" => FnAttr::Stage(ShaderStage::Fragment),
-                    "stage" => FnAttr::Stage(match pairs.next().unwrap().as_str() {
+                    "stage" => FnAttr::Stage(match attr_pairs.next().unwrap().as_str().trim() {
                         "compute" => ShaderStage::Compute,
                         "vertex" => ShaderStage::Vertex,
                         "fragment" => ShaderStage::Fragment,
                         _ => panic!("invalid argument for stage attr"),
                     }),
                     "workgroup_size" => FnAttr::WorkgroupSize(
-                        match parse_literal_expression(pairs.next().unwrap(), None).expr {
-                            Expr::Lit(Lit::I32(v)) => v.try_into().unwrap(),
-                            Expr::Lit(Lit::U32(v)) => v,
-                            _ => panic!("invalid argument for workgroup_size attr"),
-                        },
+                        attr_pairs
+                            .map(|p| parse_expression(p, env, Some(&ScalarType::U32.into())))
+                            .collect(),
                     ),
+                    "must_use" => FnAttr::MustUse,
                     _ => panic!("invalid function attribute: {}", name),
-                }
-            })
-        })
-        .collect();
+                };
+                attrs.push(attr);
+            }
+        } else {
+            break;
+        }
+    }
 
     let name = pairs.next().unwrap().as_str().to_owned();
     let inputs = pairs
@@ -485,6 +766,11 @@ fn parse_fn_param_return_attr(pair: Pair<Rule>) -> FnParamReturnAttr {
             let arg = pairs.next().unwrap().as_str();
             FnParamReturnAttr::Location(arg.parse().unwrap())
         }
+        "interpolate" => {
+            let ty = pairs.next().unwrap().as_str().parse().unwrap();
+            let sample = pairs.next().map(|arg| arg.as_str().parse().unwrap());
+            FnParamReturnAttr::Interpolate(ty, sample)
+        }
         _ => panic!("invalid param attribute: {}", name),
     }
 }
@@ -500,6 +786,8 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
         Rule::let_statement => parse_let_statement(pair, env),
         Rule::const_statement => parse_const_statement(pair, env),
         Rule::var_statement => parse_var_statement(pair, env),
+        Rule::const_assert_statement => parse_const_assert_statement(pair, env),
+        Rule::discard_statement => Statement::Discard(DiscardStatement),
         Rule::assignment_statement => parse_assignment_statement(pair, env),
         Rule::compound_statement => parse_compound_statement(pair, env),
         Rule::if_statement => parse_if_statement(pair, env),
@@ -516,6 +804,12 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
         Rule::decrement_statement => parse_decrement_statement(pair, env),
         _ => unreachable!(),
     }
+}
+
+fn parse_const_assert_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
+    let mut pairs = pair.into_inner();
+    let expr = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    ConstAssertStatement::new(expr).into()
 }
 
 fn parse_increment_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
@@ -633,6 +927,8 @@ fn parse_assignment_statement(pair: Pair<Rule>, env: &Environment) -> Statement 
             Rule::op_and_equal => AssignmentOp::And,
             Rule::op_or_equal => AssignmentOp::Or,
             Rule::op_xor_equal => AssignmentOp::Xor,
+            Rule::op_lshift_equal => AssignmentOp::LShift,
+            Rule::op_rshift_equal => AssignmentOp::RShift,
             _ => unreachable!(),
         },
         _ => unreachable!(),
@@ -660,8 +956,7 @@ fn parse_compound_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
 
 fn parse_if_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let mut pairs = pair.into_inner();
-    let condition =
-        parse_paren_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    let condition = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
     let block = parse_compound_statement(pairs.next().unwrap(), env).into_compount_statement();
 
     let els = pairs
@@ -712,8 +1007,7 @@ fn parse_loop_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
 
 fn parse_while_statement(pair: Pair<Rule>, env: &Environment) -> Statement {
     let mut pairs = pair.into_inner();
-    let condition =
-        parse_paren_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
+    let condition = parse_expression(pairs.next().unwrap(), env, Some(&ScalarType::Bool.into()));
     let block = parse_compound_statement(pairs.next().unwrap(), env).into_compount_statement();
 
     WhileStatement::new(condition, block).into()
@@ -781,11 +1075,15 @@ fn parse_for_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
 
     let mut init = None;
     if pair.as_rule() == Rule::for_init {
-        match parse_statement(pair.into_inner().next().unwrap(), env) {
-            Statement::VarDecl(stmt) => {
-                init = Some(ForLoopInit::VarDecl(stmt));
-            }
-            _ => panic!("only assignment statement is currently supported in for loop init"),
+        init = match parse_statement(pair.into_inner().next().unwrap(), env) {
+            Statement::VarDecl(stmt) => Some(ForLoopInit::VarDecl(stmt)),
+            Statement::LetDecl(stmt) => Some(ForLoopInit::LetDecl(stmt)),
+            Statement::ConstDecl(stmt) => Some(ForLoopInit::ConstDecl(stmt)),
+            Statement::Assignment(stmt) => Some(ForLoopInit::Assignment(stmt)),
+            Statement::Increment(stmt) => Some(ForLoopInit::Increment(stmt)),
+            Statement::Decrement(stmt) => Some(ForLoopInit::Decrement(stmt)),
+            Statement::FnCall(stmt) => Some(ForLoopInit::Call(stmt)),
+            _ => unreachable!(),
         };
         pair = pairs.next().unwrap();
     }
@@ -799,25 +1097,11 @@ fn parse_for_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
     let mut update = None;
     if pair.as_rule() == Rule::for_update {
         let inner = pair.into_inner().next().unwrap();
-        update = match inner.as_rule() {
-            Rule::assignment_statement => Some(ForLoopUpdate::Assignment(
-                match parse_assignment_statement(inner, env) {
-                    Statement::Assignment(stmt) => stmt,
-                    _ => unreachable!(),
-                },
-            )),
-            Rule::increment_statement => Some(ForLoopUpdate::Increment(
-                match parse_increment_statement(inner, env) {
-                    Statement::Increment(stmt) => stmt,
-                    _ => unreachable!(),
-                },
-            )),
-            Rule::decrement_statement => Some(ForLoopUpdate::Decrement(
-                match parse_decrement_statement(inner, env) {
-                    Statement::Decrement(stmt) => stmt,
-                    _ => unreachable!(),
-                },
-            )),
+        update = match parse_statement(inner, env) {
+            Statement::Assignment(stmt) => Some(ForLoopUpdate::Assignment(stmt)),
+            Statement::Increment(stmt) => Some(ForLoopUpdate::Increment(stmt)),
+            Statement::Decrement(stmt) => Some(ForLoopUpdate::Decrement(stmt)),
+            Statement::FnCall(stmt) => Some(ForLoopUpdate::Call(stmt)),
             _ => unreachable!(),
         };
         pair = pairs.next().unwrap();
@@ -1030,47 +1314,97 @@ fn parse_literal_expression(pair: Pair<Rule>, expected_type: Option<&DataType>) 
     let pair = pair.into_inner().next().unwrap();
     let (t, lit) = match pair.as_rule() {
         Rule::bool_literal => (ScalarType::Bool, Lit::Bool(pair.as_str().parse().unwrap())),
-        Rule::uint_literal => (
-            ScalarType::U32,
-            Lit::U32(pair.as_str().trim_end_matches('u').parse().unwrap()),
-        ),
+        Rule::uint_literal => {
+            let s = pair.as_str().trim_end_matches('u');
+            let is_hex = s.starts_with("0x") || s.starts_with("0X");
+            let val = if is_hex {
+                u32::from_str_radix(&s[2..], 16).unwrap()
+            } else {
+                s.parse().unwrap()
+            };
+            (ScalarType::U32, Lit::U32(val))
+        }
         Rule::int_literal => {
             let s = pair.as_str();
+            let is_hex = s.contains("0x") || s.contains("0X");
+
+            let parse_i32 = |s: &str| -> i32 {
+                if is_hex {
+                    let (s, neg) = if let Some(stripped) = s.strip_prefix('-') {
+                        (stripped, true)
+                    } else {
+                        (s, false)
+                    };
+                    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+                    let val = i64::from_str_radix(s, 16).unwrap();
+                    let val = if neg { -val } else { val };
+                    val as i32
+                } else {
+                    s.parse().unwrap()
+                }
+            };
+
+            let parse_u32 = |s: &str| -> u32 {
+                if is_hex {
+                    let (s, neg) = if let Some(stripped) = s.strip_prefix('-') {
+                        (stripped, true)
+                    } else {
+                        (s, false)
+                    };
+                    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+                    let val = u32::from_str_radix(s, 16).unwrap();
+                    if neg {
+                        val.wrapping_neg()
+                    } else {
+                        val
+                    }
+                } else {
+                    s.parse().unwrap()
+                }
+            };
+
+            let parse_f32 = |s: &str| -> f32 {
+                if is_hex {
+                    parse_hex_float(s)
+                } else {
+                    s.parse().unwrap()
+                }
+            };
+
             if s.ends_with('i') {
                 (
                     ScalarType::I32,
-                    Lit::I32(s.trim_end_matches('i').parse().unwrap()),
+                    Lit::I32(parse_i32(s.trim_end_matches('i'))),
                 )
             } else {
                 // No suffix
                 match expected_type.and_then(|t| t.as_scalar()) {
-                    Some(ScalarType::U32) => (ScalarType::U32, Lit::U32(s.parse().unwrap())),
-                    Some(ScalarType::F32) => (ScalarType::F32, Lit::F32(s.parse().unwrap())),
-                    Some(ScalarType::F16) => (
-                        ScalarType::F16,
-                        Lit::F16(s.parse::<f32>().map(half::f16::from_f32).unwrap()),
-                    ),
-                    _ => (ScalarType::I32, Lit::I32(s.parse().unwrap())),
+                    Some(ScalarType::U32) => (ScalarType::U32, Lit::U32(parse_u32(s))),
+                    Some(ScalarType::F32) => (ScalarType::F32, Lit::F32(parse_f32(s))),
+                    Some(ScalarType::F16) => {
+                        (ScalarType::F16, Lit::F16(half::f16::from_f32(parse_f32(s))))
+                    }
+                    _ => (ScalarType::I32, Lit::I32(parse_i32(s))),
                 }
             }
         }
         Rule::float_literal => {
             let s = pair.as_str();
+            let is_hex = s.contains("0x") || s.contains("0X");
             if s.ends_with('h') {
-                (
-                    ScalarType::F16,
-                    Lit::F16(
-                        s.trim_end_matches('h')
-                            .parse::<f32>()
-                            .map(half::f16::from_f32)
-                            .unwrap(),
-                    ),
-                )
+                let val = if is_hex {
+                    parse_hex_float(s)
+                } else {
+                    s.trim_end_matches('h').parse::<f32>().unwrap()
+                };
+                (ScalarType::F16, Lit::F16(half::f16::from_f32(val)))
             } else {
-                (
-                    ScalarType::F32,
-                    Lit::F32(s.trim_end_matches('f').parse().unwrap()),
-                )
+                let val = if is_hex {
+                    parse_hex_float(s)
+                } else {
+                    s.trim_end_matches('f').parse::<f32>().unwrap()
+                };
+                (ScalarType::F32, Lit::F32(val))
             }
         }
         _ => unreachable!(),
@@ -1372,13 +1706,22 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
             let c = s.chars().nth(3).unwrap().to_digit(10).unwrap() as u8;
             let r = s.chars().nth(5).unwrap().to_digit(10).unwrap() as u8;
 
-            let scalar_type = if let Some(inner) = pairs.next() {
-                parse_t_scalar(inner)
-            } else {
-                ScalarType::F32
+            let scalar_type = match pairs.next() {
+                Some(inner) if inner.as_rule() == Rule::t_scalar => parse_t_scalar(inner),
+                _ => match s.chars().nth(6) {
+                    Some('i') => ScalarType::I32,
+                    Some('u') => ScalarType::U32,
+                    Some('f') => ScalarType::F32,
+                    Some('h') => ScalarType::F16,
+                    _ => ScalarType::F32,
+                },
             };
 
             DataType::Matrix(c, r, scalar_type)
+        }
+        Rule::t_atomic => {
+            let inner = pair.into_inner().next().unwrap();
+            DataType::Atomic(parse_t_scalar(inner))
         }
         Rule::array_type_decl => {
             let mut pairs = pair.into_inner();
@@ -1568,6 +1911,51 @@ impl From<Rule> for ScalarType {
             _ => unreachable!(),
         }
     }
+}
+
+fn parse_hex_float(s: &str) -> f32 {
+    let (s, is_negative) = if let Some(stripped) = s.strip_prefix('-') {
+        (stripped, true)
+    } else {
+        (s, false)
+    };
+    let s = s.trim_end_matches(['f', 'h']);
+    let s = &s[2..];
+    let (sig, exp_str) = if let Some(idx) = s.find(['p', 'P']) {
+        (&s[..idx], &s[idx + 1..])
+    } else {
+        (s, "0")
+    };
+
+    let mut exp_val = exp_str.parse::<i32>().unwrap();
+    let mut int_part = String::new();
+    for (i, c) in sig.chars().enumerate() {
+        if c == '.' {
+            let frac_digits = sig.len() - 1 - i;
+            exp_val -= (frac_digits as i32) * 4;
+        } else {
+            int_part.push(c);
+        }
+    }
+
+    let mut start_idx = 0;
+    while start_idx < int_part.len() && int_part.as_bytes()[start_idx] == b'0' {
+        start_idx += 1;
+    }
+    let sig_str = &int_part[start_idx..];
+
+    let mut val = 0.0_f64;
+    if !sig_str.is_empty() {
+        let take_len = sig_str.len().min(16);
+        let truncated = &sig_str[..take_len];
+        let parsed = u64::from_str_radix(truncated, 16).unwrap() as f64;
+        let skipped_digits = sig_str.len() - take_len;
+        exp_val += (skipped_digits as i32) * 4;
+        val = parsed * 2.0_f64.powi(exp_val);
+    }
+
+    let result = if is_negative { -val } else { val };
+    result as f32
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
 WHITESPACE = _{ " " | "\t" | NEWLINE }
-COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* }
+line_comment = _{ "//" ~ (!NEWLINE ~ ANY)* }
+block_comment = _{ "/*" ~ (block_comment | (!"*/" ~ !"/*" ~ ANY))* ~ "*/" }
+COMMENT    = _{ line_comment | block_comment }
 
 ident = @{
     (ASCII_ALPHA | "_") ~ ASCII_ALPHANUMERIC ~ (ASCII_ALPHANUMERIC | "_")* | ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*
@@ -8,11 +10,24 @@ ident = @{
 // LITERALS
 
 bool_literal = { "true" | "false" }
-uint_literal = @{ ASCII_DIGIT+ ~ "u" }
-int_literal = @{ ("-")? ~ ASCII_DIGIT+ ~ "i"? ~ !("u" | "f" | ".") }
 
+hex_prefix = _{ "0x" | "0X" }
+hex_exponent = _{ ("p" | "P") ~ ("+" | "-")? ~ ASCII_DIGIT+ }
+
+uint_literal = @{ (hex_prefix ~ ASCII_HEX_DIGIT+ ~ "u") | (ASCII_DIGIT+ ~ "u") }
+int_literal = @{
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT+ ~ "i"? ~ !("u" | "f" | "h" | "." | "p" | "P") )
+    |
+    ( ("-")? ~ ASCII_DIGIT+ ~ "i"? ~ !("u" | "f" | "h" | "." | "e" | "E") )
+}
 
 float_literal = @{
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT* ~ "." ~ ASCII_HEX_DIGIT+ ~ hex_exponent? ~ ("f" | "h")? )
+    |
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT+ ~ "." ~ ASCII_HEX_DIGIT* ~ hex_exponent? ~ ("f" | "h")? )
+    |
+    ( ("-")? ~ hex_prefix ~ ASCII_HEX_DIGIT+ ~ hex_exponent ~ ("f" | "h")? )
+    |
     ( ("-")? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ exponent? ~ ("f" | "h")? )
     |
     ( ("-")? ~ "." ~ ASCII_DIGIT+ ~ exponent? ~ ("f" | "h")? )
@@ -38,10 +53,15 @@ t_vec4 = { "vec4<" ~ t_scalar ~ ">" | "vec4i" | "vec4u" | "vec4f" | "vec4h" | "v
 
 t_scalar = { t_bool | t_i32 | t_u32 | t_f32 | t_f16 }
 t_vector = { t_vec2 | t_vec3 | t_vec4 }
+t_mat_prefix = _{ "mat2x2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4x4" }
+t_mat_type   = @{ t_mat_prefix ~ ("i" | "u" | "f" | "h") }
+
 t_matrix = {
-    ( "mat2x2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4x4" )
-    ~ ( "<" ~ t_scalar ~ ">" )?
+    t_mat_prefix ~ "<" ~ t_scalar ~ ">" |
+    t_mat_type |
+    t_mat_prefix
 }
+t_atomic = { "atomic" ~ "<" ~ t_scalar ~ ">" }
 t_texture = {
     "texture_external" |
     ( "texture_depth_2d_array" | "texture_depth_cube_array" | "texture_depth_multisampled_2d" | "texture_depth_2d" | "texture_depth_cube" ) |
@@ -56,8 +76,8 @@ array_type_decl = { "array" ~ ("<" ~ type_decl ~ ("," ~ array_length)? ~ ">")? }
 array_length    = _{ expression_no_gt }
 ptr_type_decl   = { "ptr" ~ "<" ~ storage_class ~ "," ~ type_decl ~ ("," ~ access_mode)? ~ ">" }
 
-type_decl          = { t_scalar | t_vector | t_matrix | t_texture | t_sampler | array_type_decl | ptr_type_decl | ident }
-built_in_type_decl = { t_scalar | t_vector | t_matrix | t_texture | t_sampler | array_type_decl }
+type_decl          = { t_scalar | t_vector | t_matrix | t_atomic | t_texture | t_sampler | array_type_decl | ptr_type_decl | ident }
+built_in_type_decl = { t_scalar | t_vector | t_matrix | t_atomic | t_texture | t_sampler | array_type_decl }
 
 // OPERATORS
 
@@ -90,6 +110,8 @@ op_mod_equal    = { "%=" }
 op_and_equal    = { "&=" }
 op_or_equal     = { "|=" }
 op_xor_equal    = { "^=" }
+op_lshift_equal = { "<<=" }
+op_rshift_equal = { ">>=" }
 op_address_of   = { "&" }
 op_indirection  = { "*" }
 op_increment    = { "++" }
@@ -99,7 +121,8 @@ assignment_operator          = { op_assign | compound_assignment_operator }
 compound_assignment_operator = {
     op_plus_equal | op_minus_equal |
     op_times_equal | op_divide_equal | op_mod_equal |
-    op_and_equal | op_or_equal | op_xor_equal
+    op_and_equal | op_or_equal | op_xor_equal |
+    op_lshift_equal | op_rshift_equal
 }
 
 unary_operator  = _{ op_minus | op_log_not | op_bit_not | op_address_of | op_indirection }
@@ -147,18 +170,20 @@ lhs_phony           = { "_" }
 var_statement        = { "var" ~ ident ~ (":" ~ type_decl)? ~ ("=" ~ expression)? }
 let_statement        = { "let" ~ ident ~ (":" ~ type_decl)? ~ "=" ~ expression }
 const_statement      = { "const" ~ ident ~ (":" ~ type_decl)? ~ "=" ~ expression }
+const_assert_statement = { "const_assert" ~ expression }
+discard_statement    = { "discard" }
 assignment_statement = { (lhs_phony | lhs_expression) ~ assignment_operator ~ expression }
 increment_statement  = { lhs_expression ~ op_increment }
 decrement_statement  = { lhs_expression ~ op_decrement }
-compound_statement   = { "{" ~ statement* ~ "}" }
-if_statement         = { "if" ~ paren_expression ~ compound_statement ~ ("else" ~ (compound_statement | if_statement))? }
+compound_statement   = { "{" ~ (statement | ";")* ~ "}" }
+if_statement         = { "if" ~ expression ~ compound_statement ~ ("else" ~ (compound_statement | if_statement))? }
 return_statement     = { "return" ~ expression? }
-loop_statement       = { "loop" ~ "{" ~ statement* ~ continuing_statement? ~ "}" }
-while_statement      = { "while" ~ paren_expression ~ compound_statement }
+loop_statement       = { "loop" ~ "{" ~ (statement | ";")* ~ continuing_statement? ~ "}" }
+while_statement      = { "while" ~ expression ~ compound_statement }
 break_statement      = { "break" }
 break_if_statement   = { "break" ~ "if" ~ expression }
 continue_statement   = { "continue" }
-continuing_statement   = { "continuing" ~ "{" ~ statement* ~ (break_if_statement ~ ";")? ~ "}" }
+continuing_statement   = { "continuing" ~ "{" ~ (statement | ";")* ~ (break_if_statement ~ ";")? ~ "}" }
 fallthrough_statement = { "fallthrough" }
 call_statement       = { call_expression }
 
@@ -169,9 +194,22 @@ switch_case      = {
 }
 
 for_statement = { "for" ~ "(" ~ for_init? ~ ";" ~ expression? ~ ";" ~ for_update? ~ ")" ~ compound_statement }
-for_init      = { var_statement }
+for_init      = {
+    var_statement |
+    let_statement |
+    const_statement |
+    assignment_statement |
+    increment_statement |
+    decrement_statement |
+    call_statement
+}
 
-for_update    = { assignment_statement | increment_statement | decrement_statement }
+for_update    = {
+    assignment_statement |
+    increment_statement |
+    decrement_statement |
+    call_statement
+}
 
 statement = {
     assignment_statement ~ ";" |
@@ -180,6 +218,8 @@ statement = {
     var_statement ~ ";" |
     let_statement ~ ";" |
     const_statement ~ ";" |
+    const_assert_statement ~ ";" |
+    discard_statement ~ ";" |
     if_statement |
     loop_statement |
     while_statement |
@@ -196,8 +236,7 @@ statement = {
 // ATTRIBUTES
 
 attribute_list   = { "[[" ~ (attribute ~ ",")* ~ attribute ~ "]]" | "@" ~ attribute }
-attribute        = { ident ~ ("(" ~ (literal_or_ident ~ ",")* ~ literal_or_ident ~ ")")? }
-literal_or_ident = _{ literal_expression | ident }
+attribute        = { ident ~ ("(" ~ (expression ~ ",")* ~ expression ~ ")")? }
 
 // FUNCTIONS
 
@@ -209,6 +248,7 @@ param           = { attribute_list* ~ ident ~ ":" ~ type_decl }
 // GLOBALS
 
 global_constant_decl = { ("let" | "const") ~ ident ~ (":" ~ type_decl)? ~ "=" ~ expression }
+global_override_decl = { attribute_list* ~ "override" ~ ident ~ (":" ~ type_decl)? ~ ("=" ~ expression)? }
 global_variable_decl = { attribute_list* ~ "var" ~ variable_qualifier? ~ ident ~ (":" ~ type_decl)? ~ ("=" ~ expression)? }
 variable_qualifier   = { "<" ~ storage_class ~ ("," ~ access_mode)? ~ ">" }
 storage_class        = { "function" | "private" | "workgroup" | "uniform" | "storage" }
@@ -221,15 +261,18 @@ type_alias_decl = { "alias" ~ ident ~ "=" ~ type_decl }
 
 enable_directive   = { "enable" ~ ident ~ ";" }
 requires_directive = { "requires" ~ ident ~ ";" }
+global_const_assert = { "const_assert" ~ expression }
 
 global_decl = {
     enable_directive |
     requires_directive |
     type_alias_decl ~ ";" |
     global_constant_decl ~ ";" |
+    global_override_decl ~ ";" |
     global_variable_decl ~ ";" |
+    global_const_assert ~ ";" |
     struct_decl ~ ";"? |
     function_decl
 }
 
-translation_unit = { SOI ~ global_decl* ~ EOI }
+translation_unit = { SOI ~ (global_decl | ";")* ~ EOI }

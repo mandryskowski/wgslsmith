@@ -224,17 +224,36 @@ impl Reconditioner {
                 value: value.map(|e| self.recondition_expr(e)),
             }
             .into(),
-            Statement::Loop(LoopStatement { body, continuing }) => LoopStatement::new(
-                self.recondition_loop_body(body),
-                continuing.map(|ContinuingBlock { stmts, break_if }| ContinuingBlock {
-                    stmts: stmts
-                        .into_iter()
-                        .map(|s| self.recondition_stmt(s))
-                        .collect(),
-                    break_if: break_if.map(|e| self.recondition_expr(e)),
-                }),
-            )
-            .into(),
+            Statement::Loop(LoopStatement {
+                mut body,
+                continuing,
+            }) => {
+                if continuing.is_some() {
+                    let last_decl_idx = body.iter().rposition(|s| {
+                        matches!(
+                            s,
+                            Statement::LetDecl(_) | Statement::VarDecl(_) | Statement::ConstDecl(_)
+                        )
+                    });
+                    if let Some(idx) = last_decl_idx {
+                        for stmt in body.iter_mut().take(idx) {
+                            Self::replace_continue(stmt);
+                        }
+                    }
+                }
+
+                LoopStatement::new(
+                    self.recondition_loop_body(body),
+                    continuing.map(|ContinuingBlock { stmts, break_if }| ContinuingBlock {
+                        stmts: stmts
+                            .into_iter()
+                            .map(|s| self.recondition_stmt(s))
+                            .collect(),
+                        break_if: break_if.map(|e| self.recondition_expr(e)),
+                    }),
+                )
+                .into()
+            }
             Statement::While(stmt) => Statement::While(WhileStatement {
                 condition: self.recondition_expr(stmt.condition),
                 body: self.recondition_loop_body(stmt.body),
@@ -290,6 +309,11 @@ impl Reconditioner {
             Statement::Decrement(DecrementStatement { lhs }) => {
                 DecrementStatement::new(self.recondition_assignment_lhs(lhs)).into()
             }
+
+            Statement::ConstAssert(s) => Statement::ConstAssert(ConstAssertStatement::new(
+                self.recondition_expr(s.condition),
+            )),
+            Statement::Discard(s) => Statement::Discard(s),
         }
     }
 
@@ -304,6 +328,45 @@ impl Reconditioner {
                 data_type,
                 initializer.map(|e| self.recondition_expr(e)),
             )),
+            ForLoopInit::LetDecl(LetDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => ForLoopInit::LetDecl(LetDeclStatement::new(
+                ident,
+                data_type,
+                self.recondition_expr(initializer),
+            )),
+            ForLoopInit::ConstDecl(ConstDeclStatement {
+                ident,
+                data_type,
+                initializer,
+            }) => ForLoopInit::ConstDecl(ConstDeclStatement::new(
+                ident,
+                data_type,
+                self.recondition_expr(initializer),
+            )),
+            ForLoopInit::Assignment(AssignmentStatement { lhs, op, rhs }) => {
+                ForLoopInit::Assignment(AssignmentStatement::new(
+                    self.recondition_assignment_lhs(lhs),
+                    op,
+                    self.recondition_expr(rhs),
+                ))
+            }
+            ForLoopInit::Increment(IncrementStatement { lhs }) => ForLoopInit::Increment(
+                IncrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
+            ForLoopInit::Decrement(DecrementStatement { lhs }) => ForLoopInit::Decrement(
+                DecrementStatement::new(self.recondition_assignment_lhs(lhs)),
+            ),
+            ForLoopInit::Call(FnCallStatement { ident, args }) => {
+                ForLoopInit::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|it| self.recondition_expr(it))
+                        .collect(),
+                ))
+            }
         }
     }
 
@@ -322,6 +385,14 @@ impl Reconditioner {
             ForLoopUpdate::Decrement(DecrementStatement { lhs }) => ForLoopUpdate::Decrement(
                 DecrementStatement::new(self.recondition_assignment_lhs(lhs)),
             ),
+            ForLoopUpdate::Call(FnCallStatement { ident, args }) => {
+                ForLoopUpdate::Call(FnCallStatement::new(
+                    ident,
+                    args.into_iter()
+                        .map(|it| self.recondition_expr(it))
+                        .collect(),
+                ))
+            }
         }
     }
 
@@ -693,5 +764,54 @@ impl Reconditioner {
         let ident = wrapper.to_string();
         self.wrappers.insert(wrapper);
         ident
+    }
+    fn replace_continue(stmt: &mut Statement) {
+        match stmt {
+            Statement::Continue => {
+                *stmt = Statement::Break;
+            }
+            Statement::Compound(stmts) => {
+                for s in stmts {
+                    Self::replace_continue(s);
+                }
+            }
+            Statement::If(stmt) => {
+                for s in &mut stmt.body {
+                    Self::replace_continue(s);
+                }
+                if let Some(else_) = &mut stmt.else_ {
+                    Self::replace_continue_else(else_.as_mut());
+                }
+            }
+            Statement::Switch(stmt) => {
+                for case in &mut stmt.cases {
+                    for s in &mut case.body {
+                        Self::replace_continue(s);
+                    }
+                }
+                for s in &mut stmt.default {
+                    Self::replace_continue(s);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn replace_continue_else(else_: &mut Else) {
+        match else_ {
+            Else::If(stmt) => {
+                for s in &mut stmt.body {
+                    Self::replace_continue(s);
+                }
+                if let Some(els) = &mut stmt.else_ {
+                    Self::replace_continue_else(els.as_mut());
+                }
+            }
+            Else::Else(stmts) => {
+                for s in stmts {
+                    Self::replace_continue(s);
+                }
+            }
+        }
     }
 }

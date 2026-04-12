@@ -41,10 +41,12 @@ struct FuzzerContext {
 
 impl FuzzerContext {
     fn new(kind: String, options: &Options, config: &Config) -> Self {
-        let name = config.fuzzer.name.clone().unwrap_or_else(|| {
-            std::env::var("HOSTNAME")
-                .or_else(|_| std::env::var("COMPUTERNAME"))
-                .unwrap_or_else(|_| "unknown-machine".to_string())
+        let name = options.server.clone().unwrap_or_else(|| {
+            config.fuzzer.name.clone().unwrap_or_else(|| {
+                std::env::var("HOSTNAME")
+                    .or_else(|_| std::env::var("COMPUTERNAME"))
+                    .unwrap_or_else(|_| "unknown-machine".to_string())
+            })
         });
 
         let configs = options.configs.iter().map(|c| c.to_string()).collect();
@@ -157,6 +159,7 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
         .args(["--block-min-stmts", "1"])
         .args(["--block-max-stmts", "2"])
         .args(["--max-fns", "3"])
+        .args(["--enable-divergence"])
         .tap_mut(|cmd| {
             if options.enable_pointers {
                 cmd.arg("--enable-pointers");

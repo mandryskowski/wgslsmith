@@ -60,6 +60,8 @@ Module {
         },
     ],
     consts: [],
+    overrides: [],
     vars: [],
+    const_asserts: [],
     functions: [],
 }

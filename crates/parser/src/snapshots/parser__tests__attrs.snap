@@ -155,6 +155,8 @@ Module {
         },
     ],
     consts: [],
+    const_asserts: [],
+    overrides: [],
     vars: [],
     functions: [],
 }

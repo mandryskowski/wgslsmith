@@ -44,6 +44,7 @@ Module {
         },
     ],
     consts: [],
+    overrides: [],
     vars: [
         GlobalVarDecl {
             attrs: [
@@ -69,6 +70,7 @@ Module {
             initializer: None,
         },
     ],
+    const_asserts: [],
     functions: [
         FnDecl {
             attrs: [
@@ -76,7 +78,18 @@ Module {
                     Compute,
                 ),
                 WorkgroupSize(
-                    1,
+                    [
+                        ExprNode {
+                            data_type: Scalar(
+                                U32,
+                            ),
+                            expr: Lit(
+                                U32(
+                                    1,
+                                ),
+                            ),
+                        },
+                    ],
                 ),
             ],
             name: "main",

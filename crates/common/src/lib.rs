@@ -224,8 +224,10 @@ impl TryFrom<&ast::DataType> for Type {
                         match attr {
                             ast::StructMemberAttr::Align(n) => alignment = Some(*n),
                             ast::StructMemberAttr::Size(n) => size = Some(*n),
+                            ast::StructMemberAttr::BlendSrc(_) => {}
                             ast::StructMemberAttr::Builtin(_) => {}
                             ast::StructMemberAttr::Interpolate(_, _) => {}
+                            ast::StructMemberAttr::Invariant => {}
                             ast::StructMemberAttr::Location(_) => {}
                         }
                     }
@@ -240,6 +242,14 @@ impl TryFrom<&ast::DataType> for Type {
 
                 Ok(Type::Struct { members })
             }
+            ast::DataType::Atomic(scalar) => Ok(Type::Scalar {
+                scalar_type: scalar.try_into()?,
+            }),
+            ast::DataType::AtomicCompareExchangeResult(_) => {
+                Err("atomic compare exchange result is not storable")
+            }
+            ast::DataType::FrexpResult(_) => Err("frexp result is not storable"),
+            ast::DataType::ModfResult(_) => Err("modf result is not storable"),
             ast::DataType::Ptr(_) => Err("pointers are not storable"),
             ast::DataType::Ref(_) => Err("references are not storable"),
             ast::DataType::Texture(_) => Err("textures are not storable"),
