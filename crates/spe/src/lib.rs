@@ -12,39 +12,36 @@ use std::sync::OnceLock;
 use time::{format_description, OffsetDateTime, UtcOffset};
 use walkdir::WalkDir;
 
-static ENUMERATED_NO_ISSUE: AtomicUsize = AtomicUsize::new(0);
-static FAILED_PARSE: AtomicUsize = AtomicUsize::new(0);
-static FAILED_RUN: AtomicUsize = AtomicUsize::new(0);
+static STAT_FAILED_PARSE: AtomicUsize = AtomicUsize::new(0);
+static STAT_FAILED_RECONDITION: AtomicUsize = AtomicUsize::new(0);
+static STAT_FAILED_RUN: AtomicUsize = AtomicUsize::new(0);
+static STAT_RUN_SUCCESS: AtomicUsize = AtomicUsize::new(0);
+static STAT_SKIPPED_ONLY_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+static STAT_SUBSAMPLED: AtomicUsize = AtomicUsize::new(0);
 static LAST_INDEX: AtomicUsize = AtomicUsize::new(0);
 
 static OUT_DIR: OnceLock<PathBuf> = OnceLock::new();
 static UTC_OFFSET: OnceLock<UtcOffset> = OnceLock::new();
 
 fn print_stats() {
-    let enumerated = ENUMERATED_NO_ISSUE.load(Ordering::SeqCst);
-    let parse_failed = FAILED_PARSE.load(Ordering::SeqCst);
-    let run_failed = FAILED_RUN.load(Ordering::SeqCst);
+    let failed_parse = STAT_FAILED_PARSE.load(Ordering::SeqCst);
+    let failed_recondition = STAT_FAILED_RECONDITION.load(Ordering::SeqCst);
+    let failed_run = STAT_FAILED_RUN.load(Ordering::SeqCst);
+    let run_success = STAT_RUN_SUCCESS.load(Ordering::SeqCst);
+    let skipped_only_original = STAT_SKIPPED_ONLY_ORIGINAL.load(Ordering::SeqCst);
+    let subsampled = STAT_SUBSAMPLED.load(Ordering::SeqCst);
     let last_idx = LAST_INDEX.load(Ordering::SeqCst);
 
     let args: Vec<String> = std::env::args().collect();
 
     println!("\n=== SPE Execution Statistics ===");
-    println!(
-        "- Command ran:                                {}",
-        args.join(" ")
-    );
-    println!(
-        "- Number of shaders enumerated with no issue: {}",
-        enumerated
-    );
-    println!(
-        "- Number of shaders failed to parse:          {}",
-        parse_failed
-    );
-    println!(
-        "- Number of shaders failed while running:     {}",
-        run_failed
-    );
+    println!("- Command ran:                                {}", args.join(" "));
+    println!("- Original shaders failed to parse:           {}", failed_parse);
+    println!("- Original shaders failed to recondition:     {}", failed_recondition);
+    println!("- Original shaders failed to run:             {}", failed_run);
+    println!("- Original shaders run successfully:          {}", run_success);
+    println!("- Original shaders skipped (only original):   {}", skipped_only_original);
+    println!("- Original shaders subsampled:                {}", subsampled);
     println!("- Last handled shader index:                  {}", last_idx);
     println!("================================\n");
 
@@ -56,8 +53,8 @@ fn print_stats() {
             .join(", ");
 
         let json = format!(
-            "{{\n  \"args\": [{}],\n  \"enumerated_no_issue\": {},\n  \"failed_parse\": {},\n  \"failed_run\": {},\n  \"last_handled_index\": {}\n}}",
-            args_json, enumerated, parse_failed, run_failed, last_idx
+            "{{\n  \"args\": [{}],\n  \"failed_parse\": {},\n  \"failed_recondition\": {},\n  \"failed_run\": {},\n  \"run_success\": {},\n  \"skipped_only_original\": {},\n  \"subsampled\": {},\n  \"last_handled_index\": {}\n}}",
+            args_json, failed_parse, failed_recondition, failed_run, run_success, skipped_only_original, subsampled, last_idx
         );
         let _ = fs::write(out_dir.join("stats.json"), json);
     }
@@ -74,9 +71,12 @@ fn load_stats(out_dir: &Path) -> usize {
                 .and_then(|s| s.trim().trim_end_matches(',').parse().ok())
                 .unwrap_or(0)
         };
-        ENUMERATED_NO_ISSUE.store(parse_val("\"enumerated_no_issue\""), Ordering::SeqCst);
-        FAILED_PARSE.store(parse_val("\"failed_parse\""), Ordering::SeqCst);
-        FAILED_RUN.store(parse_val("\"failed_run\""), Ordering::SeqCst);
+        STAT_FAILED_PARSE.store(parse_val("\"failed_parse\""), Ordering::SeqCst);
+        STAT_FAILED_RECONDITION.store(parse_val("\"failed_recondition\""), Ordering::SeqCst);
+        STAT_FAILED_RUN.store(parse_val("\"failed_run\""), Ordering::SeqCst);
+        STAT_RUN_SUCCESS.store(parse_val("\"run_success\""), Ordering::SeqCst);
+        STAT_SKIPPED_ONLY_ORIGINAL.store(parse_val("\"skipped_only_original\""), Ordering::SeqCst);
+        STAT_SUBSAMPLED.store(parse_val("\"subsampled\""), Ordering::SeqCst);
 
         return parse_val("\"last_handled_index\"");
     }
@@ -143,9 +143,6 @@ pub struct ProcessDirOptions {
     #[clap(long, action, default_value = "false")]
     pub msl_validate: bool,
 
-    /// Run fallback compile validations when no compute entrypoint is found
-    #[clap(long, action, default_value = "false")]
-    pub compile_validate: bool,
 }
 
 fn run_compile(
@@ -264,11 +261,6 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
             return;
         }
     };
-
-    if !enumerator::filter_module(&mut module) {
-        eprintln!("No compute entrypoint: {}", opt.shader_path.display());
-        return;
-    }
 
     let (holes, enumerations, original_assignment_idx) =
         match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, None)) {
@@ -452,43 +444,10 @@ fn process_shader(
         Ok(m) => m,
         Err(_) => {
             writeln!(failures_log, "Parse panic on: {}", path.display()).unwrap();
-            FAILED_PARSE.fetch_add(1, Ordering::SeqCst);
+            STAT_FAILED_PARSE.fetch_add(1, Ordering::SeqCst);
             return;
         }
     };
-
-    if !enumerator::filter_module(&mut module) {
-        writeln!(
-            skipped_log,
-            "Skipping: {} (no compute entrypoint left after filtering)",
-            path.display()
-        )
-        .unwrap();
-
-        if !opt.compile_validate {
-            return;
-        }
-
-        println!(
-            "{}No compute entrypoint: {}. Running compile validations.",
-            progress_prefix,
-            path.display()
-        );
-
-        for backend in &["hlsl", "spirv", "msl"] {
-            for compiler in &["tint", "naga"] {
-                run_compile(
-                    wgslsmith_exe,
-                    path,
-                    backend,
-                    compiler,
-                    failures_log,
-                    &format!("(no entrypoint for {})", path.display()),
-                );
-            }
-        }
-        return;
-    }
 
     let (holes, mut enumerations, original_assignment_idx) = {
         let est = enumerator::estimate_enumerations(&module);
@@ -514,7 +473,7 @@ fn process_shader(
             Ok(res) => res,
             Err(_) => {
                 writeln!(failures_log, "Enumerate panic on: {}", path.display()).unwrap();
-                FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+                STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                 return;
             }
         }
@@ -527,7 +486,7 @@ fn process_shader(
             path.display()
         )
         .unwrap();
-        FAILED_RUN.fetch_add(1, Ordering::SeqCst);
+        STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
         return;
     }
 
@@ -545,6 +504,7 @@ fn process_shader(
             progress_prefix,
             path.display()
         );
+        STAT_SKIPPED_ONLY_ORIGINAL.fetch_add(1, Ordering::SeqCst);
         return;
     }
 
@@ -562,6 +522,7 @@ fn process_shader(
             enumerations.len(),
             holes
         );
+        STAT_SUBSAMPLED.fetch_add(1, Ordering::SeqCst);
 
         let mut rng = rand::thread_rng();
         // Ensure original isn't wiped out during truncation
@@ -585,7 +546,6 @@ fn process_shader(
     }
 
     let mut failed_count = 0;
-    let mut shader_has_runtime_failure = false;
     let mut has_success = false;
     let mut failures_to_save = Vec::new();
 
@@ -608,8 +568,8 @@ fn process_shader(
                     )
                     .unwrap();
                     failed_count += 1;
-                    shader_has_runtime_failure = true;
                     if is_original {
+                        STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                         println!(
                             "{}Skipped variants for {} (original panicked on apply_assignment)",
                             progress_prefix,
@@ -648,7 +608,6 @@ fn process_shader(
                     fs::write(&tmp_path, reconditioned_src.as_ref())
                         .expect("Failed to write reconditioned temporary shader file");
                 } else {
-                    shader_has_runtime_failure = true;
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     writeln!(
                         failures_log,
@@ -660,6 +619,7 @@ fn process_shader(
                     .unwrap();
 
                     if is_original {
+                        STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
                         fs::remove_file(&tmp_path).ok();
                         println!(
                             "{}Skipped variants for {} (original failed recondition)",
@@ -671,7 +631,6 @@ fn process_shader(
                 }
             }
             Err(e) => {
-                shader_has_runtime_failure = true;
                 writeln!(
                     failures_log,
                     "Failed to execute wslinux recondition for: {} {}\nError: {}",
@@ -682,6 +641,7 @@ fn process_shader(
                 .unwrap();
 
                 if is_original {
+                    STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
                     fs::remove_file(&tmp_path).ok();
                     println!(
                         "{}Skipped variants for {} (original failed to execute recondition)",
@@ -717,9 +677,9 @@ fn process_shader(
 
             if !msl_tint_ok || !msl_naga_ok {
                 failed_count += 1;
-                shader_has_runtime_failure = true;
 
                 if is_original {
+                    STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                     fs::remove_file(&tmp_path).ok();
                     println!(
                         "{}Skipped variants for {} (original failed msl_validate)",
@@ -797,7 +757,6 @@ fn process_shader(
                     )
                     .unwrap();
                     failed_count += 1;
-                    shader_has_runtime_failure = true;
 
                     let kind = if out.status.code() == Some(1) {
                         "mismatch"
@@ -817,6 +776,7 @@ fn process_shader(
                     ));
 
                     if is_original {
+                        STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                         fs::remove_file(&tmp_path).ok();
                         println!(
                             "{}Skipped variants for {} (original failed validation)",
@@ -826,6 +786,9 @@ fn process_shader(
                         break;
                     }
                 } else {
+                    if is_original {
+                        STAT_RUN_SUCCESS.fetch_add(1, Ordering::SeqCst);
+                    }
                     has_success = true;
                 }
             }
@@ -838,7 +801,6 @@ fn process_shader(
                 )
                 .unwrap();
                 failed_count += 1;
-                shader_has_runtime_failure = true;
 
                 let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
                 failures_to_save.push((
@@ -852,6 +814,7 @@ fn process_shader(
                 ));
 
                 if is_original {
+                    STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                     fs::remove_file(&tmp_path).ok();
                     println!(
                         "{}Skipped variants for {} (original failed execution)",
@@ -922,11 +885,5 @@ fn process_shader(
                 std::fs::write(failure_out_dir.join("consensus.json"), consensus).unwrap();
             }
         }
-    }
-
-    if shader_has_runtime_failure {
-        FAILED_RUN.fetch_add(1, Ordering::SeqCst);
-    } else {
-        ENUMERATED_NO_ISSUE.fetch_add(1, Ordering::SeqCst);
     }
 }
