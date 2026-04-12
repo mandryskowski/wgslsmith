@@ -4,8 +4,14 @@ use rand::seq::SliceRandom;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum HoleType {
-    Declaration { mutable: bool, is_const: bool },
-    Usage { is_lvalue: bool, requires_const: bool },
+    Declaration {
+        mutable: bool,
+        is_const: bool,
+    },
+    Usage {
+        is_lvalue: bool,
+        requires_const: bool,
+    },
 }
 #[derive(Clone, Debug)]
 struct Hole {
@@ -51,7 +57,13 @@ impl Context {
     fn current_scope(&self) -> usize {
         *self.scope_stack.last().unwrap()
     }
-    fn process_decl(&mut self, name: &mut String, data_type: &DataType, mutable: bool, is_const: bool) {
+    fn process_decl(
+        &mut self,
+        name: &mut String,
+        data_type: &DataType,
+        mutable: bool,
+        is_const: bool,
+    ) {
         if self.assignments.is_none() {
             self.holes.push(Hole {
                 hole_type: HoleType::Declaration { mutable, is_const },
@@ -69,7 +81,10 @@ impl Context {
     fn process_usage(&mut self, name: &mut String, data_type: &DataType, is_lvalue: bool) {
         if self.assignments.is_none() {
             self.holes.push(Hole {
-                hole_type: HoleType::Usage { is_lvalue, requires_const: self.in_const_context },
+                hole_type: HoleType::Usage {
+                    is_lvalue,
+                    requires_const: self.in_const_context,
+                },
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),
                 original_name: name.clone(),
@@ -433,12 +448,19 @@ impl Enumerator {
                     HoleType::Declaration { mutable, is_const } => (mutable, is_const),
                     HoleType::Usage { .. } => (true, true),
                 };
-                if let HoleType::Usage { is_lvalue: true, .. } = hole.hole_type {
+                if let HoleType::Usage {
+                    is_lvalue: true, ..
+                } = hole.hole_type
+                {
                     if !prev_is_mut {
                         return false;
                     }
                 }
-                if let HoleType::Usage { requires_const: true, .. } = hole.hole_type {
+                if let HoleType::Usage {
+                    requires_const: true,
+                    ..
+                } = hole.hole_type
+                {
                     if !prev_is_const {
                         return false;
                     }
@@ -508,7 +530,10 @@ pub fn estimate_enumerations(module: &Module) -> usize {
                 }
                 bound = bound.saturating_mul(choices);
             }
-            HoleType::Usage { is_lvalue, requires_const } => {
+            HoleType::Usage {
+                is_lvalue,
+                requires_const,
+            } => {
                 let mut choices = 0;
                 for prev_hole in &ctx.holes[..i] {
                     if let HoleType::Declaration { mutable, is_const } = prev_hole.hole_type {
