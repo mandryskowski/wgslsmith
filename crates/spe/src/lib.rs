@@ -35,13 +35,34 @@ fn print_stats() {
     let args: Vec<String> = std::env::args().collect();
 
     println!("\n=== SPE Execution Statistics ===");
-    println!("- Command ran:                                {}", args.join(" "));
-    println!("- Original shaders failed to parse:           {}", failed_parse);
-    println!("- Original shaders failed to recondition:     {}", failed_recondition);
-    println!("- Original shaders failed to run:             {}", failed_run);
-    println!("- Original shaders run successfully:          {}", run_success);
-    println!("- Original shaders skipped (only original):   {}", skipped_only_original);
-    println!("- Original shaders subsampled:                {}", subsampled);
+    println!(
+        "- Command ran:                                {}",
+        args.join(" ")
+    );
+    println!(
+        "- Original shaders failed to parse:           {}",
+        failed_parse
+    );
+    println!(
+        "- Original shaders failed to recondition:     {}",
+        failed_recondition
+    );
+    println!(
+        "- Original shaders failed to run:             {}",
+        failed_run
+    );
+    println!(
+        "- Original shaders run successfully:          {}",
+        run_success
+    );
+    println!(
+        "- Original shaders skipped (only original):   {}",
+        skipped_only_original
+    );
+    println!(
+        "- Original shaders subsampled:                {}",
+        subsampled
+    );
     println!("- Last handled shader index:                  {}", last_idx);
     println!("================================\n");
 
@@ -142,7 +163,6 @@ pub struct ProcessDirOptions {
 
     #[clap(long, action, default_value = "false")]
     pub msl_validate: bool,
-
 }
 
 fn run_compile(
@@ -254,7 +274,7 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
         }
     };
 
-    let mut module = match std::panic::catch_unwind(|| parser::parse(&content)) {
+    let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
         Ok(m) => m,
         Err(_) => {
             eprintln!("Parse panic on: {}", opt.shader_path.display());
@@ -440,7 +460,7 @@ fn process_shader(
         }
     }
 
-    let mut module = match std::panic::catch_unwind(|| parser::parse(&content)) {
+    let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
         Ok(m) => m,
         Err(_) => {
             writeln!(failures_log, "Parse panic on: {}", path.display()).unwrap();
