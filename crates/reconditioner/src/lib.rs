@@ -20,6 +20,7 @@ enum Wrapper {
     InsertBits(DataType),
     FloatOp(DataType),
     FloatDivide(DataType),
+    Smoothstep(DataType),
     Select(DataType, DataType),
     Mod(DataType),
     Index(DataType),
@@ -40,6 +41,7 @@ impl Wrapper {
             Wrapper::InsertBits(ty) => safe_wrappers::insert_bits(name, ty),
             Wrapper::FloatOp(ty) => safe_wrappers::float(name, ty),
             Wrapper::FloatDivide(ty) => safe_wrappers::float_divide(name, ty),
+            Wrapper::Smoothstep(ty) => safe_wrappers::smoothstep(name, ty),
             Wrapper::Select(ty, cond_ty) => safe_wrappers::select(name, ty, cond_ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
@@ -73,6 +75,7 @@ impl Display for Wrapper {
                     Wrapper::InsertBits(ty) => ("insert_bits", ty),
                     Wrapper::FloatOp(ty) => ("f_op", ty),
                     Wrapper::FloatDivide(ty) => ("div", ty),
+                    Wrapper::Smoothstep(ty) => ("smoothstep", ty),
                     Wrapper::Mod(ty) => ("mod", ty),
                     Wrapper::Index(ty) => ("index", ty),
                     Wrapper::Select(..) | Wrapper::Pack2x16float => unreachable!(),
@@ -552,6 +555,12 @@ impl Reconditioner {
                     "pack2x16float" => {
                         FnCallExpr::new(self.safe_wrapper(Wrapper::Pack2x16float), args)
                     }
+                    "smoothstep" => FnCallExpr::new(
+                        self.safe_wrapper(Wrapper::Smoothstep(
+                            args[0].data_type.dereference().clone(),
+                        )),
+                        args,
+                    ),
                     _ => {
                         let mut new_call = FnCallExpr::new(expr.ident, args);
                         new_call.template_args = expr.template_args;

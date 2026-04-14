@@ -6,6 +6,7 @@ mod insert_bits;
 mod modulo;
 mod pack2x16float;
 mod select;
+mod smoothstep;
 
 use ast::{
     BinOp, BinOpExpr, DataType, ExprNode, FnCallExpr, Lit, Postfix, PostfixExpr, ScalarType,
@@ -20,6 +21,7 @@ pub use insert_bits::insert_bits;
 pub use modulo::modulo;
 pub use pack2x16float::pack2x16float;
 pub use select::select;
+pub use smoothstep::smoothstep;
 
 /// Wraps the given expression in a call to `any()` if it is a vector.
 ///
