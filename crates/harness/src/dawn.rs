@@ -244,7 +244,11 @@ pub async fn run(
                     buffer,
                 })
             }
-            ResourceKind::Texture { .. } | ResourceKind::Sampler { .. } => todo!(),
+            ResourceKind::Texture { .. } | ResourceKind::Sampler { .. } => {
+                return Err(eyre!(
+                    "unimplemented: textures and samplers not supported yet"
+                ))
+            }
         }
     }
 
