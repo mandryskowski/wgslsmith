@@ -4,6 +4,7 @@ mod float_divide;
 mod index;
 mod insert_bits;
 mod modulo;
+mod normalize;
 mod pack2x16float;
 mod select;
 mod smoothstep;
@@ -19,6 +20,7 @@ pub use float_divide::float_divide;
 pub use index::index;
 pub use insert_bits::insert_bits;
 pub use modulo::modulo;
+pub use normalize::normalize;
 pub use pack2x16float::pack2x16float;
 pub use select::select;
 pub use smoothstep::smoothstep;
@@ -59,5 +61,31 @@ fn componentwise_or(
 
     (1..n).fold(f(0), |expr, i| {
         BinOpExpr::new(BinOp::LogOr, expr, f(i as i32)).into()
+    })
+}
+
+fn componentwise_and(
+    a: impl Into<ExprNode>,
+    b: impl Into<ExprNode>,
+    f: impl Fn(ExprNode, ExprNode) -> ExprNode,
+) -> ExprNode {
+    let a: ExprNode = a.into();
+    let b: ExprNode = b.into();
+
+    let n = match &a.data_type {
+        DataType::Scalar(_) => return f(a, b),
+        DataType::Vector(n, _) => *n,
+        _ => unreachable!(),
+    };
+
+    let f_idx = |i| {
+        f(
+            PostfixExpr::new(a.clone(), Postfix::index(Lit::I32(i))).into(),
+            PostfixExpr::new(b.clone(), Postfix::index(Lit::I32(i))).into(),
+        )
+    };
+
+    (1..n).fold(f_idx(0), |expr, i| {
+        BinOpExpr::new(BinOp::LogAnd, expr, f_idx(i as i32)).into()
     })
 }

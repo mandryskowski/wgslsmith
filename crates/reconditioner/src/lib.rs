@@ -21,6 +21,7 @@ enum Wrapper {
     FloatOp(DataType),
     FloatDivide(DataType),
     Smoothstep(DataType),
+    Normalize(DataType),
     Select(DataType, DataType),
     Mod(DataType),
     Index(DataType),
@@ -42,6 +43,7 @@ impl Wrapper {
             Wrapper::FloatOp(ty) => safe_wrappers::float(name, ty),
             Wrapper::FloatDivide(ty) => safe_wrappers::float_divide(name, ty),
             Wrapper::Smoothstep(ty) => safe_wrappers::smoothstep(name, ty),
+            Wrapper::Normalize(ty) => safe_wrappers::normalize(name, ty),
             Wrapper::Select(ty, cond_ty) => safe_wrappers::select(name, ty, cond_ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
@@ -76,6 +78,7 @@ impl Display for Wrapper {
                     Wrapper::FloatOp(ty) => ("f_op", ty),
                     Wrapper::FloatDivide(ty) => ("div", ty),
                     Wrapper::Smoothstep(ty) => ("smoothstep", ty),
+                    Wrapper::Normalize(ty) => ("normalize", ty),
                     Wrapper::Mod(ty) => ("mod", ty),
                     Wrapper::Index(ty) => ("index", ty),
                     Wrapper::Select(..) | Wrapper::Pack2x16float => unreachable!(),
@@ -557,6 +560,12 @@ impl Reconditioner {
                     }
                     "smoothstep" => FnCallExpr::new(
                         self.safe_wrapper(Wrapper::Smoothstep(
+                            args[0].data_type.dereference().clone(),
+                        )),
+                        args,
+                    ),
+                    "normalize" => FnCallExpr::new(
+                        self.safe_wrapper(Wrapper::Normalize(
                             args[0].data_type.dereference().clone(),
                         )),
                         args,
