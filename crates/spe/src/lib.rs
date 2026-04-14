@@ -430,7 +430,8 @@ fn process_shader(
         if current_configs.is_empty() {
             writeln!(
                 skipped_log,
-                "Skipping: {} (uses subgroups, no valid configs left)",
+                "[{}] Skipping: {} (uses subgroups, no valid configs left)",
+                file_num,
                 path.display()
             )
             .unwrap();
@@ -453,7 +454,8 @@ fn process_shader(
         if current_configs.len() < original_len {
             writeln!(
                 skipped_log,
-                "Filtering dawn:vk:8593 from: {} (uses f16)",
+                "[{}] Filtering dawn:vk:8593 from: {} (uses f16)",
+                file_num,
                 path.display()
             )
             .unwrap();
@@ -463,7 +465,13 @@ fn process_shader(
     let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
         Ok(m) => m,
         Err(_) => {
-            writeln!(failures_log, "Parse panic on: {}", path.display()).unwrap();
+            writeln!(
+                failures_log,
+                "[{}] Parse panic on: {}",
+                file_num,
+                path.display()
+            )
+            .unwrap();
             STAT_FAILED_PARSE.fetch_add(1, Ordering::SeqCst);
             return;
         }
@@ -474,7 +482,8 @@ fn process_shader(
         let limit = if est > 100_000 {
             writeln!(
                 skipped_log,
-                "Warning: {} (estimated {} bounds, > 100,000). Limiting search to 2000 variants.",
+                "[{}] Warning: {} (estimated {} bounds, > 100,000). Limiting search to 2000 variants.",
+                file_num,
                 path.display(),
                 est
             )
@@ -492,7 +501,13 @@ fn process_shader(
         match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, limit)) {
             Ok(res) => res,
             Err(_) => {
-                writeln!(failures_log, "Enumerate panic on: {}", path.display()).unwrap();
+                writeln!(
+                    failures_log,
+                    "[{}] Enumerate panic on: {}",
+                    file_num,
+                    path.display()
+                )
+                .unwrap();
                 STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                 return;
             }
@@ -502,7 +517,8 @@ fn process_shader(
     if original_assignment_idx.is_none() {
         writeln!(
             failures_log,
-            "No original assignment found for: {}",
+            "[{}] No original assignment found for: {}",
+            file_num,
             path.display()
         )
         .unwrap();
@@ -515,7 +531,8 @@ fn process_shader(
     if skip_original && enumerations.len() <= 1 {
         writeln!(
             skipped_log,
-            "Skipping: {} (only original enumeration exists)",
+            "[{}] Skipping: {} (only original enumeration exists)",
+            file_num,
             path.display()
         )
         .unwrap();
@@ -583,7 +600,8 @@ fn process_shader(
                 Err(_) => {
                     writeln!(
                         failures_log,
-                        "Apply assignment panic on: {} {case_str}",
+                        "[{}] Apply assignment panic on: {} {case_str}",
+                        file_num,
                         path.display()
                     )
                     .unwrap();
@@ -631,7 +649,8 @@ fn process_shader(
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     writeln!(
                         failures_log,
-                        "Recondition failed for: {} {}\nStderr: {}",
+                        "[{}] Recondition failed for: {} {}\nStderr: {}",
+                        file_num,
                         path.display(),
                         case_str,
                         stderr
@@ -653,7 +672,8 @@ fn process_shader(
             Err(e) => {
                 writeln!(
                     failures_log,
-                    "Failed to execute wslinux recondition for: {} {}\nError: {}",
+                    "[{}] Failed to execute wslinux recondition for: {} {}\nError: {}",
+                    file_num,
                     path.display(),
                     case_str,
                     e
@@ -680,7 +700,7 @@ fn process_shader(
                 "msl",
                 "tint",
                 failures_log,
-                &format!("for {} {}", path.display(), case_str),
+                &format!("[{}] for {} {}", file_num, path.display(), case_str),
             );
 
             let mut msl_naga_ok = true;
@@ -691,7 +711,7 @@ fn process_shader(
                     "msl",
                     "naga",
                     failures_log,
-                    &format!("for {} {}", path.display(), case_str),
+                    &format!("[{}] for {} {}", file_num, path.display(), case_str),
                 );
             }
 
@@ -770,7 +790,8 @@ fn process_shader(
                 if !out.status.success() {
                     writeln!(
                         failures_log,
-                        "Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
+                        "[{}] Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
+                        file_num,
                         path.display(),
                         stdout_str,
                         stderr_str
@@ -815,7 +836,8 @@ fn process_shader(
             Err(e) => {
                 writeln!(
                     failures_log,
-                    "Failed to run wgslsmith for: {} {case_str}\nError: {}",
+                    "[{}] Failed to run wgslsmith for: {} {case_str}\nError: {}",
+                    file_num,
                     path.display(),
                     e
                 )
@@ -871,7 +893,7 @@ fn process_shader(
                 out_dir.join("out")
             };
 
-            let failure_out_dir = base_out.join(format!("{}_{}-{kind}", stem, i));
+            let failure_out_dir = base_out.join(format!("{}_{}-{}-{kind}", stem, file_num, i));
             std::fs::create_dir_all(&failure_out_dir).unwrap();
 
             std::fs::write(failure_out_dir.join("shader.wgsl"), src).unwrap();
