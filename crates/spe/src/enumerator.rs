@@ -1,3 +1,4 @@
+use crate::vertex_reachable::get_vertex_reachable_functions;
 use ast::types::DataType;
 use ast::*;
 use rand::seq::SliceRandom;
@@ -7,10 +8,12 @@ enum HoleType {
     Declaration {
         mutable: bool,
         is_const: bool,
+        banned_from_vertex: bool,
     },
     Usage {
         is_lvalue: bool,
         requires_const: bool,
+        in_vertex_stage: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -29,9 +32,15 @@ struct Context {
     scope_parents: Vec<usize>,
     next_scope_id: usize,
     in_const_context: bool,
+    in_vertex_stage: bool,
+    vertex_reachable_functions: std::collections::HashSet<String>,
 }
 impl Context {
-    fn new() -> Self {
+    fn new(module: Option<&Module>) -> Self {
+        let vertex_reachable_functions = module
+            .map(get_vertex_reachable_functions)
+            .unwrap_or_default();
+
         Context {
             holes: vec![],
             assignments: None,
@@ -40,6 +49,8 @@ impl Context {
             scope_parents: vec![0],
             next_scope_id: 1,
             in_const_context: false,
+            in_vertex_stage: false,
+            vertex_reachable_functions,
         }
     }
     fn enter_scope(&mut self) {
@@ -63,10 +74,15 @@ impl Context {
         data_type: &DataType,
         mutable: bool,
         is_const: bool,
+        banned_from_vertex: bool,
     ) {
         if self.assignments.is_none() {
             self.holes.push(Hole {
-                hole_type: HoleType::Declaration { mutable, is_const },
+                hole_type: HoleType::Declaration {
+                    mutable,
+                    is_const,
+                    banned_from_vertex,
+                },
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),
                 original_name: name.clone(),
@@ -84,6 +100,7 @@ impl Context {
                 hole_type: HoleType::Usage {
                     is_lvalue,
                     requires_const: self.in_const_context,
+                    in_vertex_stage: self.in_vertex_stage,
                 },
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),
@@ -101,11 +118,12 @@ impl Context {
 fn visit_module(module: &mut Module, ctx: &mut Context) {
     for decl in &mut module.consts {
         let ty = decl.inferred_type().clone();
-        ctx.process_decl(&mut decl.ident, &ty, false, true);
+        ctx.process_decl(&mut decl.ident, &ty, false, true, false);
     }
     for decl in &mut module.vars {
         let ty = decl.data_type.clone();
         let mut is_mutable = true;
+        let mut banned_from_vertex = false;
         if let Some(qualifier) = &decl.qualifier {
             let access_mode = qualifier
                 .access_mode
@@ -113,37 +131,64 @@ fn visit_module(module: &mut Module, ctx: &mut Context) {
             if access_mode == ast::AccessMode::Read {
                 is_mutable = false;
             }
+            if qualifier.storage_class == ast::StorageClass::Storage
+                && access_mode != ast::AccessMode::Read
+            {
+                banned_from_vertex = true;
+            }
         }
-        ctx.process_decl(&mut decl.name, &ty, is_mutable, false);
+
+        if let ast::DataType::Texture(ast::TextureType::Storage { access, .. }) = ty.dereference() {
+            if *access != ast::AccessMode::Read {
+                banned_from_vertex = true;
+            }
+        }
+
+        if let Some(view) = ty.as_memory_view() {
+            if view.access_mode == ast::AccessMode::Read {
+                is_mutable = false;
+            }
+            if view.storage_class == ast::StorageClass::Storage
+                && view.access_mode != ast::AccessMode::Read
+            {
+                banned_from_vertex = true;
+            }
+        }
+        ctx.process_decl(&mut decl.name, &ty, is_mutable, false, banned_from_vertex);
     }
     for func in &mut module.functions {
         visit_fn(func, ctx);
     }
 }
 fn visit_fn(func: &mut FnDecl, ctx: &mut Context) {
+    let prev_vertex = ctx.in_vertex_stage;
+    if ctx.vertex_reachable_functions.contains(&func.name) {
+        ctx.in_vertex_stage = true;
+    }
     ctx.enter_scope();
     for input in &mut func.inputs {
         let ty = input.data_type.clone();
-        ctx.process_decl(&mut input.name, &ty, false, false);
+        ctx.process_decl(&mut input.name, &ty, false, false, false);
     }
     for stmt in &mut func.body {
         visit_stmt(stmt, ctx);
     }
     ctx.exit_scope();
+    ctx.in_vertex_stage = prev_vertex;
 }
 fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
     match stmt {
         Statement::LetDecl(s) => {
             visit_expr_node(&mut s.initializer, ctx, false);
             let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, false, false);
+            ctx.process_decl(&mut s.ident, &ty, false, false, false);
         }
         Statement::VarDecl(s) => {
             if let Some(init) = &mut s.initializer {
                 visit_expr_node(init, ctx, false);
             }
             let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, true, false);
+            ctx.process_decl(&mut s.ident, &ty, true, false, false);
         }
         Statement::ConstDecl(s) => {
             let prev = ctx.in_const_context;
@@ -151,7 +196,7 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
             visit_expr_node(&mut s.initializer, ctx, false);
             ctx.in_const_context = prev;
             let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, false, true);
+            ctx.process_decl(&mut s.ident, &ty, false, true, false);
         }
         Statement::Assignment(s) => {
             visit_lhs(&mut s.lhs, ctx);
@@ -223,12 +268,12 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                             visit_expr_node(i, ctx, false);
                         }
                         let ty = d.inferred_type().clone();
-                        ctx.process_decl(&mut d.ident, &ty, true, false);
+                        ctx.process_decl(&mut d.ident, &ty, true, false, false);
                     }
                     ForLoopInit::LetDecl(d) => {
                         visit_expr_node(&mut d.initializer, ctx, false);
                         let ty = d.inferred_type().clone();
-                        ctx.process_decl(&mut d.ident, &ty, false, false);
+                        ctx.process_decl(&mut d.ident, &ty, false, false, false);
                     }
                     ForLoopInit::ConstDecl(d) => {
                         let prev = ctx.in_const_context;
@@ -236,7 +281,7 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                         visit_expr_node(&mut d.initializer, ctx, false);
                         ctx.in_const_context = prev;
                         let ty = d.inferred_type().clone();
-                        ctx.process_decl(&mut d.ident, &ty, false, true);
+                        ctx.process_decl(&mut d.ident, &ty, false, true, false);
                     }
                     ForLoopInit::Assignment(a) => {
                         visit_lhs(&mut a.lhs, ctx);
@@ -443,25 +488,27 @@ impl Enumerator {
                 if prev_hole.data_type.dereference() != hole.data_type.dereference() {
                     return false;
                 }
-                let (prev_is_mut, prev_is_const) = match prev_hole.hole_type {
-                    HoleType::Declaration { mutable, is_const } => (mutable, is_const),
-                    HoleType::Usage { .. } => (true, true),
-                };
-                if let HoleType::Usage {
-                    is_lvalue: true, ..
-                } = hole.hole_type
+                if let HoleType::Declaration {
+                    mutable,
+                    is_const,
+                    banned_from_vertex,
+                } = prev_hole.hole_type
                 {
-                    if !prev_is_mut {
-                        return false;
-                    }
-                }
-                if let HoleType::Usage {
-                    requires_const: true,
-                    ..
-                } = hole.hole_type
-                {
-                    if !prev_is_const {
-                        return false;
+                    if let HoleType::Usage {
+                        is_lvalue,
+                        requires_const,
+                        in_vertex_stage,
+                    } = hole.hole_type
+                    {
+                        if is_lvalue && !mutable {
+                            return false;
+                        }
+                        if requires_const && !is_const {
+                            return false;
+                        }
+                        if in_vertex_stage && banned_from_vertex {
+                            return false;
+                        }
                     }
                 }
             }
@@ -511,7 +558,7 @@ impl Enumerator {
     }
 }
 pub fn estimate_enumerations(module: &Module) -> usize {
-    let mut ctx = Context::new();
+    let mut ctx = Context::new(Some(module));
     let mut analyze_module = module.clone();
     visit_module(&mut analyze_module, &mut ctx);
 
@@ -532,15 +579,24 @@ pub fn estimate_enumerations(module: &Module) -> usize {
             HoleType::Usage {
                 is_lvalue,
                 requires_const,
+                in_vertex_stage,
             } => {
                 let mut choices = 0;
                 for prev_hole in &ctx.holes[..i] {
-                    if let HoleType::Declaration { mutable, is_const } = prev_hole.hole_type {
+                    if let HoleType::Declaration {
+                        mutable,
+                        is_const,
+                        banned_from_vertex,
+                    } = prev_hole.hole_type
+                    {
                         if prev_hole.data_type.dereference() == hole.data_type.dereference() {
                             if *is_lvalue && !mutable {
                                 continue;
                             }
                             if *requires_const && !is_const {
+                                continue;
+                            }
+                            if *in_vertex_stage && banned_from_vertex {
                                 continue;
                             }
                             choices += 1;
@@ -602,7 +658,7 @@ pub fn get_enumerations(
     module: &Module,
     limit: Option<usize>,
 ) -> (usize, Vec<Vec<usize>>, Option<usize>) {
-    let mut ctx = Context::new();
+    let mut ctx = Context::new(Some(module));
     let mut analyze_module = module.clone();
     visit_module(&mut analyze_module, &mut ctx);
 
@@ -632,7 +688,7 @@ pub fn get_enumerations(
 
 pub fn apply_assignment(module: &Module, assigns: &[usize]) -> String {
     let mut case_module = module.clone();
-    let mut apply_ctx = Context::new();
+    let mut apply_ctx = Context::new(None);
     apply_ctx.assignments = Some(assigns.to_vec());
     visit_module(&mut case_module, &mut apply_ctx);
     let mut out_str = String::new();
