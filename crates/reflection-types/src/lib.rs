@@ -12,11 +12,18 @@ pub enum EnableExtension {
     Subgroups,
 }
 
+#[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq, Hash)]
+pub enum ShaderStage {
+    Compute,
+    Vertex,
+    Fragment,
+}
+
 #[derive(Clone, Debug, Decode, Encode)]
 pub struct PipelineDescription {
     pub resources: Vec<PipelineResource>,
     pub enables: Vec<EnableExtension>,
-    pub entry_point: String,
+    pub entry_points: Vec<(String, ShaderStage)>,
 }
 
 #[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq, Hash)]

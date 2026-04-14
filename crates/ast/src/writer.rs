@@ -2,7 +2,7 @@ use std::fmt::{Display, Result, Write};
 
 use indenter::indented;
 
-use crate::{FnAttr, FnDecl, GlobalVarDecl, Module, OverrideDecl, StructDecl};
+use crate::{FnAttr, FnDecl, GlobalVarDecl, Module, OverrideDecl, StorageClass, StructDecl};
 
 #[derive(Default)]
 pub struct Writer {
@@ -104,11 +104,13 @@ impl Writer {
         write!(f, "var")?;
 
         if let Some(qualifier) = &decl.qualifier {
-            write!(f, "<{}", qualifier.storage_class)?;
-            if let Some(access_mode) = &qualifier.access_mode {
-                write!(f, ", {access_mode}")?;
+            if qualifier.storage_class != StorageClass::Handle {
+                write!(f, "<{}", qualifier.storage_class)?;
+                if let Some(access_mode) = &qualifier.access_mode {
+                    write!(f, ", {access_mode}")?;
+                }
+                write!(f, ">")?;
             }
-            write!(f, ">")?;
         }
 
         write!(f, " {}: {}", decl.name, decl.data_type)?;

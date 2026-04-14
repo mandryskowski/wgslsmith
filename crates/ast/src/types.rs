@@ -45,7 +45,11 @@ impl MemoryViewType {
 
 impl Display for MemoryViewType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}, {}", self.storage_class, self.inner)?;
+        if self.storage_class == StorageClass::Handle {
+            write!(f, "{}", self.inner)?;
+        } else {
+            write!(f, "{}, {}", self.storage_class, self.inner)?;
+        }
         if self.access_mode != self.storage_class.default_access_mode() {
             write!(f, ", {}", self.access_mode)?;
         }

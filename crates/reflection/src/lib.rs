@@ -1,7 +1,7 @@
 use ast::{Module, StorageClass, VarQualifier};
 pub use types::{
     EnableExtension, PipelineDescription, PipelineResource, ResourceData, ResourceKind,
-    SamplerKind, TextureDimension, TextureFormat,
+    SamplerKind, ShaderStage, TextureDimension, TextureFormat,
 };
 
 pub fn reflect(
@@ -165,22 +165,29 @@ pub fn reflect(
         })
         .collect();
 
-    let entry_point = module
-        .functions
-        .iter()
-        .find(|f| {
-            f.attrs
-                .iter()
-                .any(|attr| matches!(attr, ast::FnAttr::Stage(ast::ShaderStage::Compute)))
-        })
-        .map(|f| f.name.clone())
-        .unwrap_or_else(|| "main".to_owned());
+    let mut entry_points = vec![];
+    for f in &module.functions {
+        for attr in &f.attrs {
+            if let ast::FnAttr::Stage(stage) = attr {
+                let reflection_stage = match stage {
+                    ast::ShaderStage::Compute => types::ShaderStage::Compute,
+                    ast::ShaderStage::Vertex => types::ShaderStage::Vertex,
+                    ast::ShaderStage::Fragment => types::ShaderStage::Fragment,
+                };
+                entry_points.push((f.name.clone(), reflection_stage));
+            }
+        }
+    }
+
+    if entry_points.is_empty() {
+        entry_points.push(("main".to_owned(), types::ShaderStage::Compute));
+    }
 
     (
         PipelineDescription {
             resources,
             enables,
-            entry_point,
+            entry_points,
         },
         types,
     )

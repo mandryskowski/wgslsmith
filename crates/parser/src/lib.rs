@@ -1231,14 +1231,93 @@ fn parse_expression(
 
     let primary = |pair| parse_unary_expression(pair, env, expected_type);
 
-    let infix = |l: ExprNode, op: Pair<Rule>, r: ExprNode| -> ExprNode {
-        BinOpExpr::new(op.as_rule().into(), l, r).into()
+    // HACKHACK: coerce literal types to concrete types while we do not have abstract numerics
+    let infix = |mut l: ExprNode, op: Pair<Rule>, mut r: ExprNode| -> ExprNode {
+        let op_rule = op.as_rule();
+
+        if op_rule == Rule::op_lshift || op_rule == Rule::op_rshift {
+            if r.data_type.as_scalar() == Some(ScalarType::I32) {
+                coerce_type(&mut r, ScalarType::U32);
+            }
+        } else {
+            let l_scalar = l.data_type.as_scalar();
+            let r_scalar = r.data_type.as_scalar();
+
+            if let (Some(l_s), Some(r_s)) = (l_scalar, r_scalar) {
+                if l_s != r_s {
+                    if matches!(l_s, ScalarType::F32 | ScalarType::F16)
+                        && matches!(r_s, ScalarType::I32 | ScalarType::U32)
+                    {
+                        coerce_type(&mut r, l_s);
+                    } else if matches!(r_s, ScalarType::F32 | ScalarType::F16)
+                        && matches!(l_s, ScalarType::I32 | ScalarType::U32)
+                    {
+                        coerce_type(&mut l, r_s);
+                    } else if l_s == ScalarType::U32 && r_s == ScalarType::I32 {
+                        coerce_type(&mut r, ScalarType::U32);
+                    } else if r_s == ScalarType::U32 && l_s == ScalarType::I32 {
+                        coerce_type(&mut l, ScalarType::U32);
+                    }
+                }
+            }
+        }
+
+        BinOpExpr::new(op_rule.into(), l, r).into()
     };
 
     precedence_table()
         .map_primary(primary)
         .map_infix(infix)
         .parse(pairs)
+}
+
+fn coerce_type(node: &mut ExprNode, target_scalar: ScalarType) {
+    if let Some(scalar) = node.data_type.as_scalar() {
+        if scalar == target_scalar {
+            return;
+        }
+
+        // Update the type container
+        match &mut node.data_type {
+            DataType::Scalar(s) => *s = target_scalar,
+            DataType::Vector(_, s) => *s = target_scalar,
+            DataType::Matrix(_, _, s) => *s = target_scalar,
+            _ => {}
+        }
+
+        // Rewrite the literal
+        match &mut node.expr {
+            Expr::Lit(Lit::I32(v)) => match target_scalar {
+                ScalarType::U32 => node.expr = Expr::Lit(Lit::U32(*v as u32)),
+                ScalarType::F32 => node.expr = Expr::Lit(Lit::F32(*v as f32)),
+                ScalarType::F16 => node.expr = Expr::Lit(Lit::F16(half::f16::from_f32(*v as f32))),
+                _ => {}
+            },
+            Expr::Lit(Lit::U32(v)) => match target_scalar {
+                ScalarType::I32 => node.expr = Expr::Lit(Lit::I32(*v as i32)),
+                ScalarType::F32 => node.expr = Expr::Lit(Lit::F32(*v as f32)),
+                ScalarType::F16 => node.expr = Expr::Lit(Lit::F16(half::f16::from_f32(*v as f32))),
+                _ => {}
+            },
+            Expr::BinOp(binop) => {
+                coerce_type(&mut binop.left, target_scalar);
+                coerce_type(&mut binop.right, target_scalar);
+            }
+            Expr::UnOp(unop) => {
+                coerce_type(&mut unop.inner, target_scalar);
+            }
+            Expr::TypeCons(tc) => {
+                tc.data_type = node.data_type.clone();
+                for arg in &mut tc.args {
+                    coerce_type(arg, target_scalar);
+                }
+            }
+            Expr::Postfix(pf) => {
+                coerce_type(&mut pf.inner, target_scalar);
+            }
+            _ => {} // Var and FnCall just get their data_type updated
+        }
+    }
 }
 
 fn parse_unary_expression(
