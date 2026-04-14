@@ -1,4 +1,5 @@
 pub mod enumerator;
+mod vertex_reachable;
 
 use clap::{Parser, Subcommand};
 use harness_types::{ConfigId, Implementation};
