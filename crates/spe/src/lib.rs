@@ -128,8 +128,8 @@ pub struct EnumerateOptions {
     pub shader_path: PathBuf,
 
     /// Run/print a specific enumeration of a shader
-    #[clap(long)]
-    pub enumeration: Option<usize>,
+    #[clap(short = 'i', long)]
+    pub index: Option<usize>,
 }
 
 #[derive(Parser, Debug)]
@@ -302,7 +302,7 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
         return;
     }
 
-    if let Some(enum_idx) = opt.enumeration {
+    if let Some(enum_idx) = opt.index {
         if enum_idx >= enumerations.len() {
             eprintln!(
                 "Error: Requested enumeration index {} is out of bounds (max {}).",
