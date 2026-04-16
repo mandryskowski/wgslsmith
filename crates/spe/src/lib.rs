@@ -187,7 +187,7 @@ pub struct ProcessDirOptions {
 
 fn run_compile(
     wgslsmith_exe: &Path,
-    file: &Path,
+    shader_src: &str,
     backend: &str,
     compiler: &str,
     failures_log: &mut dyn Write,
@@ -200,9 +200,20 @@ fn run_compile(
         .arg("--compiler")
         .arg(compiler)
         .arg("--validate-output")
-        .arg(file);
+        .arg("-");
 
-    match cmd.output() {
+    cmd.stdin(process::Stdio::piped())
+        .stdout(process::Stdio::piped())
+        .stderr(process::Stdio::piped());
+
+    let output = cmd.spawn().and_then(|mut child| {
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(shader_src.as_bytes())?;
+        }
+        child.wait_with_output()
+    });
+
+    match output {
         Ok(out) => {
             if !out.status.success() {
                 let stderr = String::from_utf8_lossy(&out.stderr);
@@ -351,9 +362,6 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
 }
 
 fn do_healthcheck(wgslsmith_exe: &Path, server: &str, configs: &[ConfigId]) {
-    let tmp_path = std::env::temp_dir().join(format!("healthcheck_{}.wgsl", std::process::id()));
-    let _ = fs::write(&tmp_path, "@compute @workgroup_size(1) fn main() {}");
-
     let mut cmd = process::Command::new(wgslsmith_exe);
     cmd.arg("remote").arg(server).arg("run");
 
@@ -361,10 +369,22 @@ fn do_healthcheck(wgslsmith_exe: &Path, server: &str, configs: &[ConfigId]) {
         cmd.arg("-c").arg(config.to_string());
     }
 
-    cmd.arg(&tmp_path);
+    cmd.arg("-");
 
-    let output = cmd.output();
-    let _ = fs::remove_file(&tmp_path);
+    cmd.stdin(process::Stdio::piped());
+    cmd.stdout(process::Stdio::piped());
+    cmd.stderr(process::Stdio::piped());
+
+    let output = match cmd.spawn() {
+        Ok(mut child) => {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(b"@compute\n@workgroup_size(1)\nfn main() {}");
+            }
+
+            child.wait_with_output()
+        }
+        Err(e) => Err(e),
+    };
 
     match output {
         Ok(out) => {
@@ -690,24 +710,27 @@ fn process_shader(
                 }
             };
 
-        let tmp_path = std::env::temp_dir().join(format!(
-            "shader_{}_{}_{}.wgsl",
-            std::process::id(),
-            file_num,
-            i
-        ));
-
-        fs::write(&tmp_path, &out_str).expect("Failed to write temporary shader file");
+        let mut current_src = out_str.clone();
 
         let mut recond_cmd = process::Command::new(wgslsmith_exe);
-        recond_cmd.arg("recondition").arg(&tmp_path);
+        recond_cmd.arg("recondition").arg("-");
 
-        match recond_cmd.output() {
+        recond_cmd
+            .stdin(process::Stdio::piped())
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped());
+
+        let recond_output = recond_cmd.spawn().and_then(|mut child| {
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(current_src.as_bytes())?;
+            }
+            child.wait_with_output()
+        });
+
+        match recond_output {
             Ok(out) => {
                 if out.status.success() {
-                    let reconditioned_src = String::from_utf8_lossy(&out.stdout);
-                    fs::write(&tmp_path, reconditioned_src.as_ref())
-                        .expect("Failed to write reconditioned temporary shader file");
+                    current_src = String::from_utf8_lossy(&out.stdout).into_owned();
                 } else {
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     writeln!(
@@ -722,7 +745,6 @@ fn process_shader(
 
                     if is_original {
                         STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
-                        fs::remove_file(&tmp_path).ok();
                         println!(
                             "{}Skipped variants for {} (original failed recondition)",
                             progress_prefix,
@@ -745,7 +767,6 @@ fn process_shader(
 
                 if is_original {
                     STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
-                    fs::remove_file(&tmp_path).ok();
                     println!(
                         "{}Skipped variants for {} (original failed to execute recondition)",
                         progress_prefix,
@@ -759,7 +780,7 @@ fn process_shader(
         if opt.msl_validate {
             let msl_tint_ok = run_compile(
                 wgslsmith_exe,
-                &tmp_path,
+                &current_src,
                 "msl",
                 "tint",
                 failures_log,
@@ -770,7 +791,7 @@ fn process_shader(
             if !content.contains("subgroup") {
                 msl_naga_ok = run_compile(
                     wgslsmith_exe,
-                    &tmp_path,
+                    &current_src,
                     "msl",
                     "naga",
                     failures_log,
@@ -783,7 +804,6 @@ fn process_shader(
 
                 if is_original {
                     STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
-                    fs::remove_file(&tmp_path).ok();
                     println!(
                         "{}Skipped variants for {} (original failed msl_validate)",
                         progress_prefix,
@@ -820,13 +840,23 @@ fn process_shader(
 
         cmd.arg("--print-consensus");
 
-        cmd.arg(&tmp_path);
+        cmd.arg("-");
 
         if let Some(input_buffers) = &input_buffers {
             cmd.arg(input_buffers);
         }
 
-        let output = cmd.output();
+        cmd.stdin(process::Stdio::piped())
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped());
+
+        let output = cmd.spawn().and_then(|mut child| {
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(current_src.as_bytes())?;
+            }
+            child.wait_with_output()
+        });
+
         match output {
             Ok(out) => {
                 let stdout_str = String::from_utf8_lossy(&out.stdout);
@@ -868,7 +898,7 @@ fn process_shader(
                         "crash"
                     };
 
-                    let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
+                    let recond_src = current_src.clone();
                     failures_to_save.push((
                         i,
                         kind.to_string(),
@@ -881,7 +911,6 @@ fn process_shader(
 
                     if is_original {
                         STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
-                        fs::remove_file(&tmp_path).ok();
                         println!(
                             "{}Skipped variants for {} (original failed validation)",
                             progress_prefix,
@@ -907,7 +936,7 @@ fn process_shader(
                 .unwrap();
                 failed_count += 1;
 
-                let recond_src = fs::read_to_string(&tmp_path).unwrap_or_default();
+                let recond_src = current_src.clone();
                 failures_to_save.push((
                     i,
                     "crash".to_string(),
@@ -920,7 +949,6 @@ fn process_shader(
 
                 if is_original {
                     STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
-                    fs::remove_file(&tmp_path).ok();
                     println!(
                         "{}Skipped variants for {} (original failed execution)",
                         progress_prefix,
@@ -930,8 +958,6 @@ fn process_shader(
                 }
             }
         }
-
-        fs::remove_file(&tmp_path).ok();
 
         if failed_count >= 10 {
             println!(
