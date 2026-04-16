@@ -283,7 +283,11 @@ pub fn run(options: Options) {
     }
 }
 
-fn get_logs(log_to_file: bool, out_dir: &Path, append: bool) -> (Box<dyn Write>, Box<dyn Write>) {
+fn get_logs(
+    log_to_file: bool,
+    out_dir: Option<&Path>,
+    append: bool,
+) -> (Box<dyn Write>, Box<dyn Write>) {
     let skipped_log: Box<dyn Write> = if log_to_file {
         Box::new(
             fs::OpenOptions::new()
@@ -291,7 +295,7 @@ fn get_logs(log_to_file: bool, out_dir: &Path, append: bool) -> (Box<dyn Write>,
                 .append(append)
                 .write(true)
                 .truncate(!append)
-                .open(out_dir.join("skipped.log"))
+                .open(out_dir.unwrap().join("skipped.log"))
                 .unwrap(),
         )
     } else {
@@ -305,7 +309,7 @@ fn get_logs(log_to_file: bool, out_dir: &Path, append: bool) -> (Box<dyn Write>,
                 .append(append)
                 .write(true)
                 .truncate(!append)
-                .open(out_dir.join("failures.log"))
+                .open(out_dir.unwrap().join("failures.log"))
                 .unwrap(),
         )
     } else {
@@ -488,28 +492,33 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
 
     let mut effective_start_index = opt.start_index;
 
-    let (out_dir, append) = if let Some(dir) = &opt.append_dir {
+    let log_to_file = opt.log_to_file || opt.append_dir.is_some();
+
+    let (out_dir_opt, append) = if let Some(dir) = &opt.append_dir {
         let last_idx = load_stats(dir);
 
         if effective_start_index.is_none() && last_idx > 0 {
             effective_start_index = Some(last_idx);
         }
 
-        (dir.clone(), true)
-    } else {
+        (Some(dir.clone()), true)
+    } else if log_to_file {
         let offset = *UTC_OFFSET.get().unwrap_or(&UtcOffset::UTC);
         let now = OffsetDateTime::now_utc().to_offset(offset);
         let format =
             format_description::parse("spe-[year]-[month]-[day]-[hour]-[minute]-[second]").unwrap();
         let dir_name = now.format(&format).unwrap();
-        (PathBuf::from(dir_name), false)
+        (Some(PathBuf::from(dir_name)), false)
+    } else {
+        (None, false)
     };
 
-    fs::create_dir_all(&out_dir).unwrap();
-    let _ = OUT_DIR.set(out_dir.clone());
+    if let Some(out_dir) = &out_dir_opt {
+        fs::create_dir_all(out_dir).unwrap();
+        let _ = OUT_DIR.set(out_dir.clone());
+    }
 
-    let log_to_file = opt.log_to_file || opt.append_dir.is_some();
-    let (mut skipped_log, mut failures_log) = get_logs(log_to_file, &out_dir, append);
+    let (mut skipped_log, mut failures_log) = get_logs(log_to_file, out_dir_opt.as_deref(), append);
 
     let entries: Vec<_> = WalkDir::new(&opt.directory)
         .into_iter()
@@ -544,7 +553,7 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
             &opt,
             skip_original,
             &wgslsmith_exe,
-            &out_dir,
+            out_dir_opt.as_deref(),
             &mut *skipped_log,
             &mut *failures_log,
             &support_map,
@@ -571,7 +580,7 @@ fn process_shader(
     opt: &ProcessDirOptions,
     skip_original: bool,
     wgslsmith_exe: &Path,
-    out_dir: &Path,
+    out_dir: Option<&Path>,
     skipped_log: &mut dyn Write,
     failures_log: &mut dyn Write,
     support_map: &std::collections::HashMap<
@@ -1078,50 +1087,52 @@ fn process_shader(
     }
 
     if !failures_to_save.is_empty() {
-        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-        for (i, kind, consensus, combined, src, recond_src, is_original) in failures_to_save {
-            if !is_original && !has_success {
-                continue;
-            }
+        if let Some(out_dir) = out_dir {
+            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+            for (i, kind, consensus, combined, src, recond_src, is_original) in failures_to_save {
+                if !is_original && !has_success {
+                    continue;
+                }
 
-            let base_out = if is_original {
-                out_dir.join("original-out")
-            } else {
-                out_dir.join("out")
-            };
+                let base_out = if is_original {
+                    out_dir.join("original-out")
+                } else {
+                    out_dir.join("out")
+                };
 
-            let failure_out_dir = base_out.join(format!("{}_{}-{}-{kind}", stem, file_num, i));
-            std::fs::create_dir_all(&failure_out_dir).unwrap();
+                let failure_out_dir = base_out.join(format!("{}_{}-{}-{kind}", stem, file_num, i));
+                std::fs::create_dir_all(&failure_out_dir).unwrap();
 
-            std::fs::write(failure_out_dir.join("shader.wgsl"), src).unwrap();
-            std::fs::write(failure_out_dir.join("reconditioned.wgsl"), recond_src).unwrap();
+                std::fs::write(failure_out_dir.join("shader.wgsl"), src).unwrap();
+                std::fs::write(failure_out_dir.join("reconditioned.wgsl"), recond_src).unwrap();
 
-            if let Some(in_bufs) = &input_buffers {
-                std::fs::write(failure_out_dir.join("inputs.json"), in_bufs).unwrap();
-            }
+                if let Some(in_bufs) = &input_buffers {
+                    std::fs::write(failure_out_dir.join("inputs.json"), in_bufs).unwrap();
+                }
 
-            let configs_str = opt
-                .configs
-                .iter()
-                .map(|c| format!("\"{}\"", c))
-                .collect::<Vec<_>>()
-                .join(", ");
+                let configs_str = opt
+                    .configs
+                    .iter()
+                    .map(|c| format!("\"{}\"", c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
 
-            let name = opt.server.clone().unwrap_or_else(|| {
-                std::env::var("HOSTNAME")
-                    .or_else(|_| std::env::var("COMPUTERNAME"))
-                    .unwrap_or_else(|_| "unknown-machine".to_string())
-            });
-            let info = format!(
-                "{{\n  \"configs\": [{}],\n  \"kind\": \"{}\",\n  \"name\": \"{name}\",\n  \"flags\": []\n}}",
-                configs_str, kind
-            );
-            std::fs::write(failure_out_dir.join("info.json"), info).unwrap();
+                let name = opt.server.clone().unwrap_or_else(|| {
+                    std::env::var("HOSTNAME")
+                        .or_else(|_| std::env::var("COMPUTERNAME"))
+                        .unwrap_or_else(|_| "unknown-machine".to_string())
+                });
+                let info = format!(
+                    "{{\n  \"configs\": [{}],\n  \"kind\": \"{}\",\n  \"name\": \"{name}\",\n  \"flags\": []\n}}",
+                    configs_str, kind
+                );
+                std::fs::write(failure_out_dir.join("info.json"), info).unwrap();
 
-            std::fs::write(failure_out_dir.join("stderr.txt"), combined).unwrap();
+                std::fs::write(failure_out_dir.join("stderr.txt"), combined).unwrap();
 
-            if kind == "mismatch" && !consensus.is_empty() {
-                std::fs::write(failure_out_dir.join("consensus.json"), consensus).unwrap();
+                if kind == "mismatch" && !consensus.is_empty() {
+                    std::fs::write(failure_out_dir.join("consensus.json"), consensus).unwrap();
+                }
             }
         }
     }
