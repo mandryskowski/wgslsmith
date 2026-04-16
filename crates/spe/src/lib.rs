@@ -2,7 +2,7 @@ pub mod enumerator;
 mod vertex_reachable;
 
 use clap::{Parser, Subcommand};
-use harness_types::{ConfigId, Implementation};
+use harness_types::ConfigId;
 use rand::seq::SliceRandom;
 use std::fs;
 use std::io::{self, Write};
@@ -24,6 +24,13 @@ static DIRTY_STATS: AtomicBool = AtomicBool::new(false);
 
 static OUT_DIR: OnceLock<PathBuf> = OnceLock::new();
 static UTC_OFFSET: OnceLock<UtcOffset> = OnceLock::new();
+
+fn current_timestamp() -> String {
+    let offset = *UTC_OFFSET.get().unwrap_or(&UtcOffset::UTC);
+    let now = OffsetDateTime::now_utc().to_offset(offset);
+    let format = format_description::parse("[hour]-[minute]-[second]").unwrap();
+    now.format(&format).unwrap_or_default()
+}
 
 fn write_stats_json() {
     if let Some(out_dir) = OUT_DIR.get() {
@@ -183,6 +190,9 @@ pub struct ProcessDirOptions {
 
     #[clap(long, action, default_value = "false")]
     pub msl_validate: bool,
+
+    #[clap(long, action, default_value = "false")]
+    pub skip_ext_filter: bool,
 }
 
 fn run_compile(
@@ -220,8 +230,13 @@ fn run_compile(
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 writeln!(
                     failures_log,
-                    "Failed compile (--backend {} --compiler {}) {}\nStdout: {}\nStderr: {}",
-                    backend, compiler, context, stdout, stderr
+                    "[{}] Failed compile (--backend {} --compiler {}) {}\nStdout: {}\nStderr: {}",
+                    current_timestamp(),
+                    backend,
+                    compiler,
+                    context,
+                    stdout,
+                    stderr
                 )
                 .unwrap();
                 false
@@ -232,8 +247,12 @@ fn run_compile(
         Err(e) => {
             writeln!(
                 failures_log,
-                "Failed to execute wslinux compile (--backend {} --compiler {}) {}\nError: {}",
-                backend, compiler, context, e
+                "[{}] Failed to execute wslinux compile (--backend {} --compiler {}) {}\nError: {}",
+                current_timestamp(),
+                backend,
+                compiler,
+                context,
+                e
             )
             .unwrap();
             false
@@ -402,8 +421,70 @@ fn do_healthcheck(wgslsmith_exe: &Path, server: &str, configs: &[ConfigId]) {
     }
 }
 
+fn check_extension_support(
+    wgslsmith_exe: &Path,
+    server: Option<&String>,
+    configs: &[ConfigId],
+) -> std::collections::HashMap<ast::EnableExtension, std::collections::HashSet<ConfigId>> {
+    let mut support_map = std::collections::HashMap::new();
+
+    println!("\nChecking extension support for configs...");
+
+    for ext in <ast::EnableExtension as strum::IntoEnumIterator>::iter() {
+        let mut supported_configs = std::collections::HashSet::new();
+        let ext_str = ext.to_string();
+
+        let shader_src = format!(
+            "enable {};\n@compute @workgroup_size(1) fn main() {{}}",
+            ext_str
+        );
+
+        for config in configs {
+            let mut cmd = process::Command::new(wgslsmith_exe);
+            if let Some(s) = server {
+                cmd.arg("remote").arg(s);
+            }
+            cmd.arg("run").arg("-c").arg(config.to_string()).arg("-");
+
+            cmd.stdin(process::Stdio::piped())
+                .stdout(process::Stdio::piped())
+                .stderr(process::Stdio::piped());
+
+            if let Ok(mut child) = cmd.spawn() {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(shader_src.as_bytes());
+                }
+                if let Ok(out) = child.wait_with_output() {
+                    if out.status.success() {
+                        supported_configs.insert(config.clone());
+                    }
+                }
+            }
+        }
+        println!(
+            "  - {}: supported by {} config(s)",
+            ext_str,
+            supported_configs.len()
+        );
+        support_map.insert(ext, supported_configs);
+    }
+    println!();
+
+    support_map
+}
+
 fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
     let wgslsmith_exe = std::env::current_exe().expect("Failed to get current executable path");
+
+    if let Some(server) = &opt.server {
+        do_healthcheck(&wgslsmith_exe, server, &opt.configs);
+    }
+
+    let support_map = if opt.skip_ext_filter {
+        std::collections::HashMap::new()
+    } else {
+        check_extension_support(&wgslsmith_exe, opt.server.as_ref(), &opt.configs)
+    };
 
     let mut effective_start_index = opt.start_index;
 
@@ -466,6 +547,7 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
             &out_dir,
             &mut *skipped_log,
             &mut *failures_log,
+            &support_map,
         );
 
         shaders_processed += 1;
@@ -492,6 +574,10 @@ fn process_shader(
     out_dir: &Path,
     skipped_log: &mut dyn Write,
     failures_log: &mut dyn Write,
+    support_map: &std::collections::HashMap<
+        ast::EnableExtension,
+        std::collections::HashSet<ConfigId>,
+    >,
 ) {
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
@@ -500,57 +586,19 @@ fn process_shader(
 
     let input_buffers = fs::read_to_string(path.with_extension("in.json")).ok();
 
-    let mut current_configs = opt.configs.clone();
-
     let progress_prefix = if let Some(total) = total_files {
         format!("[{}/{}] ", file_num, total)
     } else {
         "".to_string()
     };
 
-    if content.contains("subgroup") && !current_configs.is_empty() {
-        current_configs.retain(|c| c.implementation != Implementation::Wgpu);
-        if current_configs.is_empty() {
-            writeln!(
-                skipped_log,
-                "[{}] Skipping: {} (uses subgroups, no valid configs left)",
-                file_num,
-                path.display()
-            )
-            .unwrap();
-            println!(
-                "{}Skipped: {} (uses subgroups, no valid configs left)",
-                progress_prefix,
-                path.display()
-            );
-            return;
-        }
-    }
-
-    if content.contains("f16") {
-        let original_len = current_configs.len();
-        current_configs.retain(|c| {
-            let config_str = c.to_string();
-            config_str != "dawn:vk:8593"
-        });
-
-        if current_configs.len() < original_len {
-            writeln!(
-                skipped_log,
-                "[{}] Filtering dawn:vk:8593 from: {} (uses f16)",
-                file_num,
-                path.display()
-            )
-            .unwrap();
-        }
-    }
-
     let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
         Ok(m) => m,
         Err(_) => {
             writeln!(
                 failures_log,
-                "[{}] Parse panic on: {}",
+                "[{}] [{}] Parse panic on: {}",
+                current_timestamp(),
                 file_num,
                 path.display()
             )
@@ -560,19 +608,60 @@ fn process_shader(
         }
     };
 
+    let mut current_configs = opt.configs.clone();
+
+    for ext in &module.enables {
+        if let Some(supported) = support_map.get(ext) {
+            let original_len = current_configs.len();
+            current_configs.retain(|c| supported.contains(c));
+
+            if current_configs.len() < original_len {
+                writeln!(
+                    skipped_log,
+                    "[{}] [{}] Filtered configs for: {} (uses {})",
+                    current_timestamp(),
+                    file_num,
+                    path.display(),
+                    ext
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    if current_configs.is_empty() {
+        writeln!(
+            skipped_log,
+            "[{}] [{}] Skipping: {} (uses extensions not supported by any config)",
+            current_timestamp(),
+            file_num,
+            path.display()
+        )
+        .unwrap();
+        println!(
+            "[{}] {}Skipped: {} (uses extensions not supported by any config)",
+            current_timestamp(),
+            progress_prefix,
+            path.display()
+        );
+        return;
+    }
+
     let (holes, mut enumerations, original_assignment_idx) = {
         let est = enumerator::estimate_enumerations(&module);
         let limit = if est > 100_000 {
             writeln!(
                 skipped_log,
-                "[{}] Warning: {} (estimated {} bounds, > 100,000). Limiting search to 2000 variants.",
+                "[{}] [{}] Warning: {} (estimated {} bounds, > 100,000). Limiting search to 2000 variants.",
+                current_timestamp(),
                 file_num,
                 path.display(),
                 est
             )
             .unwrap();
             println!(
-                "{}Large enumeration space: {} (estimated {} bounds). Limiting search to 2000 variants.",
+                "[{}] {}Large enumeration space: {} (estimated {} bounds). Limiting search to 2000 variants.",
+                current_timestamp(),
                 progress_prefix,
                 path.display(),
                 est
@@ -586,7 +675,8 @@ fn process_shader(
             Err(_) => {
                 writeln!(
                     failures_log,
-                    "[{}] Enumerate panic on: {}",
+                    "[{}] [{}] Enumerate panic on: {}",
+                    current_timestamp(),
                     file_num,
                     path.display()
                 )
@@ -600,7 +690,8 @@ fn process_shader(
     if original_assignment_idx.is_none() {
         writeln!(
             failures_log,
-            "[{}] No original assignment found for: {}",
+            "[{}] [{}] No original assignment found for: {}",
+            current_timestamp(),
             file_num,
             path.display()
         )
@@ -614,13 +705,15 @@ fn process_shader(
     if skip_original && enumerations.len() <= 1 {
         writeln!(
             skipped_log,
-            "[{}] Skipping: {} (only original enumeration exists)",
+            "[{}] [{}] Skipping: {} (only original enumeration exists)",
+            current_timestamp(),
             file_num,
             path.display()
         )
         .unwrap();
         println!(
-            "{}Skipped: {} (only original enumeration exists)",
+            "[{}] {}Skipped: {} (only original enumeration exists)",
+            current_timestamp(),
             progress_prefix,
             path.display()
         );
@@ -636,7 +729,8 @@ fn process_shader(
 
     if enumerations.len() > 100 {
         println!(
-            "{}Downsampling: {} ({} enumerations -> 100 randomly sampled, {} holes)",
+            "[{}] {}Downsampling: {} ({} enumerations -> 100 randomly sampled, {} holes)",
+            current_timestamp(),
             progress_prefix,
             path.display(),
             enumerations.len(),
@@ -657,7 +751,8 @@ fn process_shader(
         }
     } else {
         println!(
-            "{}Processing: {} ({} enumerations, {} holes)",
+            "[{}] {}Processing: {} ({} enumerations, {} holes)",
+            current_timestamp(),
             progress_prefix,
             path.display(),
             enumerations.len(),
@@ -683,7 +778,8 @@ fn process_shader(
                 Err(_) => {
                     writeln!(
                         failures_log,
-                        "[{}] Apply assignment panic on: {} {case_str}",
+                        "[{}] [{}] Apply assignment panic on: {} {case_str}",
+                        current_timestamp(),
                         file_num,
                         path.display()
                     )
@@ -692,15 +788,17 @@ fn process_shader(
                     if is_original {
                         STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                         println!(
-                            "{}Skipped variants for {} (original panicked on apply_assignment)",
-                            progress_prefix,
-                            path.display()
-                        );
+                        "[{}] {}Skipped variants for {} (original panicked on apply_assignment)",
+                        current_timestamp(),
+                        progress_prefix,
+                        path.display()
+                    );
                         break;
                     }
                     if failed_count >= 10 {
                         println!(
-                            "{}Skipped remaining enumerations for {} (>= 10 failures)",
+                            "[{}] {}Skipped remaining enumerations for {} (>= 10 failures)",
+                            current_timestamp(),
                             progress_prefix,
                             path.display()
                         );
@@ -735,7 +833,8 @@ fn process_shader(
                     let stderr = String::from_utf8_lossy(&out.stderr);
                     writeln!(
                         failures_log,
-                        "[{}] Recondition failed for: {} {}\nStderr: {}",
+                        "[{}] [{}] Recondition failed for: {} {}\nStderr: {}",
+                        current_timestamp(),
                         file_num,
                         path.display(),
                         case_str,
@@ -746,7 +845,8 @@ fn process_shader(
                     if is_original {
                         STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
                         println!(
-                            "{}Skipped variants for {} (original failed recondition)",
+                            "[{}] {}Skipped variants for {} (original failed recondition)",
+                            current_timestamp(),
                             progress_prefix,
                             path.display()
                         );
@@ -757,7 +857,8 @@ fn process_shader(
             Err(e) => {
                 writeln!(
                     failures_log,
-                    "[{}] Failed to execute wslinux recondition for: {} {}\nError: {}",
+                    "[{}] [{}] Failed to execute wslinux recondition for: {} {}\nError: {}",
+                    current_timestamp(),
                     file_num,
                     path.display(),
                     case_str,
@@ -768,7 +869,8 @@ fn process_shader(
                 if is_original {
                     STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
                     println!(
-                        "{}Skipped variants for {} (original failed to execute recondition)",
+                        "[{}] {}Skipped variants for {} (original failed to execute recondition)",
+                        current_timestamp(),
                         progress_prefix,
                         path.display()
                     );
@@ -788,7 +890,7 @@ fn process_shader(
             );
 
             let mut msl_naga_ok = true;
-            if !content.contains("subgroup") {
+            if !module.enables.contains(&ast::EnableExtension::Subgroups) {
                 msl_naga_ok = run_compile(
                     wgslsmith_exe,
                     &current_src,
@@ -805,7 +907,8 @@ fn process_shader(
                 if is_original {
                     STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                     println!(
-                        "{}Skipped variants for {} (original failed msl_validate)",
+                        "[{}] {}Skipped variants for {} (original failed msl_validate)",
+                        current_timestamp(),
                         progress_prefix,
                         path.display()
                     );
@@ -883,7 +986,8 @@ fn process_shader(
                 if !out.status.success() {
                     writeln!(
                         failures_log,
-                        "[{}] Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
+                        "[{}] [{}] Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
+                        current_timestamp(),
                         file_num,
                         path.display(),
                         stdout_str,
@@ -912,7 +1016,8 @@ fn process_shader(
                     if is_original {
                         STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                         println!(
-                            "{}Skipped variants for {} (original failed validation)",
+                            "[{}] {}Skipped variants for {} (original failed validation)",
+                            current_timestamp(),
                             progress_prefix,
                             path.display()
                         );
@@ -928,7 +1033,8 @@ fn process_shader(
             Err(e) => {
                 writeln!(
                     failures_log,
-                    "[{}] Failed to run wgslsmith for: {} {case_str}\nError: {}",
+                    "[{}] [{}] Failed to run wgslsmith for: {} {case_str}\nError: {}",
+                    current_timestamp(),
                     file_num,
                     path.display(),
                     e
@@ -950,7 +1056,8 @@ fn process_shader(
                 if is_original {
                     STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
                     println!(
-                        "{}Skipped variants for {} (original failed execution)",
+                        "[{}] {}Skipped variants for {} (original failed execution)",
+                        current_timestamp(),
                         progress_prefix,
                         path.display()
                     );
@@ -961,7 +1068,8 @@ fn process_shader(
 
         if failed_count >= 10 {
             println!(
-                "{}Skipped remaining enumerations for {} (>= 10 failures)",
+                "[{}] {}Skipped remaining enumerations for {} (>= 10 failures)",
+                current_timestamp(),
                 progress_prefix,
                 path.display()
             );
