@@ -593,7 +593,7 @@ fn process_shader(
         Err(_) => return,
     };
 
-    let input_buffers = fs::read_to_string(path.with_extension("in.json")).ok();
+    let mut input_buffers = fs::read_to_string(path.with_extension("in.json")).ok();
 
     let progress_prefix = if let Some(total) = total_files {
         format!("[{}/{}] ", file_num, total)
@@ -616,6 +616,37 @@ fn process_shader(
             return;
         }
     };
+
+    if input_buffers.is_none() {
+        use ast::{StorageClass, VarQualifier};
+        use rand::Rng;
+        let mut init_data = std::collections::BTreeMap::new();
+        let mut rng = rand::thread_rng();
+
+        for var in &module.vars {
+            if let Some(VarQualifier { storage_class, .. }) = &var.qualifier {
+                if *storage_class != StorageClass::Uniform
+                    && *storage_class != StorageClass::Storage
+                {
+                    continue;
+                }
+
+                if let Ok(type_desc) = common::Type::try_from(&var.data_type) {
+                    if let (Some(group), Some(binding)) = (var.group_index(), var.binding_index()) {
+                        let size = type_desc.buffer_size();
+                        let data: Vec<u8> = (0..size).map(|_| rng.gen()).collect();
+                        init_data.insert(format!("{group}:{binding}"), data);
+                    }
+                }
+            }
+        }
+
+        if !init_data.is_empty() {
+            if let Ok(json) = serde_json::to_string(&init_data) {
+                input_buffers = Some(json);
+            }
+        }
+    }
 
     let mut current_configs = opt.configs.clone();
 
