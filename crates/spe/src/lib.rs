@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use time::{format_description, OffsetDateTime, UtcOffset};
 use walkdir::WalkDir;
@@ -20,9 +20,40 @@ static STAT_RUN_SUCCESS: AtomicUsize = AtomicUsize::new(0);
 static STAT_SKIPPED_ONLY_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static STAT_SUBSAMPLED: AtomicUsize = AtomicUsize::new(0);
 static LAST_INDEX: AtomicUsize = AtomicUsize::new(0);
+static DIRTY_STATS: AtomicBool = AtomicBool::new(false);
 
 static OUT_DIR: OnceLock<PathBuf> = OnceLock::new();
 static UTC_OFFSET: OnceLock<UtcOffset> = OnceLock::new();
+
+fn write_stats_json() {
+    if let Some(out_dir) = OUT_DIR.get() {
+        if !DIRTY_STATS.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let failed_parse = STAT_FAILED_PARSE.load(Ordering::SeqCst);
+        let failed_recondition = STAT_FAILED_RECONDITION.load(Ordering::SeqCst);
+        let failed_run = STAT_FAILED_RUN.load(Ordering::SeqCst);
+        let run_success = STAT_RUN_SUCCESS.load(Ordering::SeqCst);
+        let skipped_only_original = STAT_SKIPPED_ONLY_ORIGINAL.load(Ordering::SeqCst);
+        let subsampled = STAT_SUBSAMPLED.load(Ordering::SeqCst);
+        let last_idx = LAST_INDEX.load(Ordering::SeqCst);
+
+        let args: Vec<String> = std::env::args().collect();
+
+        let args_json = args
+            .iter()
+            .map(|a| format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let json = format!(
+            "{{\n  \"args\": [{}],\n  \"failed_parse\": {},\n  \"failed_recondition\": {},\n  \"failed_run\": {},\n  \"run_success\": {},\n  \"skipped_only_original\": {},\n  \"subsampled\": {},\n  \"last_handled_index\": {}\n}}",
+            args_json, failed_parse, failed_recondition, failed_run, run_success, skipped_only_original, subsampled, last_idx
+        );
+        let _ = fs::write(out_dir.join("stats.json"), json);
+    }
+}
 
 fn print_stats() {
     let failed_parse = STAT_FAILED_PARSE.load(Ordering::SeqCst);
@@ -67,19 +98,7 @@ fn print_stats() {
     println!("- Last handled shader index:                  {}", last_idx);
     println!("================================\n");
 
-    if let Some(out_dir) = OUT_DIR.get() {
-        let args_json = args
-            .iter()
-            .map(|a| format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\"")))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let json = format!(
-            "{{\n  \"args\": [{}],\n  \"failed_parse\": {},\n  \"failed_recondition\": {},\n  \"failed_run\": {},\n  \"run_success\": {},\n  \"skipped_only_original\": {},\n  \"subsampled\": {},\n  \"last_handled_index\": {}\n}}",
-            args_json, failed_parse, failed_recondition, failed_run, run_success, skipped_only_original, subsampled, last_idx
-        );
-        let _ = fs::write(out_dir.join("stats.json"), json);
-    }
+    write_stats_json();
 }
 
 fn load_stats(out_dir: &Path) -> usize {
@@ -331,6 +350,38 @@ fn run_enumerate(opt: EnumerateOptions, skip_original: bool) {
     }
 }
 
+fn do_healthcheck(wgslsmith_exe: &Path, server: &str, configs: &[ConfigId]) {
+    let tmp_path = std::env::temp_dir().join(format!("healthcheck_{}.wgsl", std::process::id()));
+    let _ = fs::write(&tmp_path, "@compute @workgroup_size(1) fn main() {}");
+
+    let mut cmd = process::Command::new(wgslsmith_exe);
+    cmd.arg("remote").arg(server).arg("run");
+
+    for config in configs {
+        cmd.arg("-c").arg(config.to_string());
+    }
+
+    cmd.arg(&tmp_path);
+
+    let output = cmd.output();
+    let _ = fs::remove_file(&tmp_path);
+
+    match output {
+        Ok(out) => {
+            if !out.status.success() {
+                println!("\nHealthcheck failed. Terminating.");
+                print_stats();
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            println!("\nHealthcheck command failed: {}. Terminating.", e);
+            print_stats();
+            std::process::exit(1);
+        }
+    }
+}
+
 fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
     let wgslsmith_exe = std::env::current_exe().expect("Failed to get current executable path");
 
@@ -370,6 +421,7 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
         .collect();
 
     let total_files = entries.len();
+    let mut shaders_processed = 0;
 
     for (file_idx, entry) in entries.into_iter().enumerate() {
         let path = entry.path();
@@ -382,6 +434,7 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
         }
 
         LAST_INDEX.store(file_num, Ordering::SeqCst);
+        DIRTY_STATS.store(true, Ordering::SeqCst);
 
         process_shader(
             path,
@@ -394,6 +447,15 @@ fn run_process_dir(opt: ProcessDirOptions, skip_original: bool) {
             &mut *skipped_log,
             &mut *failures_log,
         );
+
+        shaders_processed += 1;
+        if shaders_processed % 50 == 0 {
+            write_stats_json();
+
+            if let Some(server) = &opt.server {
+                do_healthcheck(&wgslsmith_exe, server, &opt.configs);
+            }
+        }
     }
 
     print_stats();
