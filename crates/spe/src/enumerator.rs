@@ -2,6 +2,7 @@ use crate::vertex_reachable::get_vertex_reachable_functions;
 use ast::types::DataType;
 use ast::*;
 use rand::seq::SliceRandom;
+use rand::SeedableRng;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum HoleType {
@@ -426,6 +427,7 @@ struct Enumerator {
     scope_parents: Vec<usize>,
     limit: Option<usize>,
     step_count: usize,
+    rng: rand::rngs::StdRng,
 }
 impl Enumerator {
     fn enumerate(&mut self, current: &mut Vec<usize>) {
@@ -453,7 +455,7 @@ impl Enumerator {
         let next_available = (max_id + 1) as usize;
 
         let mut ids: Vec<usize> = (0..=next_available).collect();
-        ids.shuffle(&mut rand::thread_rng());
+        ids.shuffle(&mut self.rng);
 
         for id in ids {
             if self.is_valid_assignment(hole_idx, id, current) {
@@ -668,6 +670,7 @@ pub fn get_enumerations(
         scope_parents: ctx.scope_parents.clone(),
         limit,
         step_count: 0,
+        rng: rand::rngs::StdRng::seed_from_u64(42),
     };
     enumerator.enumerate(&mut vec![]);
 
