@@ -324,6 +324,8 @@ fn test_shader_has_outputs(
     wgslsmith_exe: &Path,
     server: Option<&String>,
     configs: &[ConfigId],
+    parallelism: Option<usize>,
+    use_daemon: bool,
     shader_src: &str,
     inputs_json: Option<&str>,
 ) -> bool {
@@ -335,6 +337,18 @@ fn test_shader_has_outputs(
     for config in configs {
         cmd.arg("-c").arg(config.to_string());
     }
+
+    cmd.arg("-j");
+    if let Some(j) = parallelism {
+        cmd.arg(j.to_string());
+    } else {
+        cmd.arg("2");
+    }
+
+    if use_daemon {
+        cmd.arg("--use-daemon");
+    }
+
     cmd.arg("-");
     if let Some(inputs) = inputs_json {
         cmd.arg(inputs);
@@ -352,7 +366,6 @@ fn test_shader_has_outputs(
         if let Ok(out) = child.wait_with_output() {
             let stdout_str = String::from_utf8_lossy(&out.stdout);
             let stderr_str = String::from_utf8_lossy(&out.stderr);
-            println!("out is {stdout_str}, err is {stderr_str}");
             return stdout_str.contains("outputs (") || stderr_str.contains("outputs (");
         }
     }
@@ -441,6 +454,15 @@ fn run_fuse(opt: DirOptions, skip_original: bool) {
         let mut passed_paths = Vec::new();
 
         for (i, entry) in entries.into_iter().enumerate() {
+            if i > 0 && i % 50 == 0 {
+                println!(
+                    "Pre-filtered {}/{} shaders ({} working)...",
+                    i,
+                    total_files,
+                    working_modules.len()
+                );
+            }
+
             let path = entry.path();
             let content = match fs::read_to_string(path) {
                 Ok(c) => c,
@@ -462,21 +484,14 @@ fn run_fuse(opt: DirOptions, skip_original: bool) {
                     &wgslsmith_exe,
                     opt.server.as_ref(),
                     &opt.configs,
+                    opt.parallelism,
+                    opt.use_daemon,
                     &reconditioned_src,
                     input_buffers.as_deref(),
                 ) {
                     working_modules.push(module);
                     passed_paths.push(path.to_path_buf());
                 }
-            }
-
-            if (i + 1) % 50 == 0 {
-                println!(
-                    "Pre-filtered {}/{} shaders ({} working)...",
-                    i + 1,
-                    total_files,
-                    working_modules.len()
-                );
             }
         }
 
