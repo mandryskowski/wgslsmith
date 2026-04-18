@@ -1,0 +1,13 @@
+[package]
+name = "fuse"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ast = { path = "../ast" }
+parser = { path = "../parser" }
+clap = { version = "3.1.17", features = ["derive"] }
+
+[[bin]]
+name = "fuse"
+path = "src/main.rs"
