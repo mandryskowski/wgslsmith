@@ -231,8 +231,13 @@ pub async fn run(
             ResourceKind::UniformBuffer => {
                 let mut buffer = device.create_buffer(1, size, DeviceBufferUsage::UNIFORM)?;
 
-                if let Some(init) = resource.init.as_deref() {
-                    buffer.get_mapped_range(size).copy_from_slice(init);
+                {
+                    let view = buffer.get_mapped_range(size);
+                    if let Some(init) = resource.init.as_deref() {
+                        view.copy_from_slice(init);
+                    } else {
+                        view.fill(0);
+                    }
                 }
 
                 buffer.unmap();
