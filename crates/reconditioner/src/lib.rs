@@ -480,8 +480,8 @@ impl Reconditioner {
 
                 LhsExpr::Postfix(expr, postfix)
             }
-            LhsExpr::Deref(_) => todo!(),
-            LhsExpr::AddressOf(_) => todo!(),
+            LhsExpr::Deref(expr) => LhsExpr::Deref(Box::new(self.recondition_lhs_expr(*expr))),
+            LhsExpr::AddressOf(expr) => LhsExpr::AddressOf(Box::new(self.recondition_lhs_expr(*expr))),
         };
 
         LhsExprNode { expr, ..node }

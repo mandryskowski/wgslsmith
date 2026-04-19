@@ -183,6 +183,8 @@ fn visit_function<'a>(
             scope
                 .idents
                 .insert(&param.name, RootIdentifier::Param(i as u32));
+        } else {
+            scope.idents.remove(param.name.as_str());
         }
     }
 
@@ -200,8 +202,23 @@ fn visit_stmt<'a>(
     stmt: &'a Statement,
 ) {
     match stmt {
-        Statement::LetDecl(stmt) => visit_expr(analysis, scope, cx, &stmt.initializer),
-        Statement::ConstDecl(stmt) => visit_expr(analysis, scope, cx, &stmt.initializer),
+        Statement::LetDecl(stmt) => {
+            visit_expr(analysis, scope, cx, &stmt.initializer);
+            if let DataType::Ptr(_) = stmt.initializer.data_type {
+                let root = find_pointer_expr_root(&stmt.initializer);
+                if let Some(&root_id) = scope.idents.get(root) {
+                    scope.idents.insert(stmt.ident.as_str(), root_id);
+                } else {
+                    scope.idents.remove(stmt.ident.as_str());
+                }
+            } else {
+                scope.idents.remove(stmt.ident.as_str());
+            }
+        }
+        Statement::ConstDecl(stmt) => {
+            visit_expr(analysis, scope, cx, &stmt.initializer);
+            scope.idents.remove(stmt.ident.as_str());
+        }
         Statement::VarDecl(stmt) => {
             if let Some(initializer) = &stmt.initializer {
                 visit_expr(analysis, scope, cx, initializer);
@@ -209,7 +226,7 @@ fn visit_stmt<'a>(
 
             scope
                 .idents
-                .insert(&stmt.ident, RootIdentifier::Mem(analysis.next_mem_loc()));
+                .insert(stmt.ident.as_str(), RootIdentifier::Mem(analysis.next_mem_loc()));
         }
         Statement::Assignment(stmt) => {
             visit_lhs(analysis, scope, cx, &stmt.lhs);
@@ -261,9 +278,20 @@ fn visit_stmt<'a>(
                     }
                     ForLoopInit::LetDecl(stmt) => {
                         visit_expr(analysis, &mut scope, cx, &stmt.initializer);
+                        if let DataType::Ptr(_) = stmt.initializer.data_type {
+                            let root = find_pointer_expr_root(&stmt.initializer);
+                            if let Some(&root_id) = scope.idents.get(root) {
+                                scope.idents.insert(stmt.ident.as_str(), root_id);
+                            } else {
+                                scope.idents.remove(stmt.ident.as_str());
+                            }
+                        } else {
+                            scope.idents.remove(stmt.ident.as_str());
+                        }
                     }
                     ForLoopInit::ConstDecl(stmt) => {
                         visit_expr(analysis, &mut scope, cx, &stmt.initializer);
+                        scope.idents.remove(stmt.ident.as_str());
                     }
                     ForLoopInit::Assignment(stmt) => {
                         visit_lhs(analysis, &mut scope, cx, &stmt.lhs);
