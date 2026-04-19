@@ -222,6 +222,18 @@ pub mod fuse {
         let mut file_num = effective_start_index.unwrap_or(0);
         let mut shaders_processed = 0;
 
+        let mut ignore_regexes = Vec::new();
+        if let Some(ignore_file) = &opt.ignore_file {
+            let content = std::fs::read_to_string(ignore_file).expect("Failed to read ignore file");
+            for line in content.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    ignore_regexes
+                        .push(regex::Regex::new(line).expect("Invalid regex in ignore file"));
+                }
+            }
+        }
+
         let mut processor = ShaderProcessor {
             wgslsmith_exe: &wgslsmith_exe,
             out_dir: out_dir_opt.as_deref(),
@@ -231,6 +243,7 @@ pub mod fuse {
             max_enumerations: 5,
             skip_original,
             opt: &opt,
+            ignore_regexes: &ignore_regexes,
         };
 
         loop {
@@ -335,6 +348,18 @@ pub mod process_dir {
         let total_files = entries.len();
         let mut shaders_processed = 0;
 
+        let mut ignore_regexes = Vec::new();
+        if let Some(ignore_file) = &opt.ignore_file {
+            let content = std::fs::read_to_string(ignore_file).expect("Failed to read ignore file");
+            for line in content.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    ignore_regexes
+                        .push(regex::Regex::new(line).expect("Invalid regex in ignore file"));
+                }
+            }
+        }
+
         let mut processor = ShaderProcessor {
             wgslsmith_exe: &wgslsmith_exe,
             out_dir: out_dir_opt.as_deref(),
@@ -344,6 +369,7 @@ pub mod process_dir {
             max_enumerations: 100,
             skip_original,
             opt: &opt,
+            ignore_regexes: &ignore_regexes,
         };
 
         for (file_idx, entry) in entries.into_iter().enumerate() {

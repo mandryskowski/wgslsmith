@@ -70,4 +70,8 @@ pub struct DirOptions {
     /// File containing passed shaders to skip preprocessing
     #[clap(long)]
     pub passed_shaders: Option<PathBuf>,
+
+    /// File containing regexes to ignore crashes
+    #[clap(long)]
+    pub ignore_file: Option<PathBuf>,
 }

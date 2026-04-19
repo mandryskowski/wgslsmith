@@ -21,6 +21,7 @@ pub struct ShaderProcessor<'a> {
     pub max_enumerations: usize,
     pub skip_original: bool,
     pub opt: &'a DirOptions,
+    pub ignore_regexes: &'a [regex::Regex],
 }
 
 impl<'a> ShaderProcessor<'a> {
@@ -411,33 +412,56 @@ impl<'a> ShaderProcessor<'a> {
                     let combined_bytes = combined_output.replace('\0', "").into_bytes();
 
                     if !out.status.success() {
-                        writeln!(
-                            self.failures_log,
-                            "[{}] [{}] Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
-                            stats::current_timestamp(),
-                            file_num,
-                            path_display,
-                            stdout_str,
-                            stderr_str
-                        )
-                        .unwrap();
+                        let mut ignored = false;
+                        for r in self.ignore_regexes {
+                            if r.is_match(&combined_output) {
+                                ignored = true;
+                                break;
+                            }
+                        }
+
+                        if ignored {
+                            writeln!(
+                                self.failures_log,
+                                "[{}] [{}] Ignored validation failure for: {} {}",
+                                stats::current_timestamp(),
+                                file_num,
+                                path_display,
+                                case_str
+                            )
+                            .unwrap();
+                        } else {
+                            writeln!(
+                                self.failures_log,
+                                "[{}] [{}] Failed validation for: {} {case_str}\nStdout: {}\nStderr: {}",
+                                stats::current_timestamp(),
+                                file_num,
+                                path_display,
+                                stdout_str,
+                                stderr_str
+                            )
+                            .unwrap();
+                        }
+
                         failed_count += 1;
 
-                        let kind = if out.status.code() == Some(1) {
-                            "mismatch"
-                        } else {
-                            "crash"
-                        };
+                        if !ignored {
+                            let kind = if out.status.code() == Some(1) {
+                                "mismatch"
+                            } else {
+                                "crash"
+                            };
 
-                        failures_to_save.push((
-                            i,
-                            kind.to_string(),
-                            consensus_json.into_bytes(),
-                            combined_bytes,
-                            out_str.clone(),
-                            current_src.clone(),
-                            is_original,
-                        ));
+                            failures_to_save.push((
+                                i,
+                                kind.to_string(),
+                                consensus_json.into_bytes(),
+                                combined_bytes,
+                                out_str.clone(),
+                                current_src.clone(),
+                                is_original,
+                            ));
+                        }
 
                         if is_original {
                             stats::STAT_FAILED_RUN.fetch_add(1, Ordering::SeqCst);
