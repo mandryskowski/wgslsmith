@@ -740,6 +740,18 @@ impl Reconditioner {
         }
     }
 
+    fn splat_scalar_to_vector(data_type: &DataType, mut expr: ExprNode) -> ExprNode {
+        if let DataType::Vector(_, _) = data_type {
+            if expr.data_type.dereference().is_scalar() {
+                expr = ExprNode {
+                    data_type: data_type.clone(),
+                    expr: Expr::TypeCons(TypeConsExpr::new(data_type.clone(), vec![expr])),
+                };
+            }
+        }
+        expr
+    }
+
     fn recondition_integer_bin_op_expr(
         &mut self,
         data_type: DataType,
@@ -751,6 +763,9 @@ impl Reconditioner {
             BinOp::Mod => self.safe_wrapper(Wrapper::Mod(data_type.clone())),
             op => return BinOpExpr::new(op, l, r).into(),
         };
+
+        let l = Self::splat_scalar_to_vector(&data_type, l);
+        let r = Self::splat_scalar_to_vector(&data_type, r);
 
         FnCallExpr::new(name, vec![l, r]).into_node(data_type)
     }
@@ -780,6 +795,10 @@ impl Reconditioner {
             BinOp::Divide => Wrapper::FloatDivide(data_type.clone()),
             _ => unreachable!(),
         };
+        
+        let l = Self::splat_scalar_to_vector(&data_type, l);
+        let r = Self::splat_scalar_to_vector(&data_type, r);
+        
         FnCallExpr::new(self.safe_wrapper(wrapper), vec![l, r]).into_node(data_type)
     }
 
