@@ -18,6 +18,7 @@ pub fn visit_module(module: &mut Module, ctx: &mut Context) {
         let ty = decl.data_type.clone();
         let mut flags = DeclFlags {
             mutable: true,
+            storage_class: decl.qualifier.as_ref().map(|q| q.storage_class),
             ..Default::default()
         };
 
@@ -105,6 +106,7 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                 &ty,
                 DeclFlags {
                     mutable: true,
+                    storage_class: Some(ast::StorageClass::Function),
                     ..Default::default()
                 },
             );
@@ -199,6 +201,7 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                             &ty,
                             DeclFlags {
                                 mutable: true,
+                                storage_class: Some(ast::StorageClass::Function),
                                 ..Default::default()
                             },
                         );
@@ -318,7 +321,8 @@ fn visit_lhs_expr_node(node: &mut LhsExprNode, ctx: &mut Context) {
     match &mut node.expr {
         LhsExpr::Ident(name) => {
             let ty = node.data_type.dereference().clone();
-            ctx.process_usage(name, &ty, true);
+            let storage_class = node.data_type.as_memory_view().map(|v| v.storage_class);
+            ctx.process_usage(name, &ty, true, false, storage_class);
         }
         LhsExpr::Postfix(inner, postfix) => {
             visit_lhs_expr_node(inner, ctx);
@@ -331,11 +335,18 @@ fn visit_lhs_expr_node(node: &mut LhsExprNode, ctx: &mut Context) {
     }
 }
 
-fn visit_expr_node(node: &mut ExprNode, ctx: &mut Context, needs_ref: bool) {
+fn visit_expr_node(node: &mut ExprNode, ctx: &mut Context, is_address_of: bool) {
     match &mut node.expr {
         Expr::Var(v) => {
             let ty = node.data_type.dereference().clone();
-            ctx.process_usage(&mut v.ident, &ty, needs_ref);
+            let storage_class = node.data_type.as_memory_view().map(|v| v.storage_class);
+            ctx.process_usage(
+                &mut v.ident,
+                &ty,
+                is_address_of,
+                is_address_of,
+                storage_class,
+            );
         }
         Expr::FnCall(call) => {
             for arg in &mut call.args {
@@ -347,11 +358,11 @@ fn visit_expr_node(node: &mut ExprNode, ctx: &mut Context, needs_ref: bool) {
             visit_expr_node(&mut op.right, ctx, false);
         }
         Expr::UnOp(op) => {
-            let is_addr_of = matches!(op.op, UnOp::AddressOf);
-            visit_expr_node(&mut op.inner, ctx, needs_ref || is_addr_of);
+            let addr_of = matches!(op.op, UnOp::AddressOf);
+            visit_expr_node(&mut op.inner, ctx, is_address_of || addr_of);
         }
         Expr::Postfix(p) => {
-            visit_expr_node(&mut p.inner, ctx, needs_ref);
+            visit_expr_node(&mut p.inner, ctx, is_address_of);
             if let Postfix::Index(idx) = &mut p.postfix {
                 visit_expr_node(idx, ctx, false);
             }

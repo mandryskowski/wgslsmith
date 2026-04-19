@@ -75,6 +75,7 @@ impl Context {
                     is_const: flags.is_const,
                     banned_from_vertex: flags.banned_from_vertex,
                     banned_from_fragment: flags.banned_from_fragment,
+                    storage_class: flags.storage_class,
                 }),
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),
@@ -88,14 +89,23 @@ impl Context {
         }
     }
 
-    pub fn process_usage(&mut self, name: &mut String, data_type: &DataType, is_lvalue: bool) {
+    pub fn process_usage(
+        &mut self,
+        name: &mut String,
+        data_type: &DataType,
+        is_lvalue: bool,
+        is_address_of: bool,
+        expected_storage_class: Option<ast::StorageClass>,
+    ) {
         if self.assignments.is_none() {
             self.holes.push(Hole {
                 hole_type: HoleType::Usage(UsageHole {
                     is_lvalue,
+                    is_address_of,
                     requires_const: self.in_const_context,
                     in_vertex_stage: self.in_vertex_stage,
                     in_fragment_stage: self.in_fragment_stage,
+                    expected_storage_class,
                 }),
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),

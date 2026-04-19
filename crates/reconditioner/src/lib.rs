@@ -795,10 +795,10 @@ impl Reconditioner {
             BinOp::Divide => Wrapper::FloatDivide(data_type.clone()),
             _ => unreachable!(),
         };
-        
+
         let l = Self::splat_scalar_to_vector(&data_type, l);
         let r = Self::splat_scalar_to_vector(&data_type, r);
-        
+
         FnCallExpr::new(self.safe_wrapper(wrapper), vec![l, r]).into_node(data_type)
     }
 

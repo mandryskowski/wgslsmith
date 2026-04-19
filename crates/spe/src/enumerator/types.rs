@@ -1,4 +1,5 @@
 use ast::types::DataType;
+use ast::StorageClass;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DeclFlags {
@@ -6,6 +7,7 @@ pub struct DeclFlags {
     pub is_const: bool,
     pub banned_from_vertex: bool,
     pub banned_from_fragment: bool,
+    pub storage_class: Option<StorageClass>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -14,14 +16,17 @@ pub struct DeclHole {
     pub is_const: bool,
     pub banned_from_vertex: bool,
     pub banned_from_fragment: bool,
+    pub storage_class: Option<StorageClass>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UsageHole {
     pub is_lvalue: bool,
+    pub is_address_of: bool,
     pub requires_const: bool,
     pub in_vertex_stage: bool,
     pub in_fragment_stage: bool,
+    pub expected_storage_class: Option<StorageClass>,
 }
 
 impl UsageHole {
@@ -36,6 +41,9 @@ impl UsageHole {
             return false;
         }
         if self.in_fragment_stage && decl.banned_from_fragment {
+            return false;
+        }
+        if self.is_address_of && self.expected_storage_class != decl.storage_class {
             return false;
         }
         true
