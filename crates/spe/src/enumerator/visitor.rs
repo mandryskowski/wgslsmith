@@ -33,6 +33,10 @@ pub fn visit_module(module: &mut Module, ctx: &mut Context) {
             {
                 flags.banned_from_vertex = true;
             }
+            if qualifier.storage_class == ast::StorageClass::WorkGroup {
+                flags.banned_from_vertex = true;
+                flags.banned_from_fragment = true;
+            }
         }
 
         if let ast::DataType::Texture(ast::TextureType::Storage { access, .. }) = ty.dereference() {
@@ -50,6 +54,10 @@ pub fn visit_module(module: &mut Module, ctx: &mut Context) {
             {
                 flags.banned_from_vertex = true;
             }
+            if view.storage_class == ast::StorageClass::WorkGroup {
+                flags.banned_from_vertex = true;
+                flags.banned_from_fragment = true;
+            }
         }
         ctx.process_decl(&mut decl.name, &ty, flags);
     }
@@ -60,8 +68,12 @@ pub fn visit_module(module: &mut Module, ctx: &mut Context) {
 
 fn visit_fn(func: &mut FnDecl, ctx: &mut Context) {
     let prev_vertex = ctx.in_vertex_stage;
+    let prev_fragment = ctx.in_fragment_stage;
     if ctx.vertex_reachable_functions.contains(&func.name) {
         ctx.in_vertex_stage = true;
+    }
+    if ctx.fragment_reachable_functions.contains(&func.name) {
+        ctx.in_fragment_stage = true;
     }
     ctx.enter_scope();
     for input in &mut func.inputs {
@@ -73,6 +85,7 @@ fn visit_fn(func: &mut FnDecl, ctx: &mut Context) {
     }
     ctx.exit_scope();
     ctx.in_vertex_stage = prev_vertex;
+    ctx.in_fragment_stage = prev_fragment;
 }
 
 fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {

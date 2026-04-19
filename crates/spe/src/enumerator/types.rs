@@ -5,6 +5,7 @@ pub struct DeclFlags {
     pub mutable: bool,
     pub is_const: bool,
     pub banned_from_vertex: bool,
+    pub banned_from_fragment: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -12,6 +13,7 @@ pub struct DeclHole {
     pub mutable: bool,
     pub is_const: bool,
     pub banned_from_vertex: bool,
+    pub banned_from_fragment: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,6 +21,7 @@ pub struct UsageHole {
     pub is_lvalue: bool,
     pub requires_const: bool,
     pub in_vertex_stage: bool,
+    pub in_fragment_stage: bool,
 }
 
 impl UsageHole {
@@ -30,6 +33,9 @@ impl UsageHole {
             return false;
         }
         if self.in_vertex_stage && decl.banned_from_vertex {
+            return false;
+        }
+        if self.in_fragment_stage && decl.banned_from_fragment {
             return false;
         }
         true

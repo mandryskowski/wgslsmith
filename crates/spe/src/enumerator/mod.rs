@@ -1,7 +1,7 @@
 pub mod context;
+mod reachable;
 pub mod search;
 pub mod types;
-mod vertex_reachable;
 pub mod visitor;
 
 use ast::Module;

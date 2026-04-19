@@ -1,7 +1,8 @@
+use crate::enumerator::reachable::get_stage_reachable_functions;
 use crate::enumerator::types::{DeclHole, Hole, HoleType, UsageHole};
-use crate::enumerator::vertex_reachable::get_vertex_reachable_functions;
 use ast::types::DataType;
 use ast::Module;
+use ast::ShaderStage;
 use std::collections::HashSet;
 
 pub struct Context {
@@ -14,12 +15,18 @@ pub struct Context {
     pub in_const_context: bool,
     pub in_vertex_stage: bool,
     pub vertex_reachable_functions: HashSet<String>,
+    pub in_fragment_stage: bool,
+    pub fragment_reachable_functions: HashSet<String>,
 }
 
 impl Context {
     pub fn new(module: Option<&Module>) -> Self {
         let vertex_reachable_functions = module
-            .map(get_vertex_reachable_functions)
+            .map(|m| get_stage_reachable_functions(m, ShaderStage::Vertex))
+            .unwrap_or_default();
+
+        let fragment_reachable_functions = module
+            .map(|m| get_stage_reachable_functions(m, ShaderStage::Fragment))
             .unwrap_or_default();
 
         Context {
@@ -32,6 +39,8 @@ impl Context {
             in_const_context: false,
             in_vertex_stage: false,
             vertex_reachable_functions,
+            in_fragment_stage: false,
+            fragment_reachable_functions,
         }
     }
 
@@ -65,6 +74,7 @@ impl Context {
                     mutable: flags.mutable,
                     is_const: flags.is_const,
                     banned_from_vertex: flags.banned_from_vertex,
+                    banned_from_fragment: flags.banned_from_fragment,
                 }),
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),
@@ -85,6 +95,7 @@ impl Context {
                     is_lvalue,
                     requires_const: self.in_const_context,
                     in_vertex_stage: self.in_vertex_stage,
+                    in_fragment_stage: self.in_fragment_stage,
                 }),
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),

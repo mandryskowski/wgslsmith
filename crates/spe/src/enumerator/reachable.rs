@@ -1,6 +1,6 @@
 use ast::*;
 
-pub fn get_vertex_reachable_functions(module: &Module) -> std::collections::HashSet<String> {
+pub fn get_stage_reachable_functions(module: &Module, stage: ShaderStage) -> std::collections::HashSet<String> {
     let mut call_graph: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
 
@@ -205,7 +205,7 @@ pub fn get_vertex_reachable_functions(module: &Module) -> std::collections::Hash
         if func
             .attrs
             .iter()
-            .any(|a| matches!(a, FnAttr::Stage(ShaderStage::Vertex)))
+            .any(|a| matches!(a, FnAttr::Stage(s) if *s == stage))
         {
             reachable.insert(func.name.clone());
             queue.push(func.name.clone());
