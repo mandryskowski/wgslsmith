@@ -1,46 +1,57 @@
 use crate::enumerator::context::Context;
+use crate::enumerator::types::DeclFlags;
 use ast::*;
 
 pub fn visit_module(module: &mut Module, ctx: &mut Context) {
     for decl in &mut module.consts {
         let ty = decl.inferred_type().clone();
-        ctx.process_decl(&mut decl.ident, &ty, false, true, false);
+        ctx.process_decl(
+            &mut decl.ident,
+            &ty,
+            DeclFlags {
+                is_const: true,
+                ..Default::default()
+            },
+        );
     }
     for decl in &mut module.vars {
         let ty = decl.data_type.clone();
-        let mut is_mutable = true;
-        let mut banned_from_vertex = false;
+        let mut flags = DeclFlags {
+            mutable: true,
+            ..Default::default()
+        };
+
         if let Some(qualifier) = &decl.qualifier {
             let access_mode = qualifier
                 .access_mode
                 .unwrap_or_else(|| qualifier.storage_class.default_access_mode());
             if access_mode == ast::AccessMode::Read {
-                is_mutable = false;
+                flags.mutable = false;
             }
             if qualifier.storage_class == ast::StorageClass::Storage
                 && access_mode != ast::AccessMode::Read
             {
-                banned_from_vertex = true;
+                flags.banned_from_vertex = true;
             }
         }
 
         if let ast::DataType::Texture(ast::TextureType::Storage { access, .. }) = ty.dereference() {
             if *access != ast::AccessMode::Read {
-                banned_from_vertex = true;
+                flags.banned_from_vertex = true;
             }
         }
 
         if let Some(view) = ty.as_memory_view() {
             if view.access_mode == ast::AccessMode::Read {
-                is_mutable = false;
+                flags.mutable = false;
             }
             if view.storage_class == ast::StorageClass::Storage
                 && view.access_mode != ast::AccessMode::Read
             {
-                banned_from_vertex = true;
+                flags.banned_from_vertex = true;
             }
         }
-        ctx.process_decl(&mut decl.name, &ty, is_mutable, false, banned_from_vertex);
+        ctx.process_decl(&mut decl.name, &ty, flags);
     }
     for func in &mut module.functions {
         visit_fn(func, ctx);
@@ -55,7 +66,7 @@ fn visit_fn(func: &mut FnDecl, ctx: &mut Context) {
     ctx.enter_scope();
     for input in &mut func.inputs {
         let ty = input.data_type.clone();
-        ctx.process_decl(&mut input.name, &ty, false, false, false);
+        ctx.process_decl(&mut input.name, &ty, DeclFlags::default());
     }
     for stmt in &mut func.body {
         visit_stmt(stmt, ctx);
@@ -69,14 +80,21 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
         Statement::LetDecl(s) => {
             visit_expr_node(&mut s.initializer, ctx, false);
             let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, false, false, false);
+            ctx.process_decl(&mut s.ident, &ty, DeclFlags::default());
         }
         Statement::VarDecl(s) => {
             if let Some(init) = &mut s.initializer {
                 visit_expr_node(init, ctx, false);
             }
             let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, true, false, false);
+            ctx.process_decl(
+                &mut s.ident,
+                &ty,
+                DeclFlags {
+                    mutable: true,
+                    ..Default::default()
+                },
+            );
         }
         Statement::ConstDecl(s) => {
             let prev = ctx.in_const_context;
@@ -84,7 +102,14 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
             visit_expr_node(&mut s.initializer, ctx, false);
             ctx.in_const_context = prev;
             let ty = s.inferred_type().clone();
-            ctx.process_decl(&mut s.ident, &ty, false, true, false);
+            ctx.process_decl(
+                &mut s.ident,
+                &ty,
+                DeclFlags {
+                    is_const: true,
+                    ..Default::default()
+                },
+            );
         }
         Statement::Assignment(s) => {
             visit_lhs(&mut s.lhs, ctx);
@@ -156,12 +181,19 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                             visit_expr_node(i, ctx, false);
                         }
                         let ty = d.inferred_type().clone();
-                        ctx.process_decl(&mut d.ident, &ty, true, false, false);
+                        ctx.process_decl(
+                            &mut d.ident,
+                            &ty,
+                            DeclFlags {
+                                mutable: true,
+                                ..Default::default()
+                            },
+                        );
                     }
                     ForLoopInit::LetDecl(d) => {
                         visit_expr_node(&mut d.initializer, ctx, false);
                         let ty = d.inferred_type().clone();
-                        ctx.process_decl(&mut d.ident, &ty, false, false, false);
+                        ctx.process_decl(&mut d.ident, &ty, DeclFlags::default());
                     }
                     ForLoopInit::ConstDecl(d) => {
                         let prev = ctx.in_const_context;
@@ -169,7 +201,14 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                         visit_expr_node(&mut d.initializer, ctx, false);
                         ctx.in_const_context = prev;
                         let ty = d.inferred_type().clone();
-                        ctx.process_decl(&mut d.ident, &ty, false, true, false);
+                        ctx.process_decl(
+                            &mut d.ident,
+                            &ty,
+                            DeclFlags {
+                                is_const: true,
+                                ..Default::default()
+                            },
+                        );
                     }
                     ForLoopInit::Assignment(a) => {
                         visit_lhs(&mut a.lhs, ctx);

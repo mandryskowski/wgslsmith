@@ -57,16 +57,14 @@ impl Context {
         &mut self,
         name: &mut String,
         data_type: &DataType,
-        mutable: bool,
-        is_const: bool,
-        banned_from_vertex: bool,
+        flags: crate::enumerator::types::DeclFlags,
     ) {
         if self.assignments.is_none() {
             self.holes.push(Hole {
                 hole_type: HoleType::Decl(DeclHole {
-                    mutable,
-                    is_const,
-                    banned_from_vertex,
+                    mutable: flags.mutable,
+                    is_const: flags.is_const,
+                    banned_from_vertex: flags.banned_from_vertex,
                 }),
                 data_type: data_type.clone(),
                 scope_id: self.current_scope(),

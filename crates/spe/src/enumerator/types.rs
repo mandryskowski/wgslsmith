@@ -1,5 +1,12 @@
 use ast::types::DataType;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DeclFlags {
+    pub mutable: bool,
+    pub is_const: bool,
+    pub banned_from_vertex: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeclHole {
     pub mutable: bool,
