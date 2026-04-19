@@ -162,9 +162,9 @@ pub enum LhsExpr {
     Ident(String),
     #[display("({_0}){_1}")]
     Postfix(Box<LhsExprNode>, Postfix),
-    #[display("*(_0)")]
+    #[display("*({_0})")]
     Deref(Box<LhsExprNode>),
-    #[display("&(_0)")]
+    #[display("&({_0})")]
     AddressOf(Box<LhsExprNode>),
 }
 

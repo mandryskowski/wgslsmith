@@ -158,6 +158,19 @@ pub enum TexelFormat {
     Rg11B10Ufloat,
 }
 
+impl TexelFormat {
+    pub fn scalar_type(&self) -> ScalarType {
+        let s = self.as_ref();
+        if s.ends_with("uint") {
+            ScalarType::U32
+        } else if s.ends_with("sint") {
+            ScalarType::I32
+        } else {
+            ScalarType::F32
+        }
+    }
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum TextureType {
     Sampled {
