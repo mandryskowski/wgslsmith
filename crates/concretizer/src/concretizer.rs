@@ -505,7 +505,7 @@ impl Concretizer {
         let expr = match node.expr {
             LhsExpr::Ident(ident) => LhsExpr::Ident(ident),
             LhsExpr::Postfix(expr, postfix) => LhsExpr::Postfix(
-                self.concretize_lhs_expr(*expr).into(),
+                Box::new(self.concretize_lhs_expr(*expr)),
                 match postfix {
                     Postfix::Index(index) => {
                         Postfix::Index(Box::new(self.concretize_expr(*index).into()))
@@ -513,8 +513,8 @@ impl Concretizer {
                     Postfix::Member(string) => Postfix::Member(string),
                 },
             ),
-            LhsExpr::Deref(_) => todo!(),
-            LhsExpr::AddressOf(_) => todo!(),
+            LhsExpr::Deref(expr) => LhsExpr::Deref(Box::new(self.concretize_lhs_expr(*expr))),
+            LhsExpr::AddressOf(expr) => LhsExpr::AddressOf(Box::new(self.concretize_lhs_expr(*expr))),
         };
 
         LhsExprNode {
