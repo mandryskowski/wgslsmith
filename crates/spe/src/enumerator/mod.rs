@@ -1,8 +1,9 @@
-use crate::vertex_reachable::get_vertex_reachable_functions;
+mod vertex_reachable;
 use ast::types::DataType;
 use ast::*;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use vertex_reachable::get_vertex_reachable_functions;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum HoleType {
