@@ -514,7 +514,9 @@ impl Concretizer {
                 },
             ),
             LhsExpr::Deref(expr) => LhsExpr::Deref(Box::new(self.concretize_lhs_expr(*expr))),
-            LhsExpr::AddressOf(expr) => LhsExpr::AddressOf(Box::new(self.concretize_lhs_expr(*expr))),
+            LhsExpr::AddressOf(expr) => {
+                LhsExpr::AddressOf(Box::new(self.concretize_lhs_expr(*expr)))
+            }
         };
 
         LhsExprNode {

@@ -224,9 +224,10 @@ fn visit_stmt<'a>(
                 visit_expr(analysis, scope, cx, initializer);
             }
 
-            scope
-                .idents
-                .insert(stmt.ident.as_str(), RootIdentifier::Mem(analysis.next_mem_loc()));
+            scope.idents.insert(
+                stmt.ident.as_str(),
+                RootIdentifier::Mem(analysis.next_mem_loc()),
+            );
         }
         Statement::Assignment(stmt) => {
             visit_lhs(analysis, scope, cx, &stmt.lhs);
