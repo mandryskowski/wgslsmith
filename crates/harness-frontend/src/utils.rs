@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ast::{
     AssignmentLhs, Else, Expr, ExprNode, ForLoopInit, ForLoopUpdate, IfStatement, LhsExpr,
@@ -6,22 +6,61 @@ use ast::{
 };
 
 pub fn remove_accessed_vars(vars: &mut HashSet<String>, module: &Module) {
-    let mut visitor = VarVisitor {
-        vars,
-        locals: vec![HashSet::new()],
-    };
+    let mut fn_accessed_vars = HashMap::new();
+    let mut fn_calls = HashMap::new();
 
     for decl in &module.functions {
+        let mut visitor = VarVisitor {
+            accessed_globals: HashSet::new(),
+            called_funcs: HashSet::new(),
+            locals: vec![HashSet::new()],
+        };
         visitor.visit_fn_decl(decl);
+        fn_accessed_vars.insert(decl.name.clone(), visitor.accessed_globals);
+        fn_calls.insert(decl.name.clone(), visitor.called_funcs);
     }
+
+    let mut compute_entry_points = vec![];
+    for decl in &module.functions {
+        for attr in &decl.attrs {
+            if let ast::FnAttr::Stage(ast::ShaderStage::Compute) = attr {
+                compute_entry_points.push(decl.name.clone());
+            }
+        }
+    }
+
+    if compute_entry_points.is_empty() {
+        compute_entry_points.push("main".to_owned());
+    }
+
+    let mut reachable_funcs = HashSet::new();
+    let mut queue = compute_entry_points;
+
+    while let Some(f) = queue.pop() {
+        if reachable_funcs.insert(f.clone()) {
+            if let Some(calls) = fn_calls.get(&f) {
+                queue.extend(calls.iter().cloned());
+            }
+        }
+    }
+
+    let mut all_accessed_globals = HashSet::new();
+    for f in reachable_funcs {
+        if let Some(accessed) = fn_accessed_vars.get(&f) {
+            all_accessed_globals.extend(accessed.iter().cloned());
+        }
+    }
+
+    vars.retain(|var| !all_accessed_globals.contains(var));
 }
 
-struct VarVisitor<'a> {
-    vars: &'a mut HashSet<String>,
+struct VarVisitor {
+    accessed_globals: HashSet<String>,
+    called_funcs: HashSet<String>,
     locals: Vec<HashSet<String>>,
 }
 
-impl<'a> VarVisitor<'a> {
+impl VarVisitor {
     fn is_shadowed(&self, ident: &str) -> bool {
         self.locals.iter().any(|scope| scope.contains(ident))
     }
@@ -163,6 +202,7 @@ impl<'a> VarVisitor<'a> {
                             self.visit_assignment_lhs(&dec.lhs);
                         }
                         ForLoopInit::Call(c) => {
+                            self.called_funcs.insert(c.ident.clone());
                             for arg in &c.args {
                                 self.visit_expr_node(arg);
                             }
@@ -187,6 +227,7 @@ impl<'a> VarVisitor<'a> {
                             self.visit_assignment_lhs(&dec.lhs);
                         }
                         ForLoopUpdate::Call(c) => {
+                            self.called_funcs.insert(c.ident.clone());
                             for arg in &c.args {
                                 self.visit_expr_node(arg);
                             }
@@ -203,6 +244,7 @@ impl<'a> VarVisitor<'a> {
                 self.exit_scope();
             }
             Statement::FnCall(s) => {
+                self.called_funcs.insert(s.ident.clone());
                 for arg in &s.args {
                     self.visit_expr_node(arg);
                 }
@@ -261,7 +303,7 @@ impl<'a> VarVisitor<'a> {
             }
             Expr::Var(v) => {
                 if !self.is_shadowed(&v.ident) {
-                    self.vars.remove(&v.ident);
+                    self.accessed_globals.insert(v.ident.clone());
                 }
             }
             Expr::Postfix(e) => {
@@ -276,6 +318,7 @@ impl<'a> VarVisitor<'a> {
                 self.visit_expr_node(&e.right);
             }
             Expr::FnCall(e) => {
+                self.called_funcs.insert(e.ident.clone());
                 for arg in &e.args {
                     self.visit_expr_node(arg);
                 }
@@ -291,7 +334,7 @@ impl<'a> VarVisitor<'a> {
         match lhs_expr {
             LhsExpr::Ident(ident) => {
                 if !self.is_shadowed(ident) {
-                    self.vars.remove(ident);
+                    self.accessed_globals.insert(ident.clone());
                 }
             }
             LhsExpr::Postfix(e, postfix) => {
