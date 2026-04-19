@@ -1,6 +1,9 @@
 use ast::*;
 
-pub fn get_stage_reachable_functions(module: &Module, stage: ShaderStage) -> std::collections::HashSet<String> {
+pub fn get_stage_reachable_functions(
+    module: &Module,
+    stage: ShaderStage,
+) -> std::collections::HashSet<String> {
     let mut call_graph: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
 
