@@ -37,6 +37,87 @@ fn adjust_groups(module_a: &Module, module_b: &mut Module) {
     }
 }
 
+fn remove_returns(stmts: &mut Vec<Statement>) {
+    stmts.retain(|s| !matches!(s, Statement::Return(_)));
+    for stmt in stmts {
+        match stmt {
+            Statement::Compound(stmts) => remove_returns(stmts),
+            Statement::If(s) => {
+                remove_returns(&mut s.body);
+                let mut current_else = s.else_.as_deref_mut();
+                while let Some(els) = current_else {
+                    match els {
+                        Else::If(if_s) => {
+                            remove_returns(&mut if_s.body);
+                            current_else = if_s.else_.as_deref_mut();
+                        }
+                        Else::Else(stmts) => {
+                            remove_returns(stmts);
+                            break;
+                        }
+                    }
+                }
+            }
+            Statement::Loop(s) => {
+                remove_returns(&mut s.body);
+                if let Some(cont) = &mut s.continuing {
+                    remove_returns(&mut cont.stmts);
+                }
+            }
+            Statement::While(s) => remove_returns(&mut s.body),
+            Statement::Switch(s) => {
+                for c in &mut s.cases {
+                    remove_returns(&mut c.body);
+                }
+                remove_returns(&mut s.default);
+            }
+            Statement::ForLoop(s) => remove_returns(&mut s.body),
+            _ => {}
+        }
+    }
+}
+
+fn get_provided_bindings(inputs: &[FnInput]) -> Vec<(Option<BuiltinValue>, Option<u32>, ExprNode)> {
+    let mut bindings = Vec::new();
+    for i in inputs {
+        let b = i.attrs.iter().find_map(|a| match a {
+            FnParamReturnAttr::Builtin(v) => Some(*v),
+            _ => None,
+        });
+        let l = i.attrs.iter().find_map(|a| match a {
+            FnParamReturnAttr::Location(v) => Some(*v),
+            _ => None,
+        });
+        if b.is_some() || l.is_some() {
+            bindings.push((
+                b,
+                l,
+                VarExpr::new(i.name.clone()).into_node(i.data_type.clone()),
+            ));
+        }
+        if let DataType::Struct(decl) = &i.data_type {
+            for m in &decl.members {
+                let mb = m.attrs.iter().find_map(|a| match a {
+                    StructMemberAttr::Builtin(v) => Some(*v),
+                    _ => None,
+                });
+                let ml = m.attrs.iter().find_map(|a| match a {
+                    StructMemberAttr::Location(v) => Some(*v),
+                    _ => None,
+                });
+                if mb.is_some() || ml.is_some() {
+                    let member_expr = ExprNode::from(PostfixExpr::new(
+                        VarExpr::new(i.name.clone()).into_node(i.data_type.clone()),
+                        Postfix::member(m.name.clone()),
+                    ));
+                    bindings.push((mb, ml, member_expr));
+                }
+            }
+        }
+    }
+    bindings
+}
+
 fn fuse_modules(mut module_a: Module, module_b: Module) -> Module {
     module_a.enables.extend(module_b.enables);
     module_a.enables.sort_by(|a, b| a.as_ref().cmp(b.as_ref()));
@@ -76,7 +157,45 @@ fn fuse_modules(mut module_a: Module, module_b: Module) -> Module {
                 }
 
                 if a_stage == Some(stage) {
+                    remove_returns(&mut f_a.body);
+
+                    let provided = get_provided_bindings(&f_a.inputs);
+
+                    for i_b in &f_b.inputs {
+                        let b_b = i_b.attrs.iter().find_map(|a| match a {
+                            FnParamReturnAttr::Builtin(b) => Some(*b),
+                            _ => None,
+                        });
+                        let l_b = i_b.attrs.iter().find_map(|a| match a {
+                            FnParamReturnAttr::Location(l) => Some(*l),
+                            _ => None,
+                        });
+
+                        let mut conflict_expr = None;
+                        if b_b.is_some() || l_b.is_some() {
+                            for (b_a, l_a, expr_a) in &provided {
+                                if (b_b.is_some() && b_b == *b_a) || (l_b.is_some() && l_b == *l_a)
+                                {
+                                    conflict_expr = Some(expr_a.clone());
+                                    break;
+                                }
+                            }
+                        }
+
+                        if let Some(expr) = conflict_expr {
+                            let let_stmt = Statement::LetDecl(LetDeclStatement::new(
+                                i_b.name.clone(),
+                                None,
+                                expr,
+                            ));
+                            f_a.body.push(let_stmt);
+                        } else {
+                            f_a.inputs.push(i_b.clone());
+                        }
+                    }
+
                     f_a.body.extend(f_b.body.clone());
+                    f_a.output = f_b.output.clone();
                     matched = true;
                     break;
                 }
