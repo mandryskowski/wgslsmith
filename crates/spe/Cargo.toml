@@ -17,6 +17,7 @@ ast = { path = "../ast" }
 harness-types = { path = "../harness-types" }
 serde_json = "1.0"
 strum = { version = "0.24.0", features = ["derive"] }
+fuse = { path = "../fuse" }
 
 [dependencies.time]
 version = "0.3.9"
