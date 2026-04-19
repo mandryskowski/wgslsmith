@@ -16,23 +16,52 @@ pub fn fuse(module_a: Module, mut module_b: Module) -> Module {
 }
 
 fn adjust_groups(module_a: &Module, module_b: &mut Module) {
-    let mut max_group_a: i32 = -1;
+    let mut max_binding_a: i32 = -1;
     for var in &module_a.vars {
-        for attr in &var.attrs {
-            if let GlobalVarAttr::Group(g) = attr {
-                max_group_a = max_group_a.max(*g);
-            }
-        }
-    }
-    let group_offset = max_group_a + 1;
+        let mut is_group_0 = false;
+        let mut binding = -1;
 
-    if group_offset > 0 {
-        for var in &mut module_b.vars {
-            for attr in &mut var.attrs {
-                if let GlobalVarAttr::Group(g) = attr {
-                    *g += group_offset;
+        for attr in &var.attrs {
+            match attr {
+                GlobalVarAttr::Group(g) => {
+                    if *g == 0 {
+                        is_group_0 = true;
+                    }
+                }
+                GlobalVarAttr::Binding(b) => {
+                    binding = *b;
                 }
             }
+        }
+
+        if is_group_0 {
+            max_binding_a = max_binding_a.max(binding);
+        }
+    }
+
+    let mut current_binding = max_binding_a + 1;
+
+    for var in &mut module_b.vars {
+        let mut has_binding = false;
+        for attr in &var.attrs {
+            if let GlobalVarAttr::Binding(_) = attr {
+                has_binding = true;
+                break;
+            }
+        }
+
+        if has_binding {
+            for attr in &mut var.attrs {
+                match attr {
+                    GlobalVarAttr::Group(g) => {
+                        *g = 0;
+                    }
+                    GlobalVarAttr::Binding(b) => {
+                        *b = current_binding;
+                    }
+                }
+            }
+            current_binding += 1;
         }
     }
 }
