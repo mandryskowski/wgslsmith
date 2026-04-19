@@ -14,5 +14,5 @@ parser = { path = "../parser" }
 half = { version = "2.7.1", features = ["std"] }
 
 [dependencies.clap]
-version = "3.0.0"
+version = "3.1.17"
 features = ["derive"]

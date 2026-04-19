@@ -22,7 +22,7 @@ reconditioner = { path = "../reconditioner" }
 half = { version = "2.7.1", features = ["std"] }
 
 [dependencies.clap]
-version = "3.0"
+version = "3.1.17"
 features = ["derive"]
 
 [dependencies.tracing-subscriber]
