@@ -137,7 +137,7 @@ pub mod fuse {
                 let path = Path::new(line);
                 if let Ok(src) = fs::read_to_string(path) {
                     if let Ok(module) = std::panic::catch_unwind(|| parser::parse(&src)) {
-                        working_modules.push(module);
+                        working_modules.push((module, path.to_path_buf()));
                     }
                 }
             }
@@ -189,7 +189,7 @@ pub mod fuse {
                         &reconditioned_src,
                         input_buffers.as_deref(),
                     ) {
-                        working_modules.push(module);
+                        working_modules.push((module, path.to_path_buf()));
                         passed_paths.push(path.to_path_buf());
                     }
                 }
@@ -259,9 +259,11 @@ pub mod fuse {
             chosen_indices.shuffle(&mut rng);
             chosen_indices.truncate(count);
 
-            let mut base_module = working_modules[chosen_indices[0]].clone();
+            let mut base_module = working_modules[chosen_indices[0]].0.clone();
+            let mut fused_paths = vec![working_modules[chosen_indices[0]].1.clone()];
             for &idx in &chosen_indices[1..] {
-                let next_module = working_modules[idx].clone();
+                let next_module = working_modules[idx].0.clone();
+                fused_paths.push(working_modules[idx].1.clone());
                 base_module = fuse::fuse(base_module, next_module);
             }
 
@@ -282,6 +284,7 @@ pub mod fuse {
                 format!("fused_{}", file_num),
                 file_num,
                 None,
+                Some(fused_paths),
             );
 
             shaders_processed += 1;

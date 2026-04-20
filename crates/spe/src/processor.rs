@@ -66,9 +66,11 @@ impl<'a> ShaderProcessor<'a> {
             stem,
             file_num,
             total_files,
+            None,
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn process_core(
         &mut self,
         module: &ast::Module,
@@ -77,6 +79,7 @@ impl<'a> ShaderProcessor<'a> {
         stem: String,
         file_num: usize,
         total_files: Option<usize>,
+        fused_paths: Option<Vec<std::path::PathBuf>>,
     ) {
         let progress_prefix = if let Some(total) = total_files {
             format!("[{}/{}] ", file_num, total)
@@ -573,6 +576,15 @@ impl<'a> ShaderProcessor<'a> {
 
                     if kind == "mismatch" && !consensus.is_empty() {
                         std::fs::write(failure_out_dir.join("consensus.json"), consensus).unwrap();
+                    }
+
+                    if let Some(fused) = &fused_paths {
+                        let paths_str = fused
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        std::fs::write(failure_out_dir.join("fused_from.txt"), paths_str).unwrap();
                     }
                 }
             }
