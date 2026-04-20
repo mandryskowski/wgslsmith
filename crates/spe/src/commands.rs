@@ -73,6 +73,7 @@ pub mod fuse {
     use crate::options::DirOptions;
     use crate::processor::ShaderProcessor;
     use crate::{stats, util, wgslsmith};
+    use rand::SeedableRng;
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::Ordering;
@@ -262,9 +263,47 @@ pub mod fuse {
             let mut base_module = working_modules[chosen_indices[0]].0.clone();
             let mut fused_paths = vec![working_modules[chosen_indices[0]].1.clone()];
             for &idx in &chosen_indices[1..] {
-                let next_module = working_modules[idx].0.clone();
-                fused_paths.push(working_modules[idx].1.clone());
-                base_module = fuse::fuse(base_module, next_module);
+                if rng.gen_bool(0.2) && opt.allow_generate {
+                    // Generate a smaller random shader utilizing context collected from the base_module
+                    let seed = rng.gen();
+                    let mut gen_rng = rand::rngs::StdRng::seed_from_u64(seed);
+                    let gen_opts = std::rc::Rc::new(generator::Options {
+                        seed: Some(seed),
+                        debug: false,
+                        enabled_fns: vec![],
+                        enable_pointers: true,
+                        skip_pointer_checks: true,
+                        log: None,
+                        enable_f16: true,
+                        enable_divergence: false,
+                        fn_min_stmts: 1,
+                        fn_max_stmts: 3,
+                        block_min_stmts: 0,
+                        block_max_stmts: 2,
+                        max_block_depth: 2,
+                        max_fns: 2,
+                        min_structs: 0,
+                        max_structs: 1,
+                        min_struct_members: 1,
+                        max_struct_members: 3,
+                        max_if_chain_depth: 1,
+                        max_compute_workgroup_storage_size: 16384,
+                        preset: None,
+                        recondition: false,
+                        output: "-".to_owned(),
+                    });
+
+                    let next_module = generator::Generator::new(&mut gen_rng, gen_opts)
+                        .with_context(&base_module)
+                        .gen_module();
+
+                    fused_paths.push(std::path::PathBuf::from(format!("generated_{}", seed)));
+                    base_module = fuse::fuse(base_module, next_module);
+                } else {
+                    let next_module = working_modules[idx].0.clone();
+                    fused_paths.push(working_modules[idx].1.clone());
+                    base_module = fuse::fuse(base_module, next_module);
+                }
             }
 
             let fused_inputs = util::generate_inputs_if_needed(&base_module);

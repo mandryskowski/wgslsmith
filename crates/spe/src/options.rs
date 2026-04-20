@@ -74,4 +74,8 @@ pub struct DirOptions {
     /// File containing regexes to ignore crashes
     #[clap(long)]
     pub ignore_file: Option<PathBuf>,
+
+    /// Allow generating shaders in spe fuse.
+    #[clap(long, action, default_value = "false")]
+    pub allow_generate: bool,
 }

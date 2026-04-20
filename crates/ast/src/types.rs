@@ -147,6 +147,16 @@ impl DataType {
     pub fn is_signed_int(&self) -> bool {
         matches!(self.as_scalar(), Some(ScalarType::I32))
     }
+
+    /// Returns `true` if this type can be constructed via a TypeConsExpr
+    pub fn is_constructible(&self) -> bool {
+        match self {
+            DataType::Scalar(_) | DataType::Vector(_, _) | DataType::Matrix(_, _, _) => true,
+            DataType::Array(inner, Some(_)) => inner.is_constructible(),
+            DataType::Struct(decl) => decl.members.iter().all(|m| m.data_type.is_constructible()),
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Debug for DataType {

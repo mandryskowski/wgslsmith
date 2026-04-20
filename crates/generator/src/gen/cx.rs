@@ -34,6 +34,7 @@ pub struct FnSignature {
 
 pub struct TypeContext {
     types: Vec<Rc<StructDecl>>,
+    imported: std::collections::HashSet<String>,
     options: Rc<Options>,
 }
 
@@ -48,12 +49,17 @@ impl TypeContext {
     pub fn new(options: Rc<Options>) -> Self {
         TypeContext {
             types: Vec::new(),
+            imported: std::collections::HashSet::new(),
             options,
         }
     }
 
     pub fn insert(&mut self, decl: Rc<StructDecl>) {
         self.types.push(decl);
+    }
+
+    pub fn mark_imported(&mut self, name: &str) {
+        self.imported.insert(name.to_owned());
     }
 
     pub fn select(&self, rng: &mut impl Rng) -> DataType {
@@ -92,10 +98,16 @@ impl TypeContext {
             allowed.push(DataTypeKind::Matrix);
         }
 
+        let valid_structs: Vec<_> = self
+            .types
+            .iter()
+            .filter(|t| DataType::Struct((**t).clone()).is_constructible())
+            .collect();
+
         if !matches!(
             filter,
             SelectionFilter::HostShareable | SelectionFilter::Uniform
-        ) && !self.types.is_empty()
+        ) && !valid_structs.is_empty()
         {
             allowed.push(DataTypeKind::User);
         }
@@ -116,12 +128,15 @@ impl TypeContext {
                     *mat_scalars.choose(rng).unwrap(),
                 )
             }
-            DataTypeKind::User => DataType::Struct(self.types.choose(rng).cloned().unwrap()),
+            DataTypeKind::User => DataType::Struct((**valid_structs.choose(rng).unwrap()).clone()),
         }
     }
 
     pub fn into_structs(self) -> Vec<Rc<StructDecl>> {
         self.types
+            .into_iter()
+            .filter(|s| !self.imported.contains(&s.name))
+            .collect()
     }
 }
 
@@ -149,6 +164,7 @@ impl Func {
 pub struct FnContext {
     map: HashMap<DataType, Vec<Rc<Func>>>,
     decls: Vec<FnDecl>,
+    imported: std::collections::HashSet<String>,
     count: u32,
 }
 
@@ -157,8 +173,13 @@ impl FnContext {
         FnContext {
             map: builtins::gen_builtins(),
             decls: vec![],
+            imported: std::collections::HashSet::new(),
             count: 0,
         }
+    }
+
+    pub fn mark_imported(&mut self, name: &str) {
+        self.imported.insert(name.to_owned());
     }
 
     pub fn len(&self) -> u32 {
@@ -210,5 +231,8 @@ impl FnContext {
 
     pub fn into_fns(self) -> Vec<FnDecl> {
         self.decls
+            .into_iter()
+            .filter(|f| !self.imported.contains(&f.name))
+            .collect()
     }
 }

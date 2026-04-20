@@ -56,6 +56,29 @@ pub struct Generator<'a> {
 }
 
 impl<'a> Generator<'a> {
+    pub fn with_context(mut self, module: &ast::Module) -> Self {
+        for s in &module.structs {
+            self.cx.types.insert(s.clone());
+            self.cx.types.mark_imported(&s.name);
+        }
+        for f in &module.functions {
+            let is_entry = f.attrs.iter().any(|a| matches!(a, ast::FnAttr::Stage(_)));
+            let can_call = f
+                .inputs
+                .iter()
+                .all(|p| p.data_type.dereference().is_constructible())
+                && f.output
+                    .as_ref()
+                    .is_none_or(|out| out.data_type.dereference().is_constructible());
+
+            if !is_entry && can_call {
+                self.cx.fns.insert(f.clone());
+                self.cx.fns.mark_imported(&f.name);
+            }
+        }
+        self
+    }
+
     pub fn new(rng: &'a mut StdRng, options: Rc<Options>) -> Self {
         let wg_size = if options.enable_divergence {
             rng.gen_range(2..=32)
