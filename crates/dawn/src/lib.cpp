@@ -117,6 +117,14 @@ extern "C" WGPUDevice create_device(
             descriptor.requiredFeatures = supportedFeatures.data();
             descriptor.requiredFeatureCount = supportedFeatures.size();
 
+            WGPULimits supportedLimits = {};
+            wgpuAdapterGetLimits(adapter_handle, &supportedLimits);
+
+            WGPULimits requiredLimits = WGPU_LIMITS_INIT;
+            requiredLimits.maxStorageBuffersPerShaderStage = supportedLimits.maxStorageBuffersPerShaderStage;
+
+            descriptor.requiredLimits = &requiredLimits;
+
             descriptor.uncapturedErrorCallbackInfo = errorCallbackInfo;
 
             WGPUDevice device = wgpuAdapterCreateDevice(adapter_handle, &descriptor);
