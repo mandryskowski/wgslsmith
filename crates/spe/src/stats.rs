@@ -46,15 +46,15 @@ pub fn write_stats_json() {
         let last_idx = LAST_INDEX.load(Ordering::SeqCst);
 
         let args: Vec<String> = std::env::args().collect();
+        let full_command = args.join(" ");
 
-        let args_json = args
-            .iter()
-            .map(|a| format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\"")))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let args_json = format!(
+            "\"{}\"",
+            full_command.replace('\\', "\\\\").replace('"', "\\\"")
+        );
 
         let json = format!(
-            "{{\n  \"args\": [{}],\n  \"failed_parse\": {},\n  \"failed_recondition\": {},\n  \"failed_run\": {},\n  \"run_success\": {},\n  \"skipped_only_original\": {},\n  \"subsampled\": {},\n  \"last_handled_index\": {}\n}}",
+            "{{\n  \"args\": {},\n  \"failed_parse\": {},\n  \"failed_recondition\": {},\n  \"failed_run\": {},\n  \"run_success\": {},\n  \"skipped_only_original\": {},\n  \"subsampled\": {},\n  \"last_handled_index\": {}\n}}",
             args_json, failed_parse, failed_recondition, failed_run, run_success, skipped_only_original, subsampled, last_idx
         );
         let _ = fs::write(out_dir.join("stats.json"), json);

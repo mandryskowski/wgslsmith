@@ -315,6 +315,8 @@ impl<'a> ShaderProcessor<'a> {
                     );
                     break;
                 }
+
+                continue;
             }
 
             if self.opt.msl_validate {
