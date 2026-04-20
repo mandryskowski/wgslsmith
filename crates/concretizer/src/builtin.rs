@@ -6,6 +6,10 @@ use value::Value;
 #[derive(Debug)]
 pub enum Builtin {
     Abs,
+    Acos,
+    Acosh,
+    Asin,
+    Atanh,
     Clamp,
     All,
     Any,
@@ -54,6 +58,10 @@ impl Builtin {
             "all" => Some(Builtin::All),
             "any" => Some(Builtin::Any),
             "abs" => Some(Builtin::Abs),
+            "acos" => Some(Builtin::Acos),
+            "acosh" => Some(Builtin::Acosh),
+            "asin" => Some(Builtin::Asin),
+            "atanh" => Some(Builtin::Atanh),
             "countLeadingZeros" => Some(Builtin::CountLeadingZeros),
             "countTrailingZeros" => Some(Builtin::CountTrailingZeros),
             "countOneBits" => Some(Builtin::CountOneBits),
@@ -278,6 +286,10 @@ fn evaluate(ident: &Builtin, val: Lit) -> Option<Value> {
         Builtin::Exp => exp(val),
         Builtin::Exp2 => exp2(val),
         Builtin::Abs => abs(val),
+        Builtin::Acos => acos(val),
+        Builtin::Acosh => acosh(val),
+        Builtin::Asin => asin(val),
+        Builtin::Atanh => atanh(val),
         Builtin::CountOneBits => count_one_bits(val),
         Builtin::CountLeadingZeros => count_leading_zeros(val),
         Builtin::CountTrailingZeros => count_trailing_zeros(val),
@@ -806,6 +818,82 @@ fn abs(val: Lit) -> Option<Value> {
         Lit::F32(v) => Value::from_f32(Some(v.abs())),
         Lit::F16(v) => Value::from_f16(Some(half::f16::from_f32(v.to_f32().abs()))),
         Lit::U32(v) => Value::from_u32(Some(v)),
+        _ => None,
+    }
+}
+
+fn acos(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if !(-1.0..=1.0).contains(&v) {
+                return None;
+            }
+            Value::from_f32(in_float_range(v.acos()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if !(-1.0..=1.0).contains(&f) {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(f.acos())))
+        }
+        _ => None,
+    }
+}
+
+fn acosh(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if v < 1.0 || v.is_nan() {
+                return None;
+            }
+            Value::from_f32(in_float_range(v.acosh()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if f < 1.0 || f.is_nan() {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(f.acosh())))
+        }
+        _ => None,
+    }
+}
+
+fn asin(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if !(-1.0..=1.0).contains(&v) {
+                return None;
+            }
+            Value::from_f32(in_float_range(v.asin()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if !(-1.0..=1.0).contains(&f) {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(f.asin())))
+        }
+        _ => None,
+    }
+}
+
+fn atanh(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if !(-1.0..=1.0).contains(&v) {
+                return None;
+            }
+            Value::from_f32(in_float_range(v.atanh()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if !(-1.0..=1.0).contains(&f) {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(f.atanh())))
+        }
         _ => None,
     }
 }
