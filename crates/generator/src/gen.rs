@@ -235,7 +235,11 @@ impl<'a> Generator<'a> {
 
                 self.global_scope.insert_mutable(
                     name,
-                    DataType::Ref(MemoryViewType::new(data_type, StorageClass::Storage)),
+                    DataType::Ref(MemoryViewType {
+                        inner: Rc::new(data_type),
+                        storage_class: StorageClass::Storage,
+                        access_mode: AccessMode::ReadWrite,
+                    }),
                 );
             }
         }
@@ -454,10 +458,11 @@ impl<'a> Generator<'a> {
                 let out_rhs = this.gen_expr(&out_buf_type);
 
                 let out_lhs = if this.wg_size > 1 {
-                    let out_buf_global_ref = DataType::Ref(MemoryViewType::new(
-                        out_buf_global_type.clone(),
-                        StorageClass::Storage,
-                    ));
+                    let out_buf_global_ref = DataType::Ref(MemoryViewType {
+                        inner: Rc::new(out_buf_global_type.clone()),
+                        storage_class: StorageClass::Storage,
+                        access_mode: AccessMode::ReadWrite,
+                    });
                     let wrapper_node = LhsExprNode::name("s_output".to_owned(), out_buf_global_ref);
                     wrapper_node.array_index(idx.clone()).into()
                 } else {
@@ -470,10 +475,11 @@ impl<'a> Generator<'a> {
                 let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
 
                 let hash_lhs = if this.wg_size > 1 {
-                    let hash_out_global_ref = DataType::Ref(MemoryViewType::new(
-                        hash_out_global_type.clone(),
-                        StorageClass::Storage,
-                    ));
+                    let hash_out_global_ref = DataType::Ref(MemoryViewType {
+                        inner: Rc::new(hash_out_global_type.clone()),
+                        storage_class: StorageClass::Storage,
+                        access_mode: AccessMode::ReadWrite,
+                    });
                     let wrapper_node =
                         LhsExprNode::name("hash_output".to_owned(), hash_out_global_ref);
                     wrapper_node.array_index(idx.clone()).into()

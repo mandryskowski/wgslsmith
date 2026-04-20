@@ -133,10 +133,15 @@ pub fn generate_prelude(idx: ExprNode, enable_f16: bool, copies: &[CopyInOut]) -
     }
 
     for copy in copies {
-        let wrapper_ref = DataType::Ref(MemoryViewType::new(
-            copy.wrapper_type.clone(),
-            copy.storage_class,
-        ));
+        let wrapper_ref = DataType::Ref(MemoryViewType {
+            inner: std::rc::Rc::new(copy.wrapper_type.clone()),
+            storage_class: copy.storage_class,
+            access_mode: if copy.storage_class == StorageClass::Storage {
+                ast::AccessMode::ReadWrite
+            } else {
+                copy.storage_class.default_access_mode()
+            },
+        });
         let wrapper_node = VarExpr::new(&copy.global_name).into_node(wrapper_ref);
         let element_node: ExprNode =
             PostfixExpr::new(wrapper_node, Postfix::index(idx.clone())).into();
@@ -163,10 +168,15 @@ pub fn generate_prelude(idx: ExprNode, enable_f16: bool, copies: &[CopyInOut]) -
 pub fn generate_postlude(idx: ExprNode, copies: &[CopyInOut]) -> Vec<Statement> {
     let mut postlude = vec![];
     for copy in copies {
-        let wrapper_ref = DataType::Ref(MemoryViewType::new(
-            copy.wrapper_type.clone(),
-            copy.storage_class,
-        ));
+        let wrapper_ref = DataType::Ref(MemoryViewType {
+            inner: std::rc::Rc::new(copy.wrapper_type.clone()),
+            storage_class: copy.storage_class,
+            access_mode: if copy.storage_class == StorageClass::Storage {
+                ast::AccessMode::ReadWrite
+            } else {
+                copy.storage_class.default_access_mode()
+            },
+        });
         let wrapper_node = LhsExprNode::name(copy.global_name.clone(), wrapper_ref);
         let element_node = wrapper_node.array_index(idx.clone());
 
