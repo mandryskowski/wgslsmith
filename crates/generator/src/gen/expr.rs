@@ -326,11 +326,13 @@ impl super::Generator<'_> {
         let mut args = vec![];
 
         for i in 0..arg_count {
-            let expr = if self.options.enable_pointers
-                && self.scope.has_references()
-                && self.rng.gen_bool(0.2)
-            {
-                let (name, mem_view) = self.scope.choose_reference(self.rng);
+            let ptr_param_ref = if self.options.enable_pointers && self.rng.gen_bool(0.2) {
+                self.scope.choose_ptr_parameter_reference(self.rng)
+            } else {
+                None
+            };
+
+            let expr = if let Some((name, mem_view)) = ptr_param_ref {
                 let var_expr = VarExpr::new(name).into_node(DataType::Ref(mem_view.clone()));
                 UnOpExpr::new(UnOp::AddressOf, var_expr).into()
             } else {
