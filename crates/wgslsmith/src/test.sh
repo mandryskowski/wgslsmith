@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-kill -s USR1 "$WGSLREDUCE_PID"
-
 args=(
     "$WGSLREDUCE_KIND"
     "$WGSLREDUCE_SHADER_NAME"

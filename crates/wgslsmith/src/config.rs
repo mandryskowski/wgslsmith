@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-#[cfg(all(target_family = "unix", feature = "reducer"))]
+#[cfg(feature = "reducer")]
 use color_eyre::Help;
 use directories::ProjectDirs;
-#[cfg(all(target_family = "unix", feature = "reducer"))]
+#[cfg(feature = "reducer")]
 use eyre::eyre;
 use regex::Regex;
 use serde::Deserialize;
@@ -85,7 +85,7 @@ pub struct Creduce {
 }
 
 impl Creduce {
-    #[cfg(all(target_family = "unix", feature = "reducer"))]
+    #[cfg(feature = "reducer")]
     pub fn path(&self) -> &str {
         self.path.as_deref().unwrap_or("creduce")
     }
@@ -97,7 +97,7 @@ pub struct Cvise {
 }
 
 impl Cvise {
-    #[cfg(all(target_family = "unix", feature = "reducer"))]
+    #[cfg(feature = "reducer")]
     pub fn path(&self) -> &str {
         self.path.as_deref().unwrap_or("cvise")
     }
@@ -109,7 +109,7 @@ pub struct Perses {
 }
 
 impl Perses {
-    #[cfg(all(target_family = "unix", feature = "reducer"))]
+    #[cfg(feature = "reducer")]
     pub fn jar(&self) -> eyre::Result<&str> {
         self.jar.as_deref().ok_or_else(|| {
             eyre!("missing path to perses jar file")
@@ -125,7 +125,7 @@ pub struct Validator {
 }
 
 impl Validator {
-    #[cfg(all(target_family = "unix", feature = "reducer"))]
+    #[cfg(feature = "reducer")]
     pub fn server(&self) -> eyre::Result<&str> {
         self.server.as_deref().ok_or_else(|| {
             eyre!("missing validation server address")

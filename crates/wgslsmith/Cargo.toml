@@ -19,7 +19,6 @@ regex = "1.5.5"
 rspirv = "0.11"
 serde_json = "1.0"
 serde_regex = "1.1.0"
-signal-hook = "0.3.14"
 tap = "1.0.1"
 toml = "0.5.9"
 tracing = "0.1"
@@ -48,10 +47,6 @@ features = ["derive"]
 path = "../../external/wgpu/naga"
 features = ["wgsl-in", "hlsl-out", "msl-out", "spv-out"]
 optional = true
-
-[dependencies.nix]
-version = "0.24.1"
-features = ["signal"]
 
 [dependencies.serde]
 version = "1.0"

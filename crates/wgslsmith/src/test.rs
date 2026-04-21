@@ -66,6 +66,13 @@ pub struct CrashOptions {
 }
 
 pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
+    if let Ok(port) = std::env::var("WGSLREDUCE_PORT") {
+        if let Ok(port) = port.parse::<u16>() {
+            let _ = std::net::UdpSocket::bind("127.0.0.1:0")
+                .and_then(|s| s.send_to(b"1", ("127.0.0.1", port)));
+        }
+    }
+
     let source = std::fs::read_to_string(&options.shader)?;
 
     let input_path = if let Some(input_path) = options.input_data {
@@ -156,7 +163,11 @@ fn reduce_crash(
 
         for target in targets {
             if let Some(ref pre) = options.pre_cmd {
-                let _ = std::process::Command::new("sh").arg("-c").arg(pre).status();
+                let _ = if cfg!(windows) {
+                    std::process::Command::new("cmd").arg("/C").arg(pre).status()
+                } else {
+                    std::process::Command::new("sh").arg("-c").arg(pre).status()
+                };
             }
 
             let result = harness_runner::exec_shader(target, &source, &metadata, &[], |line| {
@@ -176,10 +187,11 @@ fn reduce_crash(
             );
 
             if let Some(ref post) = options.post_cmd {
-                let status = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(post)
-                    .status()?;
+                let status = if cfg!(windows) {
+                    std::process::Command::new("cmd").arg("/C").arg(post).status()?
+                } else {
+                    std::process::Command::new("sh").arg("-c").arg(post).status()?
+                };
 
                 current_matches = status.success();
             }
