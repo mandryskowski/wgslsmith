@@ -164,7 +164,10 @@ fn reduce_crash(
         for target in targets {
             if let Some(ref pre) = options.pre_cmd {
                 let _ = if cfg!(windows) {
-                    std::process::Command::new("cmd").arg("/C").arg(pre).status()
+                    std::process::Command::new("cmd")
+                        .arg("/C")
+                        .arg(pre)
+                        .status()
                 } else {
                     std::process::Command::new("sh").arg("-c").arg(pre).status()
                 };
@@ -188,9 +191,15 @@ fn reduce_crash(
 
             if let Some(ref post) = options.post_cmd {
                 let status = if cfg!(windows) {
-                    std::process::Command::new("cmd").arg("/C").arg(post).status()?
+                    std::process::Command::new("cmd")
+                        .arg("/C")
+                        .arg(post)
+                        .status()?
                 } else {
-                    std::process::Command::new("sh").arg("-c").arg(post).status()?
+                    std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(post)
+                        .status()?
                 };
 
                 current_matches = status.success();

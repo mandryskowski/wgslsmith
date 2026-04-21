@@ -1,5 +1,4 @@
 use std::ffi::OsStr;
-use std::fs::Permissions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -251,7 +250,9 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
         match socket.recv_from(&mut buf) {
             Ok(_) => count += 1,
             Err(e) => {
-                if e.kind() != std::io::ErrorKind::WouldBlock && e.kind() != std::io::ErrorKind::TimedOut {
+                if e.kind() != std::io::ErrorKind::WouldBlock
+                    && e.kind() != std::io::ErrorKind::TimedOut
+                {
                     // Ignore other errors
                 }
             }
