@@ -27,15 +27,21 @@ impl super::Generator<'_> {
             DataType::Scalar(_) => allowed.push(ExprType::Lit),
             DataType::Vector(_, _) => allowed.push(ExprType::TypeCons),
             DataType::Matrix(_, _, _) => allowed.push(ExprType::TypeCons),
-            DataType::Array(_, _) => allowed.push(ExprType::TypeCons),
-            DataType::Struct(_) => allowed.push(ExprType::TypeCons),
+            DataType::Array(_, Some(_)) => allowed.push(ExprType::TypeCons),
+            DataType::Array(_, None) => {}
+            DataType::Struct(_) if ty.is_constructible() => allowed.push(ExprType::TypeCons),
+            DataType::Struct(_) => {}
             DataType::Ptr(view) => return self.gen_pointer_expr(view),
             DataType::Ref(_) => panic!("explicit request to generate ref expression: `{ty}`"),
             DataType::Texture(_) | DataType::Sampler(_) => {}
             DataType::Atomic(_)
             | DataType::AtomicCompareExchangeResult(_)
             | DataType::FrexpResult(_)
-            | DataType::ModfResult(_) => todo!(),
+            | DataType::ModfResult(_) => {}
+        }
+
+        if allowed.is_empty() {
+            panic!("cannot generate expression for `{ty:?}`");
         }
 
         if self.fn_state.expression_depth < 5 {
@@ -133,18 +139,21 @@ impl super::Generator<'_> {
             DataType::Matrix(c, r, t) => (0..*c)
                 .map(|_| self.gen_expr(&DataType::Vector(*r, *t)))
                 .collect(),
-            DataType::Array(_, _) => vec![],
+            DataType::Array(inner, Some(n)) => (0..*n).map(|_| self.gen_expr(inner)).collect(),
+            DataType::Array(_, None) => panic!("runtime sized array is not constructable"),
             DataType::Struct(decl) => decl
                 .members
                 .iter()
                 .map(|it| self.gen_expr(&it.data_type))
                 .collect(),
             DataType::Ptr(_) | DataType::Ref(_) => unimplemented!("no type constructor for `{ty}`"),
-            DataType::Texture(_) | DataType::Sampler(_) => unreachable!(),
+            DataType::Texture(_) | DataType::Sampler(_) => {
+                unimplemented!("no type constructor for `{ty}`")
+            }
             DataType::Atomic(_)
             | DataType::AtomicCompareExchangeResult(_)
             | DataType::FrexpResult(_)
-            | DataType::ModfResult(_) => unreachable!(),
+            | DataType::ModfResult(_) => unimplemented!("no type constructor for `{ty}`"),
         };
 
         self.fn_state.expression_depth -= 1;
@@ -317,11 +326,13 @@ impl super::Generator<'_> {
         let mut args = vec![];
 
         for i in 0..arg_count {
-            let expr = if self.options.enable_pointers
-                && self.scope.has_references()
-                && self.rng.gen_bool(0.2)
-            {
-                let (name, mem_view) = self.scope.choose_reference(self.rng);
+            let ptr_param_ref = if self.options.enable_pointers && self.rng.gen_bool(0.2) {
+                self.scope.choose_ptr_parameter_reference(self.rng)
+            } else {
+                None
+            };
+
+            let expr = if let Some((name, mem_view)) = ptr_param_ref {
                 let var_expr = VarExpr::new(name).into_node(DataType::Ref(mem_view.clone()));
                 UnOpExpr::new(UnOp::AddressOf, var_expr).into()
             } else {

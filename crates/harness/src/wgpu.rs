@@ -151,6 +151,9 @@ pub async fn run(
                 required_limits: Limits {
                     // This is needed to support swiftshader
                     max_storage_textures_per_shader_stage: 4,
+                    max_storage_buffers_per_shader_stage: adapter
+                        .limits()
+                        .max_storage_buffers_per_shader_stage,
                     ..Default::default()
                 },
                 required_features,

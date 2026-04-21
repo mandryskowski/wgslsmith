@@ -73,6 +73,7 @@ pub mod fuse {
     use crate::options::DirOptions;
     use crate::processor::ShaderProcessor;
     use crate::{stats, util, wgslsmith};
+    use rand::SeedableRng;
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::Ordering;
@@ -137,7 +138,7 @@ pub mod fuse {
                 let path = Path::new(line);
                 if let Ok(src) = fs::read_to_string(path) {
                     if let Ok(module) = std::panic::catch_unwind(|| parser::parse(&src)) {
-                        working_modules.push(module);
+                        working_modules.push((module, path.to_path_buf()));
                     }
                 }
             }
@@ -189,7 +190,7 @@ pub mod fuse {
                         &reconditioned_src,
                         input_buffers.as_deref(),
                     ) {
-                        working_modules.push(module);
+                        working_modules.push((module, path.to_path_buf()));
                         passed_paths.push(path.to_path_buf());
                     }
                 }
@@ -222,6 +223,18 @@ pub mod fuse {
         let mut file_num = effective_start_index.unwrap_or(0);
         let mut shaders_processed = 0;
 
+        let mut ignore_regexes = Vec::new();
+        if let Some(ignore_file) = &opt.ignore_file {
+            let content = std::fs::read_to_string(ignore_file).expect("Failed to read ignore file");
+            for line in content.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    ignore_regexes
+                        .push(regex::Regex::new(line).expect("Invalid regex in ignore file"));
+                }
+            }
+        }
+
         let mut processor = ShaderProcessor {
             wgslsmith_exe: &wgslsmith_exe,
             out_dir: out_dir_opt.as_deref(),
@@ -231,6 +244,7 @@ pub mod fuse {
             max_enumerations: 5,
             skip_original,
             opt: &opt,
+            ignore_regexes: &ignore_regexes,
         };
 
         loop {
@@ -246,10 +260,50 @@ pub mod fuse {
             chosen_indices.shuffle(&mut rng);
             chosen_indices.truncate(count);
 
-            let mut base_module = working_modules[chosen_indices[0]].clone();
+            let mut base_module = working_modules[chosen_indices[0]].0.clone();
+            let mut fused_paths = vec![working_modules[chosen_indices[0]].1.clone()];
             for &idx in &chosen_indices[1..] {
-                let next_module = working_modules[idx].clone();
-                base_module = fuse::fuse(base_module, next_module);
+                if rng.gen_bool(0.2) && opt.allow_generate {
+                    // Generate a smaller random shader utilizing context collected from the base_module
+                    let seed = rng.gen();
+                    let mut gen_rng = rand::rngs::StdRng::seed_from_u64(seed);
+                    let gen_opts = std::rc::Rc::new(generator::Options {
+                        seed: Some(seed),
+                        debug: false,
+                        enabled_fns: vec![],
+                        enable_pointers: true,
+                        skip_pointer_checks: true,
+                        log: None,
+                        enable_f16: true,
+                        enable_divergence: false,
+                        fn_min_stmts: 1,
+                        fn_max_stmts: 3,
+                        block_min_stmts: 0,
+                        block_max_stmts: 2,
+                        max_block_depth: 2,
+                        max_fns: 2,
+                        min_structs: 0,
+                        max_structs: 1,
+                        min_struct_members: 1,
+                        max_struct_members: 3,
+                        max_if_chain_depth: 1,
+                        max_compute_workgroup_storage_size: 16384,
+                        preset: None,
+                        recondition: false,
+                        output: "-".to_owned(),
+                    });
+
+                    let next_module = generator::Generator::new(&mut gen_rng, gen_opts)
+                        .with_context(&base_module)
+                        .gen_module();
+
+                    fused_paths.push(std::path::PathBuf::from(format!("generated_{}", seed)));
+                    base_module = fuse::fuse(base_module, next_module);
+                } else {
+                    let next_module = working_modules[idx].0.clone();
+                    fused_paths.push(working_modules[idx].1.clone());
+                    base_module = fuse::fuse(base_module, next_module);
+                }
             }
 
             let fused_inputs = util::generate_inputs_if_needed(&base_module);
@@ -269,6 +323,7 @@ pub mod fuse {
                 format!("fused_{}", file_num),
                 file_num,
                 None,
+                Some(fused_paths),
             );
 
             shaders_processed += 1;
@@ -335,6 +390,18 @@ pub mod process_dir {
         let total_files = entries.len();
         let mut shaders_processed = 0;
 
+        let mut ignore_regexes = Vec::new();
+        if let Some(ignore_file) = &opt.ignore_file {
+            let content = std::fs::read_to_string(ignore_file).expect("Failed to read ignore file");
+            for line in content.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    ignore_regexes
+                        .push(regex::Regex::new(line).expect("Invalid regex in ignore file"));
+                }
+            }
+        }
+
         let mut processor = ShaderProcessor {
             wgslsmith_exe: &wgslsmith_exe,
             out_dir: out_dir_opt.as_deref(),
@@ -344,6 +411,7 @@ pub mod process_dir {
             max_enumerations: 100,
             skip_original,
             opt: &opt,
+            ignore_regexes: &ignore_regexes,
         };
 
         for (file_idx, entry) in entries.into_iter().enumerate() {

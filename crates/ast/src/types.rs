@@ -50,7 +50,10 @@ impl Display for MemoryViewType {
         } else {
             write!(f, "{}, {}", self.storage_class, self.inner)?;
         }
-        if self.access_mode != self.storage_class.default_access_mode() {
+
+        if self.storage_class == StorageClass::Storage {
+            write!(f, ", read_write")?;
+        } else if self.access_mode != self.storage_class.default_access_mode() {
             write!(f, ", {}", self.access_mode)?;
         }
         Ok(())
@@ -146,6 +149,16 @@ impl DataType {
     /// Returns `true` if the data type is a scalar or vector of signed integers.
     pub fn is_signed_int(&self) -> bool {
         matches!(self.as_scalar(), Some(ScalarType::I32))
+    }
+
+    /// Returns `true` if this type can be constructed via a TypeConsExpr
+    pub fn is_constructible(&self) -> bool {
+        match self {
+            DataType::Scalar(_) | DataType::Vector(_, _) | DataType::Matrix(_, _, _) => true,
+            DataType::Array(inner, Some(_)) => inner.is_constructible(),
+            DataType::Struct(decl) => decl.members.iter().all(|m| m.data_type.is_constructible()),
+            _ => false,
+        }
     }
 }
 

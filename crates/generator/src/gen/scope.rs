@@ -1,7 +1,7 @@
 use std::iter;
 
 use ast::types::{DataType, MemoryViewType};
-use rand::prelude::IteratorRandom;
+use rand::prelude::{IteratorRandom, SliceRandom};
 use rand::Rng;
 use rpds::{HashTrieMap, Vector};
 
@@ -55,6 +55,24 @@ impl Scope {
             .choose(rng)
             .map(|(n, t)| (n, t))
             .unwrap()
+    }
+
+    // Spec forbids pointers to workgroup/storage memory unless the implementation implements an extension.
+    pub fn choose_ptr_parameter_reference(
+        &self,
+        rng: &mut impl Rng,
+    ) -> Option<(&String, &MemoryViewType)> {
+        let valid: Vec<_> = self
+            .references
+            .iter()
+            .filter(|(_, mem_view)| {
+                matches!(
+                    mem_view.storage_class,
+                    ast::StorageClass::Function | ast::StorageClass::Private
+                )
+            })
+            .collect();
+        valid.choose(rng).copied().map(|(n, t)| (n, t))
     }
 
     pub fn insert_readonly(&mut self, name: String, data_type: DataType) {
