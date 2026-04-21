@@ -181,7 +181,8 @@ impl Reducer {
         if cfg!(windows) {
             let template = match self {
                 Reducer::Picire => {
-                    r#"@echo off
+                    r#"#!cmd.exe /c
+@echo off
 setlocal EnableDelayedExpansion
 set args=%WGSLREDUCE_KIND% %1 %WGSLREDUCE_METADATA_PATH%
 if defined WGSLREDUCE_SERVER ( set args=!args! --server %WGSLREDUCE_SERVER% )
@@ -195,10 +196,12 @@ if "%WGSLREDUCE_KIND%"=="crash" (
     if not defined WGSLREDUCE_RECONDITION ( set args=!args! --no-recondition )
 )
 "[WGSLSMITH]" test -q !args! >nul 2>&1
+exit /b %errorlevel%
 "#
                 }
                 _ => {
-                    r#"@echo off
+                    r#"#!cmd.exe /c
+@echo off
 setlocal EnableDelayedExpansion
 set args=%WGSLREDUCE_KIND% %WGSLREDUCE_SHADER_NAME% %WGSLREDUCE_METADATA_PATH%
 if defined WGSLREDUCE_SERVER ( set args=!args! --server %WGSLREDUCE_SERVER% )
@@ -216,6 +219,7 @@ if "%WGSLREDUCE_KIND%"=="crash" (
     if defined WGSLREDUCE_POST_CMD ( set args=!args! --post-cmd "%WGSLREDUCE_POST_CMD%" )
 )
 "[WGSLSMITH]" test -q !args!
+exit /b %errorlevel%
 "#
                 }
             };
