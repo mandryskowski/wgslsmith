@@ -18,12 +18,13 @@ def parse_args():
     parser.add_argument("--dawn-path", default="external/dawn")
     parser.add_argument("--asan", action="store_true", help="Compile with AddressSanitizer (ASan)")
     parser.add_argument("--ubsan", action="store_true", help="Compile with UndefinedBehaviorSanitizer (UBSan)")
+    parser.add_argument("--mte", action="store_true", help="Compile with Memory Tagging Extension (MTE)")
     return parser.parse_args()
 
 
 args = parse_args()
 
-if args.asan or args.ubsan:
+if args.asan or args.ubsan or args.mte:
     os.environ["CC"] = os.environ.get("CC", "clang")
     os.environ["CXX"] = os.environ.get("CXX", "clang++")
 
@@ -117,18 +118,21 @@ def cargo_build(package, target=None, cwd=None, features=[]):
     if args.ubsan:
         env["DAWN_UBSAN"] = "1"
 
-    if args.asan or args.ubsan:
+    if args.asan or args.ubsan or args.mte:
         san_flags = []
         if args.asan:
             san_flags.append("-fsanitize=address")
         if args.ubsan:
             san_flags.append("-fsanitize=undefined")
+        if args.mte:
+            san_flags.append("-fsanitize=memtag-heap")
+            san_flags.append("-march=armv8.5-a+memtag")
         
         flags = " ".join(san_flags)
         env["CFLAGS"] = f"{env.get('CFLAGS', '')} {flags}".strip()
         env["CXXFLAGS"] = f"{env.get('CXXFLAGS', '')} {flags}".strip()
 
-    if args.asan or args.ubsan:
+    if args.asan or args.ubsan or args.mte:
         if target and "msvc" in target:
             msvc_rustflags_key = "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS"
             msvc_flags = env.get(msvc_rustflags_key, "")
@@ -173,6 +177,8 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 rustflags += " -C link-arg=-fsanitize=address"
             if args.ubsan:
                 rustflags += " -C link-arg=-fsanitize=undefined"
+            if args.mte:
+                rustflags += " -C link-arg=-fsanitize=memtag-heap -C link-arg=-march=armv8.5-a+memtag"
             env["RUSTFLAGS"] = rustflags.strip()
         else:
             # For native (Linux) targets, use clang++ as linker driver
@@ -182,6 +188,8 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 rustflags += " -C link-arg=-fsanitize=address"
             if args.ubsan:
                 rustflags += " -C link-arg=-fsanitize=undefined"
+            if args.mte:
+                rustflags += " -C link-arg=-fsanitize=memtag-heap -C link-arg=-march=armv8.5-a+memtag"
             rustflags += " -C link-arg=-lstdc++"
             env["RUSTFLAGS"] = rustflags.strip()
 
@@ -226,7 +234,7 @@ def dawn_gen_cmake():
         exit(1)
 
     cmake_args = []
-    if args.asan or args.ubsan:
+    if args.asan or args.ubsan or args.mte:
         san_flags = []
         if args.asan:
             cmake_args.append("-DDAWN_ENABLE_ASAN=ON")
@@ -234,6 +242,9 @@ def dawn_gen_cmake():
         if args.ubsan:
             cmake_args.append("-DDAWN_ENABLE_UBSAN=ON")
             san_flags.append("-fsanitize=undefined")
+        if args.mte:
+            san_flags.append("-fsanitize=memtag-heap")
+            san_flags.append("-march=armv8.5-a+memtag")
         
         link_flags = []
 
@@ -270,11 +281,11 @@ def dawn_gen_cmake():
             f"-DCMAKE_TOOLCHAIN_FILE={Path('cmake/WinMsvc.cmake').absolute()}",
             "-DDAWN_FORCE_SYSTEM_COMPONENT_LOAD=ON",
         ]
-        if args.asan or args.ubsan:
+        if args.asan or args.ubsan or args.mte:
             cmake_args.append("-DCMAKE_TRY_COMPILE_CONFIGURATION=Release")
 
-        san_cflags = flags if (args.asan or args.ubsan) else ""
-        san_ldflags = lf if (args.asan or args.ubsan) else ""
+        san_cflags = flags if (args.asan or args.ubsan or args.mte) else ""
+        san_ldflags = lf if (args.asan or args.ubsan or args.mte) else ""
         env = {
             "CFLAGS": san_cflags,
             "CXXFLAGS": f"-Wno-float-equal {san_cflags}".strip(),
@@ -290,10 +301,12 @@ def dawn_gen_cmake():
     else:
         # If ASan/UBSan is toggled, we must ensure CMake re-evaluates.
         # But `gen_cmake_build` will just run `cmake -GNinja` which handles re-runs.
-        if args.asan or args.ubsan:
+        if args.asan or args.ubsan or args.mte:
             cmake_args += [
                 f"-DCMAKE_C_FLAGS={flags}",
                 f"-DCMAKE_CXX_FLAGS={flags}",
+                f"-DCMAKE_EXE_LINKER_FLAGS={flags}",
+                f"-DCMAKE_SHARED_LINKER_FLAGS={flags}",
             ]
         gen_cmake_build(dawn_src_dir, dawn_build_dir, cmake_args)
 

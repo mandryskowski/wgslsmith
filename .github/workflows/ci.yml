@@ -102,10 +102,15 @@ jobs:
           - target: android
             os: ubuntu-latest
             rust-target: aarch64-linux-android
+            exe_suffix: ""
+          - target: android
+            os: ubuntu-latest
+            rust-target: aarch64-linux-android
+            sanitizer: mte
             exe_suffix: "" 
 
     env:
-      ARTIFACT_SUFFIX: ${{ matrix.sanitizer == 'asan-ubsan' && '-asan-ubsan' || '' }}
+      ARTIFACT_SUFFIX: ${{ matrix.sanitizer == 'asan-ubsan' && '-asan-ubsan' || matrix.sanitizer == 'mte' && '-mte' || '' }}
 
     steps:
       - name: Checkout git repo
@@ -169,6 +174,7 @@ jobs:
           config: ${{ github.workspace }}/.github/dependency_versions.yaml
 
       - name: Download dawn libs
+        if: matrix.sanitizer != 'mte'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
@@ -203,6 +209,8 @@ jobs:
           
           if [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
             BUILD_ARGS="$BUILD_ARGS --asan --ubsan"
+          elif [ "${{ matrix.sanitizer }}" == "mte" ]; then
+            BUILD_ARGS="$BUILD_ARGS --mte"
           fi
           
           ./build.py harness $BUILD_ARGS
@@ -264,7 +272,7 @@ jobs:
             artifact: macos64
 
     env:
-      ARTIFACT_SUFFIX: ${{ matrix.sanitizer == 'asan-ubsan' && '-asan-ubsan' || '' }}
+      ARTIFACT_SUFFIX: ${{ matrix.sanitizer == 'asan-ubsan' && '-asan-ubsan' || matrix.sanitizer == 'mte' && '-mte' || '' }}
 
     steps:
       - name: Checkout git repo
