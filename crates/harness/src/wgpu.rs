@@ -176,14 +176,17 @@ pub async fn run(
 
     let preprocessed = preprocessor::preprocess(preprocessor_opts, shader.to_owned());
 
-    let shader_module = ErrorScope::new(&device, vec![ErrorFilter::Internal, ErrorFilter::Validation])
-        .execute(|| {
-            device.create_shader_module(ShaderModuleDescriptor {
-                label: None,
-                source: ShaderSource::Wgsl(Cow::Owned(preprocessed)),
-            })
+    let shader_module = ErrorScope::new(
+        &device,
+        vec![ErrorFilter::Internal, ErrorFilter::Validation],
+    )
+    .execute(|| {
+        device.create_shader_module(ShaderModuleDescriptor {
+            label: None,
+            source: ShaderSource::Wgsl(Cow::Owned(preprocessed)),
         })
-        .await?;
+    })
+    .await?;
 
     let mut compute_pipelines = vec![];
 
