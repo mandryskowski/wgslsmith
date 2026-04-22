@@ -1,5 +1,4 @@
 use std::ffi::OsStr;
-use std::fs::Permissions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -7,10 +6,7 @@ use std::{env, thread};
 
 use clap::{Parser, ValueEnum};
 use eyre::{eyre, Context};
-use nix::sys::signal::Signal;
-use nix::unistd::Pid;
 use regex::Regex;
-use signal_hook::consts::{SIGUSR1, SIGUSR2};
 use tap::Tap;
 
 use crate::compiler::{Backend, Compiler};
@@ -182,33 +178,57 @@ impl Reducer {
 
     fn gen_test_script(&self) -> String {
         let exe = env::current_exe().unwrap();
-        let template = match self {
-            Reducer::Picire => include_str!("test-picire.sh"),
-            _ => include_str!("test.sh"),
+        let template = if cfg!(windows) {
+            match self {
+                Reducer::Picire => unimplemented!("Picire is not supported on Windows"),
+                _ => include_str!("test.bat"),
+            }
+        } else {
+            match self {
+                Reducer::Picire => include_str!("test-picire.sh"),
+                _ => include_str!("test.sh"),
+            }
         };
         template.replacen("[WGSLSMITH]", exe.to_str().unwrap(), 1)
     }
 }
 
 pub fn run(config: Config, options: Options) -> eyre::Result<()> {
-    let pid = std::process::id();
-    std::env::set_var("WGSLREDUCE_PID", pid.to_string());
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0")?;
+    let port = socket.local_addr()?.port();
+    std::env::set_var("WGSLREDUCE_PORT", port.to_string());
 
+    let (tx, rx) = crossbeam_channel::bounded(1);
     let worker = thread::spawn(move || {
         let result = thread_main(&config, options);
-        nix::sys::signal::kill(Pid::from_raw(pid as i32), Signal::SIGUSR2).unwrap();
-        result
+        let _ = tx.send(result);
     });
 
     let mut count = 0;
+    let mut buf = [0; 1];
 
-    for signal in &mut signal_hook::iterator::Signals::new([SIGUSR1, SIGUSR2]).unwrap() {
-        if signal == SIGUSR1 {
-            count += 1;
-        } else if signal == SIGUSR2 {
-            worker.join().unwrap()?;
+    socket.set_read_timeout(Some(std::time::Duration::from_millis(100)))?;
+
+    loop {
+        match socket.recv_from(&mut buf) {
+            Ok(_) => count += 1,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::WouldBlock
+                    && e.kind() != std::io::ErrorKind::TimedOut
+                {
+                    // ignore other errors
+                }
+            }
+        }
+
+        if let Ok(result) = rx.try_recv() {
+            result?;
             break;
         }
+    }
+
+    if worker.join().is_err() {
+        return Err(eyre!("Worker thread panicked"));
     }
 
     println!("> {count} calls to interestingness test");
@@ -292,8 +312,9 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
         .or(config.reducer.parallelism)
         .unwrap_or(1);
 
+    let test_name = if cfg!(windows) { "test.bat" } else { "test.sh" };
     let mut cmd = reducer
-        .cmd(config, parallelism, shader_name, "test.sh")?
+        .cmd(config, parallelism, shader_name, test_name)?
         .tap_mut(|cmd| {
             cmd.current_dir(&out_dir)
                 .env("WGSLREDUCE_SHADER_NAME", shader_path.file_name().unwrap())
@@ -398,14 +419,14 @@ fn setup_out_dir(out_dir: &Path, shader: &Path, reducer: &Reducer) -> eyre::Resu
     std::fs::copy(shader, out_dir.join(shader.file_name().unwrap()))?;
 
     // Generate the interestingness test script
-    let test_path = out_dir.join("test.sh");
+    let test_path = out_dir.join(if cfg!(windows) { "test.bat" } else { "test.sh" });
     std::fs::write(&test_path, reducer.gen_test_script())?;
 
     #[cfg(target_family = "unix")]
     {
         use std::os::unix::fs::PermissionsExt;
         // Make sure the test script is executable
-        std::fs::set_permissions(test_path, Permissions::from_mode(0o755))?;
+        std::fs::set_permissions(test_path, std::fs::Permissions::from_mode(0o755))?;
     }
 
     Ok(())
