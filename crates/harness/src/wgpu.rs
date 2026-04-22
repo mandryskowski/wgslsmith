@@ -176,7 +176,7 @@ pub async fn run(
 
     let preprocessed = preprocessor::preprocess(preprocessor_opts, shader.to_owned());
 
-    let shader_module = ErrorScope::new(&device, vec![ErrorFilter::Validation])
+    let shader_module = ErrorScope::new(&device, vec![ErrorFilter::Internal, ErrorFilter::Validation])
         .execute(|| {
             device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
