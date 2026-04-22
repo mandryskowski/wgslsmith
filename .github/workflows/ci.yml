@@ -168,19 +168,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang libx11-dev
 
-      - name: Install depot_tools
-        if: matrix.sanitizer == 'mte'
-        run: |
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
-          echo "$HOME/depot_tools" >> $GITHUB_PATH
-
       - uses: pietrobolcato/action-read-yaml@1.1.0
         id: read_versions
         with:
           config: ${{ github.workspace }}/.github/dependency_versions.yaml
 
       - name: Download dawn libs
-        if: matrix.sanitizer != 'mte'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
