@@ -198,6 +198,7 @@ jobs:
       - name: Build binaries
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
+          IPHONEOS_DEPLOYMENT_TARGET: "14.0"
         shell: bash
         run: |
           if [ "${{ matrix.target }}" == "android" ]; then
@@ -205,6 +206,7 @@ jobs:
           elif [ "${{ matrix.target }}" == "ios" ]; then
             export SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
             export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $SDKROOT --target=${{ matrix.rust-target }}"
+            export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-framework -C link-arg=IOSurface"
           fi
           
           BUILD_ARGS="--target ${{ matrix.rust-target }}"
