@@ -215,6 +215,10 @@ jobs:
             BUILD_ARGS="$BUILD_ARGS --asan --ubsan"
           fi
           
+          if [ "${{ matrix.target }}" == "ios" ]; then
+            BUILD_ARGS="$BUILD_ARGS --no-reducer"
+          fi
+          
           ./build.py harness $BUILD_ARGS
           ./build.py wgslsmith $BUILD_ARGS
 
