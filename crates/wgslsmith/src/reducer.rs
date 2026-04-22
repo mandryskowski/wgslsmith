@@ -216,7 +216,7 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
                 if e.kind() != std::io::ErrorKind::WouldBlock
                     && e.kind() != std::io::ErrorKind::TimedOut
                 {
-                    // Ignore other errors
+                    // ignore other errors
                 }
             }
         }
