@@ -158,10 +158,20 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 wrapper_path.write_text("#!/bin/bash\nargs=()\nfor arg in \"$@\"; do\n  if [ \"$arg\" != \"-nodefaultlibs\" ]; then\n    args+=(\"$arg\")\n  fi\ndone\nexec clang++ \"${args[@]}\"\n")
                 wrapper_path.chmod(0o755)
 
+            asan_options_path = Path(cwd if cwd else ".").absolute().joinpath("asan_options.c")
+            if not asan_options_path.exists():
+                asan_options_path.write_text("const char* __asan_default_options() { return \"detect_odr_violation=0:detect_leaks=0\"; }\n")
+            
+            asan_options_obj = Path(cwd if cwd else ".").absolute().joinpath("asan_options.o")
+            if args.asan or args.ubsan:
+                subprocess.run(["clang", "-c", str(asan_options_path), "-o", str(asan_options_obj)]).check_returncode()
+
             rustflags = env.get("RUSTFLAGS", "")
             rustflags += f" -C linker={wrapper_path}"
             if args.asan:
                 rustflags += " -C link-arg=-fsanitize=address"
+                rustflags += " -C link-arg=-Wl,-rpath,@executable_path"
+                rustflags += f" -C link-arg={asan_options_obj}"
             if args.ubsan:
                 rustflags += " -C link-arg=-fsanitize=undefined"
             rustflags += " -C link-arg=-lc++"
