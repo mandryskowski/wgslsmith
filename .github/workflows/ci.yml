@@ -168,6 +168,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang libx11-dev
 
+      - name: Install depot_tools
+        if: matrix.sanitizer == 'mte'
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
+          echo "$HOME/depot_tools" >> $GITHUB_PATH
+
       - uses: pietrobolcato/action-read-yaml@1.1.0
         id: read_versions
         with:
@@ -194,6 +200,9 @@ jobs:
           if [ "${{ matrix.target }}" == "win64" ]; then
              echo "LLVM_NATIVE_TOOLCHAIN=/usr/lib/llvm-19" >> $GITHUB_ENV
              echo "XWIN_CACHE=${{ github.workspace }}/.xwin-cache/splat" >> $GITHUB_ENV
+          fi
+          if [ "${{ matrix.target }}" == "android" ]; then
+             echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
           fi
 
       - name: Build binaries

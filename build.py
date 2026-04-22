@@ -229,7 +229,7 @@ def gclient_sync():
         write_gclient_sync_hash(dawn_commit)
 
 def dawn_gen_cmake():
-    if is_cross and build_target != "x86_64-pc-windows-msvc":
+    if is_cross and build_target not in ["x86_64-pc-windows-msvc", "aarch64-linux-android"]:
         print(f"cannot build dawn for target '{build_target}' (host={host_target})")
         exit(1)
 
@@ -301,6 +301,17 @@ def dawn_gen_cmake():
     else:
         # If ASan/UBSan is toggled, we must ensure CMake re-evaluates.
         # But `gen_cmake_build` will just run `cmake -GNinja` which handles re-runs.
+        if is_cross and build_target == "aarch64-linux-android":
+            ndk_path = os.environ.get("ANDROID_NDK_HOME", "")
+            if not ndk_path:
+                print("ANDROID_NDK_HOME is not set")
+                exit(1)
+            cmake_args += [
+                f"-DCMAKE_TOOLCHAIN_FILE={ndk_path}/build/cmake/android.toolchain.cmake",
+                "-DANDROID_ABI=arm64-v8a",
+                "-DANDROID_PLATFORM=android-30",
+            ]
+
         if args.asan or args.ubsan or args.mte:
             cmake_args += [
                 f"-DCMAKE_C_FLAGS={flags}",
