@@ -83,6 +83,7 @@ jobs:
           - macos64
           - linux64
           - android
+          - ios
         sanitizer:
           - none
           - asan-ubsan
@@ -102,6 +103,10 @@ jobs:
           - target: android
             os: ubuntu-latest
             rust-target: aarch64-linux-android
+            exe_suffix: "" 
+          - target: ios
+            os: macos-latest
+            rust-target: aarch64-apple-ios
             exe_suffix: "" 
 
     env:
@@ -197,6 +202,9 @@ jobs:
         run: |
           if [ "${{ matrix.target }}" == "android" ]; then
             export BINDGEN_EXTRA_CLANG_ARGS="--sysroot ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot --target=aarch64-linux-android"
+          elif [ "${{ matrix.target }}" == "ios" ]; then
+            export SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
+            export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $SDKROOT --target=${{ matrix.rust-target }}"
           fi
           
           BUILD_ARGS="--target ${{ matrix.rust-target }}"
