@@ -160,7 +160,10 @@ def cargo_build(package, target=None, cwd=None, features=[]):
 
             asan_options_path = Path(cwd if cwd else ".").absolute().joinpath("asan_options.c")
             if not asan_options_path.exists():
-                asan_options_path.write_text("const char* __asan_default_options() { return \"detect_odr_violation=0:detect_leaks=0\"; }\n")
+                asan_options_path.write_text("""
+const char* __asan_default_options() { return "detect_odr_violation=0:detect_leaks=0:symbolize=0"; }
+const char* __ubsan_default_options() { return "print_stacktrace=0"; }
+""")
             
             asan_options_obj = Path(cwd if cwd else ".").absolute().joinpath("asan_options.o")
             if args.asan or args.ubsan:

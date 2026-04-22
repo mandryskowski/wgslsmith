@@ -235,10 +235,22 @@ jobs:
             cp "$MAC_CLANG_RT" staging_harness/
             cp "$MAC_CLANG_RT" staging_wgslsmith/
             
+            cat > entitlements.plist <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
+EOF
+            
             # Ensure binaries and dylibs are ad-hoc signed so macOS Gatekeeper / dyld doesn't kill them
-            codesign -s - -f staging_harness/wgslsmith-harness
+            # Disable library validation so dyld allows loading the local ASan dylib even with ad-hoc signature
+            codesign -s - -f --entitlements entitlements.plist staging_harness/wgslsmith-harness
             codesign -s - -f staging_harness/libclang_rt.asan_osx_dynamic.dylib
-            codesign -s - -f staging_wgslsmith/wgslsmith
+            codesign -s - -f --entitlements entitlements.plist staging_wgslsmith/wgslsmith
             codesign -s - -f staging_wgslsmith/libclang_rt.asan_osx_dynamic.dylib
           fi
 
