@@ -89,7 +89,13 @@ pub mod fuse {
         let support_map = if opt.skip_ext_filter {
             std::collections::HashMap::new()
         } else {
-            wgslsmith::check_extension_support(&wgslsmith_exe, opt.server.as_ref(), &opt.configs)
+            wgslsmith::check_extension_support(
+                &wgslsmith_exe,
+                opt.server.as_ref(),
+                &opt.configs,
+                opt.use_daemon,
+                opt.daemon_port,
+            )
         };
 
         let mut effective_start_index = opt.start_index;
@@ -352,7 +358,13 @@ pub mod process_dir {
         let support_map = if opt.skip_ext_filter {
             std::collections::HashMap::new()
         } else {
-            wgslsmith::check_extension_support(&wgslsmith_exe, opt.server.as_ref(), &opt.configs)
+            wgslsmith::check_extension_support(
+                &wgslsmith_exe,
+                opt.server.as_ref(),
+                &opt.configs,
+                opt.use_daemon,
+                opt.daemon_port,
+            )
         };
 
         let mut effective_start_index = opt.start_index;

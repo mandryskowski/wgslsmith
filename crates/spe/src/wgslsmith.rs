@@ -178,6 +178,8 @@ pub fn check_extension_support(
     wgslsmith_exe: &Path,
     server: Option<&String>,
     configs: &[ConfigId],
+    use_daemon: bool,
+    daemon_port: Option<u16>,
 ) -> HashMap<EnableExtension, HashSet<ConfigId>> {
     let mut support_map = HashMap::new();
 
@@ -198,6 +200,13 @@ pub fn check_extension_support(
                 cmd.arg("remote").arg(s);
             }
             cmd.arg("run").arg("-c").arg(config.to_string()).arg("-");
+
+            if use_daemon {
+                cmd.arg("--use-daemon");
+                if let Some(port) = daemon_port {
+                    cmd.arg("--daemon-port").arg(port.to_string());
+                }
+            }
 
             cmd.stdin(process::Stdio::piped())
                 .stdout(process::Stdio::piped())
