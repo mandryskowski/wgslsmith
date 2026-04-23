@@ -374,6 +374,9 @@ impl<'a> ShaderProcessor<'a> {
 
             if self.opt.use_daemon {
                 cmd.arg("--use-daemon");
+                if let Some(daemon_port) = self.opt.daemon_port {
+                    cmd.arg("--daemon-port").arg(daemon_port.to_string());
+                }
             }
 
             cmd.arg("--print-consensus").arg("-");
