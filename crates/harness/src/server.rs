@@ -25,8 +25,11 @@ pub struct Options {
     #[clap(long, short = 'j', action, default_value = "1")]
     config_parallelism: usize,
 
-    #[clap(long, action, default_value = "false")]
+    #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
     pub use_daemon: bool,
+
+    #[clap(long, action, requires = "use_daemon_flag")]
+    pub daemon_port: Option<u16>,
 }
 
 pub fn run(cmd: HarnessCommand, options: Options) -> eyre::Result<()> {

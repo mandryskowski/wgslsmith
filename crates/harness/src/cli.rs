@@ -33,6 +33,8 @@ pub enum Command {
     DaemonExec {
         #[clap(action)]
         config: ConfigId,
+        #[clap(long, action)]
+        daemon_port: Option<u16>,
     },
 }
 
@@ -53,15 +55,23 @@ pub fn run(
         }
         Command::Exec { config } => internal_run(config, dawn_flags),
         Command::Serve(options) => {
-            let harness_cmd = harness_cmd.arg(if options.use_daemon {
+            let mut harness_cmd = harness_cmd.arg(if options.use_daemon {
                 "daemon-exec"
             } else {
                 "exec"
             });
+            if options.use_daemon {
+                if let Some(port) = options.daemon_port {
+                    harness_cmd = harness_cmd.arg("--daemon-port").arg(port.to_string());
+                }
+            }
             crate::server::run(harness_cmd, options)
         }
         Command::Daemon(options) => DaemonServer::new(dawn_flags).main_loop(options),
-        Command::DaemonExec { config } => daemon_exec(config),
+        Command::DaemonExec {
+            config,
+            daemon_port,
+        } => daemon_exec(config, daemon_port),
     }
 }
 

@@ -258,11 +258,12 @@ impl DaemonServer {
     }
 }
 
-pub fn daemon_exec(config: ConfigId) -> eyre::Result<()> {
+pub fn daemon_exec(config: ConfigId, daemon_port: Option<u16>) -> eyre::Result<()> {
     let input: ExecutionInput =
         bincode::decode_from_std_read(&mut std::io::stdin(), bincode::config::standard())?;
 
-    let address = format!("127.0.0.1:{}", 9000 + input.tid);
+    let base_port = daemon_port.unwrap_or(9000);
+    let address = format!("127.0.0.1:{}", base_port + input.tid as u16);
 
     let req = DaemonRequest::Run(DaemonRunRequest {
         config,

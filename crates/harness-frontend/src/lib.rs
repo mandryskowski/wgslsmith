@@ -209,8 +209,11 @@ pub mod cli {
         #[clap(long, action, default_value = "false")]
         pub print_consensus: bool,
 
-        #[clap(long, action, default_value = "false")]
+        #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
         pub use_daemon: bool,
+
+        #[clap(long, action, requires = "use_daemon_flag")]
+        pub daemon_port: Option<u16>,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {

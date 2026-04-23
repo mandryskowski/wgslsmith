@@ -187,6 +187,7 @@ pub mod fuse {
                         &opt.configs,
                         opt.parallelism,
                         opt.use_daemon,
+                        opt.daemon_port,
                         &reconditioned_src,
                         input_buffers.as_deref(),
                     ) {

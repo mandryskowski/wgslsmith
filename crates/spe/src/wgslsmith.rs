@@ -33,6 +33,7 @@ pub fn test_shader_has_outputs(
     configs: &[ConfigId],
     parallelism: Option<usize>,
     use_daemon: bool,
+    daemon_port: Option<u16>,
     shader_src: &str,
     inputs_json: Option<&str>,
 ) -> bool {
@@ -49,6 +50,9 @@ pub fn test_shader_has_outputs(
 
     if use_daemon {
         cmd.arg("--use-daemon");
+        if let Some(daemon_port) = daemon_port {
+            cmd.arg("--daemon-port").arg(daemon_port.to_string());
+        }
     }
 
     cmd.arg("-");
