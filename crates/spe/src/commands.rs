@@ -183,11 +183,7 @@ pub mod fuse {
                 {
                     if wgslsmith::test_shader_has_outputs(
                         &wgslsmith_exe,
-                        opt.server.as_ref(),
-                        &opt.configs,
-                        opt.parallelism,
-                        opt.use_daemon,
-                        opt.daemon_port,
+                        &opt,
                         &reconditioned_src,
                         input_buffers.as_deref(),
                     ) {

@@ -29,28 +29,24 @@ pub fn recondition_shader_src(wgslsmith_exe: &Path, src: &str) -> Option<String>
 
 pub fn test_shader_has_outputs(
     wgslsmith_exe: &Path,
-    server: Option<&String>,
-    configs: &[ConfigId],
-    parallelism: Option<usize>,
-    use_daemon: bool,
-    daemon_port: Option<u16>,
+    opt: &crate::options::DirOptions,
     shader_src: &str,
     inputs_json: Option<&str>,
 ) -> bool {
     let mut cmd = process::Command::new(wgslsmith_exe);
-    if let Some(s) = server {
+    if let Some(s) = &opt.server {
         cmd.arg("remote").arg(s);
     }
     cmd.arg("run");
-    for config in configs {
+    for config in &opt.configs {
         cmd.arg("-c").arg(config.to_string());
     }
 
-    cmd.arg("-j").arg(parallelism.unwrap_or(2).to_string());
+    cmd.arg("-j").arg(opt.parallelism.unwrap_or(2).to_string());
 
-    if use_daemon {
+    if opt.use_daemon {
         cmd.arg("--use-daemon");
-        if let Some(daemon_port) = daemon_port {
+        if let Some(daemon_port) = opt.daemon_port {
             cmd.arg("--daemon-port").arg(daemon_port.to_string());
         }
     }
