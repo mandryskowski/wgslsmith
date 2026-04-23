@@ -293,7 +293,7 @@ impl<'a> ShaderProcessor<'a> {
             if let Some(reconditioned) =
                 wgslsmith::recondition_shader_src(self.wgslsmith_exe, &current_src)
             {
-                current_src = reconditioned;
+                current_src = format!("// {path_display}_{i}\n{reconditioned}");
             } else {
                 writeln!(
                     self.failures_log,
