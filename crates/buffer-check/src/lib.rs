@@ -4,7 +4,7 @@ use reflection_types::{PipelineDescription, ResourceKind};
 pub fn normalize_execution(
     buffers: &[Vec<u8>],
     pipeline_desc: &PipelineDescription,
-    type_descs: &[Type],
+    type_descs: &[Option<Type>],
 ) -> Vec<u8> {
     let mut canonical_data = Vec::new();
 
@@ -16,8 +16,11 @@ pub fn normalize_execution(
         .enumerate()
     {
         let buffer = &buffers[i];
+        let type_desc = type_descs[j]
+            .as_ref()
+            .expect("StorageBuffer must have a type description");
 
-        for (offset, size) in type_descs[j].ranges(Some(buffer.len() as u64)) {
+        for (offset, size) in type_desc.ranges(Some(buffer.len() as u64)) {
             let range = offset..(offset + size);
             canonical_data.extend_from_slice(&buffer[range]);
         }
@@ -28,7 +31,7 @@ pub fn normalize_execution(
 pub fn compare<'a>(
     mut buffers: impl Iterator<Item = &'a Vec<Vec<u8>>>,
     pipeline_desc: &PipelineDescription,
-    type_descs: &[Type],
+    type_descs: &[Option<Type>],
 ) -> bool {
     let mut prev_normalized = match buffers.next() {
         Some(b) => normalize_execution(b, pipeline_desc, type_descs),
