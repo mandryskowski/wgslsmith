@@ -305,6 +305,23 @@ impl<'a> ShaderProcessor<'a> {
                 )
                 .unwrap();
 
+                if let Some(out_dir) = self.out_dir {
+                    let recond_out = out_dir.join("recondition-out");
+                    let failure_out_dir = recond_out.join(format!("{}_{}-{}", stem, file_num, i));
+                    std::fs::create_dir_all(&failure_out_dir).unwrap();
+
+                    std::fs::write(failure_out_dir.join("shader.wgsl"), &current_src).unwrap();
+
+                    if let Some(fused) = &fused_paths {
+                        let paths_str = fused
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        std::fs::write(failure_out_dir.join("fused_from.txt"), paths_str).unwrap();
+                    }
+                }
+
                 if is_original {
                     stats::STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
                     println!(
