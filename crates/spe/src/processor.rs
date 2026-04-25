@@ -291,6 +291,36 @@ impl<'a> ShaderProcessor<'a> {
             if self.opt.print {
                 println!("// === {} {} ===\n{}", path_display, case_str, out_str);
             }
+            
+            if self.opt.print_taint {
+                if let Ok(ast) = std::panic::catch_unwind(|| parser::parse(&out_str)) {
+                    let metrics = taint::analyze(&ast);
+                    let mix_assign_pct = if metrics.total_assignments > 0 {
+                        (metrics.mixed_assignments as f64 / metrics.total_assignments as f64)
+                            * 100.0
+                    } else {
+                        0.0
+                    };
+                    let mix_cf_pct = if metrics.total_cf_branches > 0 {
+                        (metrics.mixed_cf_branches as f64 / metrics.total_cf_branches as f64)
+                            * 100.0
+                    } else {
+                        0.0
+                    };
+                    println!(
+                        "[{}] {}Taint Metrics for {} {case_str}:\n  Assignments: {}/{} ({:.1}% mixed)\n  CF Branches: {}/{} ({:.1}% mixed)",
+                        stats::current_timestamp(),
+                        progress_prefix,
+                        path_display,
+                        metrics.mixed_assignments,
+                        metrics.total_assignments,
+                        mix_assign_pct,
+                        metrics.mixed_cf_branches,
+                        metrics.total_cf_branches,
+                        mix_cf_pct
+                    );
+                }
+            }
 
             let mut current_src = out_str.clone();
 
