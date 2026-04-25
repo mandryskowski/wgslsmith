@@ -4,6 +4,11 @@ use ast::*;
 
 pub fn visit_module(module: &mut Module, ctx: &mut Context) {
     for decl in &mut module.consts {
+        let prev = ctx.in_const_context;
+        ctx.in_const_context = true;
+        visit_expr_node(&mut decl.initializer, ctx, false);
+        ctx.in_const_context = prev;
+
         let ty = decl.inferred_type().clone();
         ctx.process_decl(
             &mut decl.ident,
@@ -14,7 +19,40 @@ pub fn visit_module(module: &mut Module, ctx: &mut Context) {
             },
         );
     }
+    for decl in &mut module.overrides {
+        if let Some(init) = &mut decl.initializer {
+            let prev = ctx.in_const_context;
+            ctx.in_const_context = true;
+            visit_expr_node(init, ctx, false);
+            ctx.in_const_context = prev;
+        }
+
+        let ty = decl.data_type.clone().unwrap_or_else(|| {
+            decl.initializer
+                .as_ref()
+                .map(|init| {
+                    if let ast::DataType::Ref(view) = &init.data_type {
+                        view.inner.as_ref().clone()
+                    } else {
+                        init.data_type.clone()
+                    }
+                })
+                .unwrap_or(ast::DataType::Scalar(ast::ScalarType::I32))
+        });
+        ctx.process_decl(
+            &mut decl.name,
+            &ty,
+            DeclFlags {
+                is_const: true,
+                ..Default::default()
+            },
+        );
+    }
     for decl in &mut module.vars {
+        if let Some(init) = &mut decl.initializer {
+            visit_expr_node(init, ctx, false);
+        }
+
         let ty = decl.data_type.clone();
         let mut flags = DeclFlags {
             mutable: true,
@@ -61,6 +99,12 @@ pub fn visit_module(module: &mut Module, ctx: &mut Context) {
             }
         }
         ctx.process_decl(&mut decl.name, &ty, flags);
+    }
+    for decl in &mut module.const_asserts {
+        let prev = ctx.in_const_context;
+        ctx.in_const_context = true;
+        visit_expr_node(&mut decl.condition, ctx, false);
+        ctx.in_const_context = prev;
     }
     for func in &mut module.functions {
         visit_fn(func, ctx);
@@ -285,6 +329,12 @@ fn visit_stmt(stmt: &mut Statement, ctx: &mut Context) {
                 visit_stmt(bs, ctx);
             }
             ctx.exit_scope();
+        }
+        Statement::ConstAssert(s) => {
+            let prev = ctx.in_const_context;
+            ctx.in_const_context = true;
+            visit_expr_node(&mut s.condition, ctx, false);
+            ctx.in_const_context = prev;
         }
         _ => {}
     }
