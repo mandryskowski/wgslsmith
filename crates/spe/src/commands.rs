@@ -316,7 +316,6 @@ pub mod fuse {
                 ast::writer::Writer::default()
                     .write_module(&mut out_str, &base_module)
                     .unwrap();
-                println!("shader is {}", out_str);
             }
 
             processor.process_core(
