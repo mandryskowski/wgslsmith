@@ -135,11 +135,16 @@ fn main() -> eyre::Result<()> {
         Cmd::AutoReduce(options) => auto_reducer::run(&config, options),
         #[cfg(feature = "harness")]
         Cmd::Run(options) => {
-            let harness_cmd = harness_cmd.arg(if options.use_daemon {
+            let mut harness_cmd = harness_cmd.arg(if options.use_daemon {
                 "daemon-exec"
             } else {
                 "exec"
             });
+            if options.use_daemon {
+                if let Some(port) = options.daemon_port {
+                    harness_cmd = harness_cmd.arg("--daemon-port").arg(port.to_string());
+                }
+            }
             harness::cli::execute(harness_cmd, options)
         }
         #[cfg(feature = "harness")]

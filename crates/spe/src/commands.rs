@@ -89,7 +89,13 @@ pub mod fuse {
         let support_map = if opt.skip_ext_filter {
             std::collections::HashMap::new()
         } else {
-            wgslsmith::check_extension_support(&wgslsmith_exe, opt.server.as_ref(), &opt.configs)
+            wgslsmith::check_extension_support(
+                &wgslsmith_exe,
+                opt.server.as_ref(),
+                &opt.configs,
+                opt.use_daemon,
+                opt.daemon_port,
+            )
         };
 
         let mut effective_start_index = opt.start_index;
@@ -183,10 +189,7 @@ pub mod fuse {
                 {
                     if wgslsmith::test_shader_has_outputs(
                         &wgslsmith_exe,
-                        opt.server.as_ref(),
-                        &opt.configs,
-                        opt.parallelism,
-                        opt.use_daemon,
+                        &opt,
                         &reconditioned_src,
                         input_buffers.as_deref(),
                     ) {
@@ -313,7 +316,6 @@ pub mod fuse {
                 ast::writer::Writer::default()
                     .write_module(&mut out_str, &base_module)
                     .unwrap();
-                println!("shader is {}", out_str);
             }
 
             processor.process_core(
@@ -355,7 +357,13 @@ pub mod process_dir {
         let support_map = if opt.skip_ext_filter {
             std::collections::HashMap::new()
         } else {
-            wgslsmith::check_extension_support(&wgslsmith_exe, opt.server.as_ref(), &opt.configs)
+            wgslsmith::check_extension_support(
+                &wgslsmith_exe,
+                opt.server.as_ref(),
+                &opt.configs,
+                opt.use_daemon,
+                opt.daemon_port,
+            )
         };
 
         let mut effective_start_index = opt.start_index;

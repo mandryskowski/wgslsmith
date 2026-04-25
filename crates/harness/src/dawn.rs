@@ -148,6 +148,8 @@ pub async fn run(
                 .device_cache
                 .insert(config.clone(), (device_rc.clone(), queue_rc.clone()));
 
+            eprintln!("Device {config} initialized");
+
             (device_rc, queue_rc)
         }
     };

@@ -293,7 +293,7 @@ impl<'a> ShaderProcessor<'a> {
             if let Some(reconditioned) =
                 wgslsmith::recondition_shader_src(self.wgslsmith_exe, &current_src)
             {
-                current_src = reconditioned;
+                current_src = format!("// {path_display}_{i}\n{reconditioned}");
             } else {
                 writeln!(
                     self.failures_log,
@@ -304,6 +304,23 @@ impl<'a> ShaderProcessor<'a> {
                     case_str
                 )
                 .unwrap();
+
+                if let Some(out_dir) = self.out_dir {
+                    let recond_out = out_dir.join("recondition-out");
+                    let failure_out_dir = recond_out.join(format!("{}_{}-{}", stem, file_num, i));
+                    std::fs::create_dir_all(&failure_out_dir).unwrap();
+
+                    std::fs::write(failure_out_dir.join("shader.wgsl"), &current_src).unwrap();
+
+                    if let Some(fused) = &fused_paths {
+                        let paths_str = fused
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        std::fs::write(failure_out_dir.join("fused_from.txt"), paths_str).unwrap();
+                    }
+                }
 
                 if is_original {
                     stats::STAT_FAILED_RECONDITION.fetch_add(1, Ordering::SeqCst);
@@ -374,6 +391,9 @@ impl<'a> ShaderProcessor<'a> {
 
             if self.opt.use_daemon {
                 cmd.arg("--use-daemon");
+                if let Some(daemon_port) = self.opt.daemon_port {
+                    cmd.arg("--daemon-port").arg(daemon_port.to_string());
+                }
             }
 
             cmd.arg("--print-consensus").arg("-");

@@ -76,7 +76,7 @@ pub fn read_shader_from_path(path: &str) -> eyre::Result<String> {
 pub fn reflect_shader(
     shader: &str,
     input_data: HashMap<String, Vec<u8>>,
-) -> (PipelineDescription, Vec<common::Type>) {
+) -> (PipelineDescription, Vec<Option<common::Type>>) {
     let module = parser::parse(shader);
 
     let (mut pipeline_desc, mut type_descs) = reflection::reflect(&module, &input_data);
@@ -209,8 +209,11 @@ pub mod cli {
         #[clap(long, action, default_value = "false")]
         pub print_consensus: bool,
 
-        #[clap(long, action, default_value = "false")]
+        #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
         pub use_daemon: bool,
+
+        #[clap(long, action, requires = "use_daemon_flag")]
+        pub daemon_port: Option<u16>,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {

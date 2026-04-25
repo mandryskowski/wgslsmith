@@ -127,8 +127,11 @@ pub struct Options {
     #[clap(long, action)]
     local_timeout: Option<u64>,
 
-    #[clap(long, action, default_value = "false")]
+    #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
     pub use_daemon: bool,
+
+    #[clap(long, action, requires = "use_daemon_flag")]
+    pub daemon_port: Option<u16>,
 }
 
 impl Options {
@@ -147,6 +150,10 @@ impl Options {
 
         if self.use_daemon {
             exec_params.push("--use-daemon".to_string());
+            if let Some(port) = self.daemon_port {
+                exec_params.push("--daemon-port".to_string());
+                exec_params.push(port.to_string());
+            }
         }
 
         exec_params

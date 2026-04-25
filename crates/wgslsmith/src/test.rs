@@ -23,7 +23,7 @@ pub struct Options {
     #[clap(action)]
     input_data: Option<PathBuf>,
 
-    #[clap(long, action)]
+    #[clap(short = 's', long, action)]
     server: Option<String>,
 
     #[clap(flatten)]
@@ -35,7 +35,7 @@ pub struct Options {
 
 #[derive(Parser)]
 pub struct CrashOptions {
-    #[clap(long, action, conflicts_with("compiler"))]
+    #[clap(short = 'c', long, action, conflicts_with("compiler"))]
     config: Option<ConfigId>,
 
     #[clap(short = 't', long = "target", action)]

@@ -166,6 +166,8 @@ pub async fn run(
                 .device_cache
                 .insert(config.clone(), (device.clone(), queue.clone()));
 
+            eprintln!("Device {config} initialized");
+
             (device, queue)
         }
     };
@@ -176,14 +178,17 @@ pub async fn run(
 
     let preprocessed = preprocessor::preprocess(preprocessor_opts, shader.to_owned());
 
-    let shader_module = ErrorScope::new(&device, vec![ErrorFilter::Validation])
-        .execute(|| {
-            device.create_shader_module(ShaderModuleDescriptor {
-                label: None,
-                source: ShaderSource::Wgsl(Cow::Owned(preprocessed)),
-            })
+    let shader_module = ErrorScope::new(
+        &device,
+        vec![ErrorFilter::Internal, ErrorFilter::Validation],
+    )
+    .execute(|| {
+        device.create_shader_module(ShaderModuleDescriptor {
+            label: None,
+            source: ShaderSource::Wgsl(Cow::Owned(preprocessed)),
         })
-        .await?;
+    })
+    .await?;
 
     let mut compute_pipelines = vec![];
 

@@ -7,7 +7,7 @@ pub use types::{
 pub fn reflect(
     module: &Module,
     input_data: &std::collections::HashMap<String, Vec<u8>>,
-) -> (PipelineDescription, Vec<common::Type>) {
+) -> (PipelineDescription, Vec<Option<common::Type>>) {
     let mut resources = vec![];
     let mut types = vec![];
 
@@ -122,18 +122,13 @@ pub fn reflect(
                 .expect("resource variable must have binding attribute");
 
             let mut min_size = type_desc.as_ref().map(|t| t.buffer_size()).unwrap_or(0);
-
-            if min_size == 0 && matches!(kind, ResourceKind::Texture { .. }) {
-                min_size = 1;
-            }
-
             min_size = (min_size + 3) & !3;
 
             let init = input_data
                 .get(&format!("{group}:{binding}"))
                 .cloned()
                 .map(|mut init| {
-                    if init.len() < min_size as usize {
+                    if min_size > 0 && init.len() < min_size as usize {
                         init.resize(min_size as usize, 0);
                     }
                     init
@@ -150,9 +145,7 @@ pub fn reflect(
                 size,
             });
 
-            if let Some(type_desc) = type_desc {
-                types.push(type_desc);
-            }
+            types.push(type_desc);
         }
     }
 

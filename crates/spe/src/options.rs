@@ -50,8 +50,12 @@ pub struct DirOptions {
     #[clap(short = 'j', long)]
     pub parallelism: Option<usize>,
 
-    #[clap(long, action, default_value = "false")]
+    #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
     pub use_daemon: bool,
+
+    /// Whether to use
+    #[clap(long, action, requires = "use_daemon_flag")]
+    pub daemon_port: Option<u16>,
 
     /// Configurations to run (e.g., wgpu:dx12:5592)
     #[clap(short, long = "config", action)]
