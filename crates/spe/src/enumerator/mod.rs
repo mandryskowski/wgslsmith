@@ -94,7 +94,7 @@ fn get_original_assignment(holes: &[Hole], scope_parents: &[usize]) -> Vec<usize
 pub fn get_enumerations(
     module: &Module,
     limit: Option<usize>,
-) -> (usize, Vec<Vec<usize>>, Option<usize>) {
+) -> (Vec<Hole>, Vec<Vec<usize>>, Option<usize>) {
     let mut ctx = Context::new(Some(module));
     let mut analyze_module = module.clone();
     visit_module(&mut analyze_module, &mut ctx);
@@ -114,7 +114,7 @@ pub fn get_enumerations(
         original_idx = Some(0);
     }
 
-    (ctx.holes.len(), enumerator.results, original_idx)
+    (ctx.holes.clone(), enumerator.results, original_idx)
 }
 
 pub fn apply_assignment(module: &Module, assigns: &[usize]) -> String {

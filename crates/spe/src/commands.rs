@@ -53,7 +53,7 @@ pub mod enumerate {
         } else {
             println!(
                 "// Found {} holes, {} valid enumerations.",
-                holes,
+                holes.len(),
                 enumerations.len()
             );
             if let Some(orig) = original_assignment_idx {

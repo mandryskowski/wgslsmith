@@ -214,7 +214,7 @@ impl<'a> ShaderProcessor<'a> {
                 path_display,
                 enumerations.len(),
                 self.max_enumerations,
-                holes
+                holes.len()
             );
             stats::STAT_SUBSAMPLED.fetch_add(1, Ordering::SeqCst);
 
@@ -235,7 +235,7 @@ impl<'a> ShaderProcessor<'a> {
                 progress_prefix,
                 path_display,
                 enumerations.len(),
-                holes
+                holes.len()
             );
         }
 
@@ -293,8 +293,19 @@ impl<'a> ShaderProcessor<'a> {
             }
             
             if self.opt.print_taint {
+                let mut suffix_map = std::collections::HashMap::new();
+                let mut var_origins = std::collections::HashMap::new();
+                for (hole, &assign_id) in holes.iter().zip(assigns.iter()) {
+                    let origin = taint::extract_origin(&hole.original_name, &mut suffix_map);
+                    let v_name = format!("v{}", assign_id);
+                    let entry = var_origins
+                        .entry(v_name)
+                        .or_insert_with(taint::TaintSet::new);
+                    *entry = entry.union(&taint::TaintSet::single(origin));
+                }
+
                 if let Ok(ast) = std::panic::catch_unwind(|| parser::parse(&out_str)) {
-                    let metrics = taint::analyze(&ast);
+                    let metrics = taint::analyze(&ast, &var_origins);
                     let mix_assign_pct = if metrics.total_assignments > 0 {
                         (metrics.mixed_assignments as f64 / metrics.total_assignments as f64)
                             * 100.0

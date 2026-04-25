@@ -2,13 +2,25 @@ use crate::context::TaintContext;
 use crate::types::TaintSet;
 use ast::*;
 
+use std::collections::HashMap;
+
 pub struct TaintAnalyzer<'a> {
     pub ctx: &'a mut TaintContext,
+    pub var_origins: &'a HashMap<String, TaintSet>,
+    pub func_origins: &'a HashMap<String, u32>,
 }
 
 impl<'a> TaintAnalyzer<'a> {
-    pub fn new(ctx: &'a mut TaintContext) -> Self {
-        Self { ctx }
+    pub fn new(
+        ctx: &'a mut TaintContext,
+        var_origins: &'a HashMap<String, TaintSet>,
+        func_origins: &'a HashMap<String, u32>,
+    ) -> Self {
+        Self {
+            ctx,
+            var_origins,
+            func_origins,
+        }
     }
 
     pub fn analyze_module(&mut self, module: &Module) {
@@ -33,30 +45,42 @@ impl<'a> TaintAnalyzer<'a> {
     pub fn visit_stmt(&mut self, stmt: &Statement) {
         match stmt {
             Statement::LetDecl(s) => {
-                let taint = self.eval_expr(&s.initializer).union(&self.ctx.current_cf());
+                let inherent = self.var_origins.get(&s.ident).cloned().unwrap_or_default();
+                let taint = self
+                    .eval_expr(&s.initializer)
+                    .union(&self.ctx.current_cf())
+                    .union(&inherent);
                 self.ctx.insert_var(s.ident.clone(), taint);
             }
             Statement::VarDecl(s) => {
-                let mut taint = self.ctx.current_cf();
+                let inherent = self.var_origins.get(&s.ident).cloned().unwrap_or_default();
+                let mut taint = self.ctx.current_cf().union(&inherent);
                 if let Some(init) = &s.initializer {
                     taint = taint.union(&self.eval_expr(init));
                 }
                 self.ctx.insert_var(s.ident.clone(), taint);
             }
             Statement::ConstDecl(s) => {
-                let taint = self.eval_expr(&s.initializer).union(&self.ctx.current_cf());
+                let inherent = self.var_origins.get(&s.ident).cloned().unwrap_or_default();
+                let taint = self
+                    .eval_expr(&s.initializer)
+                    .union(&self.ctx.current_cf())
+                    .union(&inherent);
                 self.ctx.insert_var(s.ident.clone(), taint);
             }
             Statement::Assignment(s) => {
-                let rhs_taint = self.eval_expr(&s.rhs).union(&self.ctx.current_cf());
-
-                self.ctx.metrics.total_assignments += 1;
-                if rhs_taint.is_mixed() {
-                    self.ctx.metrics.mixed_assignments += 1;
-                }
+                let mut rhs_taint = self.eval_expr(&s.rhs).union(&self.ctx.current_cf());
 
                 if let AssignmentLhs::Expr(lhs_expr) = &s.lhs {
                     if let Some(var) = self.get_lhs_base(lhs_expr) {
+                        let inherent = self.var_origins.get(&var).cloned().unwrap_or_default();
+                        rhs_taint = rhs_taint.union(&inherent);
+
+                        self.ctx.metrics.total_assignments += 1;
+                        if rhs_taint.is_mixed() {
+                            self.ctx.metrics.mixed_assignments += 1;
+                        }
+
                         let old_taint = self.ctx.get_var(&var);
                         let new_taint = old_taint.union(&rhs_taint);
                         self.ctx.set_var(&var, new_taint);
@@ -120,26 +144,39 @@ impl<'a> TaintAnalyzer<'a> {
                 if let Some(init) = &s.header.init {
                     match init {
                         ForLoopInit::VarDecl(d) => {
-                            let mut taint = self.ctx.current_cf();
+                            let inherent =
+                                self.var_origins.get(&d.ident).cloned().unwrap_or_default();
+                            let mut taint = self.ctx.current_cf().union(&inherent);
                             if let Some(init) = &d.initializer {
                                 taint = taint.union(&self.eval_expr(init));
                             }
                             self.ctx.insert_var(d.ident.clone(), taint);
                         }
                         ForLoopInit::LetDecl(d) => {
-                            let taint =
-                                self.eval_expr(&d.initializer).union(&self.ctx.current_cf());
+                            let inherent =
+                                self.var_origins.get(&d.ident).cloned().unwrap_or_default();
+                            let taint = self
+                                .eval_expr(&d.initializer)
+                                .union(&self.ctx.current_cf())
+                                .union(&inherent);
                             self.ctx.insert_var(d.ident.clone(), taint);
                         }
                         ForLoopInit::ConstDecl(d) => {
-                            let taint =
-                                self.eval_expr(&d.initializer).union(&self.ctx.current_cf());
+                            let inherent =
+                                self.var_origins.get(&d.ident).cloned().unwrap_or_default();
+                            let taint = self
+                                .eval_expr(&d.initializer)
+                                .union(&self.ctx.current_cf())
+                                .union(&inherent);
                             self.ctx.insert_var(d.ident.clone(), taint);
                         }
                         ForLoopInit::Assignment(a) => {
-                            let taint = self.eval_expr(&a.rhs).union(&self.ctx.current_cf());
+                            let mut taint = self.eval_expr(&a.rhs).union(&self.ctx.current_cf());
                             if let AssignmentLhs::Expr(lhs_expr) = &a.lhs {
                                 if let Some(var) = self.get_lhs_base(lhs_expr) {
+                                    let inherent =
+                                        self.var_origins.get(&var).cloned().unwrap_or_default();
+                                    taint = taint.union(&inherent);
                                     let old = self.ctx.get_var(&var);
                                     self.ctx.set_var(&var, old.union(&taint));
                                 }
@@ -178,9 +215,12 @@ impl<'a> TaintAnalyzer<'a> {
                 if let Some(upd) = &s.header.update {
                     match upd {
                         ForLoopUpdate::Assignment(a) => {
-                            let taint = self.eval_expr(&a.rhs).union(&self.ctx.current_cf());
+                            let mut taint = self.eval_expr(&a.rhs).union(&self.ctx.current_cf());
                             if let AssignmentLhs::Expr(lhs_expr) = &a.lhs {
                                 if let Some(var) = self.get_lhs_base(lhs_expr) {
+                                    let inherent =
+                                        self.var_origins.get(&var).cloned().unwrap_or_default();
+                                    taint = taint.union(&inherent);
                                     let old = self.ctx.get_var(&var);
                                     self.ctx.set_var(&var, old.union(&taint));
                                 }
@@ -304,7 +344,10 @@ impl<'a> TaintAnalyzer<'a> {
     pub fn eval_expr(&mut self, expr: &ExprNode) -> TaintSet {
         match &expr.expr {
             Expr::Lit(_) => TaintSet::new(),
-            Expr::Var(v) => self.ctx.get_var(&v.ident),
+            Expr::Var(v) => {
+                let inherent = self.var_origins.get(&v.ident).cloned().unwrap_or_default();
+                self.ctx.get_var(&v.ident).union(&inherent)
+            }
             Expr::TypeCons(t) => {
                 let mut taint = TaintSet::new();
                 for arg in &t.args {
@@ -327,6 +370,9 @@ impl<'a> TaintAnalyzer<'a> {
             }
             Expr::FnCall(c) => {
                 let mut taint = TaintSet::new();
+                if let Some(&origin) = self.func_origins.get(&c.ident) {
+                    taint = taint.union(&TaintSet::single(origin));
+                }
                 for arg in &c.args {
                     taint = taint.union(&self.eval_expr(arg));
                 }
