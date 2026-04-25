@@ -28,13 +28,16 @@ pub fn visit_module(module: &mut Module, ctx: &mut Context) {
         }
 
         let ty = decl.data_type.clone().unwrap_or_else(|| {
-            decl.initializer.as_ref().map(|init| {
-                if let ast::DataType::Ref(view) = &init.data_type {
-                    view.inner.as_ref().clone()
-                } else {
-                    init.data_type.clone()
-                }
-            }).unwrap_or(ast::DataType::Scalar(ast::ScalarType::I32))
+            decl.initializer
+                .as_ref()
+                .map(|init| {
+                    if let ast::DataType::Ref(view) = &init.data_type {
+                        view.inner.as_ref().clone()
+                    } else {
+                        init.data_type.clone()
+                    }
+                })
+                .unwrap_or(ast::DataType::Scalar(ast::ScalarType::I32))
         });
         ctx.process_decl(
             &mut decl.name,
