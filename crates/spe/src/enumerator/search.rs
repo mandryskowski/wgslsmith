@@ -25,37 +25,71 @@ impl Enumerator {
     }
 
     pub fn enumerate(&mut self, current: &mut Vec<usize>) {
-        self.step_count += 1;
-        if self.step_count > 100_000 {
-            return;
-        }
-        if let Some(lim) = self.limit {
-            if self.results.len() >= lim {
-                return;
-            }
-        }
-        if current.len() == self.holes.len() {
+        if self.holes.is_empty() {
             self.results.push(current.clone());
             return;
         }
-        let hole_idx = current.len();
 
-        let max_id = current
-            .iter()
-            .max()
-            .copied()
-            .map(|m| m as i32)
-            .unwrap_or(-1);
-        let next_available = (max_id + 1) as usize;
+        struct Frame {
+            ids: std::vec::IntoIter<usize>,
+        }
 
-        let mut ids: Vec<usize> = (0..=next_available).collect();
-        ids.shuffle(&mut self.rng);
+        let mut stack = Vec::new();
 
-        for id in ids {
-            if self.is_valid_assignment(hole_idx, id, current) {
-                current.push(id);
-                self.enumerate(current);
-                current.pop();
+        let mut get_ids = |enumerator: &mut Self, current: &[usize]| -> Frame {
+            let max_id = current
+                .iter()
+                .max()
+                .copied()
+                .map(|m| m as i32)
+                .unwrap_or(-1);
+            let next_available = (max_id + 1) as usize;
+
+            let mut ids: Vec<usize> = (0..=next_available).collect();
+            ids.shuffle(&mut enumerator.rng);
+
+            Frame {
+                ids: ids.into_iter(),
+            }
+        };
+
+        stack.push(get_ids(self, current));
+        self.step_count += 1;
+
+        while let Some(frame) = stack.last_mut() {
+            if self.step_count > 100_000 {
+                break;
+            }
+            if let Some(lim) = self.limit {
+                if self.results.len() >= lim {
+                    break;
+                }
+            }
+
+            let hole_idx = current.len();
+            let mut found = false;
+
+            while let Some(id) = frame.ids.next() {
+                if self.is_valid_assignment(hole_idx, id, current) {
+                    current.push(id);
+                    found = true;
+                    break;
+                }
+            }
+
+            if found {
+                self.step_count += 1;
+                if current.len() == self.holes.len() {
+                    self.results.push(current.clone());
+                    current.pop();
+                } else {
+                    stack.push(get_ids(self, current));
+                }
+            } else {
+                stack.pop();
+                if !current.is_empty() {
+                    current.pop();
+                }
             }
         }
     }
