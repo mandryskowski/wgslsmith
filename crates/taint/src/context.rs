@@ -9,6 +9,27 @@ pub struct Metrics {
     pub mixed_cf_branches: u32,
 }
 
+impl std::fmt::Display for Metrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mix_assign_pct = if self.total_assignments > 0 {
+            (self.mixed_assignments as f64 / self.total_assignments as f64) * 100.0
+        } else {
+            0.0
+        };
+        let mix_cf_pct = if self.total_cf_branches > 0 {
+            (self.mixed_cf_branches as f64 / self.total_cf_branches as f64) * 100.0
+        } else {
+            0.0
+        };
+        write!(
+            f,
+            "  Assignments: {}/{} ({:.1}% mixed)\n  CF Branches: {}/{} ({:.1}% mixed)",
+            self.mixed_assignments, self.total_assignments, mix_assign_pct,
+            self.mixed_cf_branches, self.total_cf_branches, mix_cf_pct
+        )
+    }
+}
+
 #[derive(Default)]
 pub struct TaintContext {
     pub globals: HashMap<String, TaintSet>,

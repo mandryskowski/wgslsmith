@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 ast = { path = "../ast" }
+parser = { path = "../parser" }
+clap = { version = "3.1.17", features = ["derive"] }
+eyre = "0.6.8"
