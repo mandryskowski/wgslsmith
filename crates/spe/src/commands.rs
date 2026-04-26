@@ -1,21 +1,16 @@
 pub mod enumerate {
     use crate::enumerator;
     use crate::options::EnumerateOptions;
-    use std::fs;
+    use crate::util;
+    
 
     pub fn run(opt: EnumerateOptions, skip_original: bool) {
-        let content = match fs::read_to_string(&opt.shader_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to read {}: {}", opt.shader_path.display(), e);
-                return;
-            }
-        };
+        let content = util::read_shader_from_path(&opt.shader_path).unwrap();
 
         let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
             Ok(m) => m,
             Err(_) => {
-                eprintln!("Parse panic on: {}", opt.shader_path.display());
+                eprintln!("Parse panic on: {}", opt.shader_path);
                 return;
             }
         };
@@ -24,7 +19,7 @@ pub mod enumerate {
             match std::panic::catch_unwind(|| enumerator::get_enumerations(&module, None)) {
                 Ok(res) => res,
                 Err(_) => {
-                    eprintln!("Enumerate panic on: {}", opt.shader_path.display());
+                    eprintln!("Enumerate panic on: {}", opt.shader_path);
                     return;
                 }
             };

@@ -24,7 +24,8 @@ pub enum SpeCommand {
 #[derive(Parser, Debug)]
 pub struct EnumerateOptions {
     /// Path to the WGSL shader
-    pub shader_path: PathBuf,
+    #[clap(action, default_value = "-")]
+    pub shader_path: String,
 
     /// Run/print a specific enumeration of a shader
     #[clap(short = 'i', long)]

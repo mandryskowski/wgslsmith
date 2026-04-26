@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Write, Read};
 use std::path::{Path, PathBuf};
 use time::{format_description, OffsetDateTime, UtcOffset};
 
@@ -81,4 +81,16 @@ pub fn create_out_dir(log_to_file: bool, append_dir: Option<&PathBuf>) -> (Optio
     } else {
         (None, false)
     }
+}
+
+pub fn read_shader_from_path(path: &str) -> Result<String, String> {
+    let mut input: Box<dyn Read> = match path {
+        "-" => Box::new(std::io::stdin()),
+        path => Box::new(fs::File::open(path).map_err(|e| e.to_string())?),
+    };
+
+    let mut shader = String::new();
+    input.read_to_string(&mut shader).map_err(|e| e.to_string())?;
+
+    Ok(shader)
 }
