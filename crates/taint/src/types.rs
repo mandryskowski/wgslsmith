@@ -25,4 +25,8 @@ impl TaintSet {
     pub fn is_mixed(&self) -> bool {
         self.origins.len() > 1
     }
+
+    pub fn has_foreign(&self, current: u32) -> bool {
+        self.origins.iter().any(|&o| o != current)
+    }
 }

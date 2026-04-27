@@ -293,19 +293,8 @@ impl<'a> ShaderProcessor<'a> {
             }
             
             if self.opt.print_taint {
-                let mut suffix_map = std::collections::HashMap::new();
-                let mut var_origins = std::collections::HashMap::new();
-                for (hole, &assign_id) in holes.iter().zip(assigns.iter()) {
-                    let origin = taint::extract_origin(&hole.original_name, &mut suffix_map);
-                    let v_name = format!("v{}", assign_id);
-                    let entry = var_origins
-                        .entry(v_name)
-                        .or_insert_with(taint::TaintSet::new);
-                    *entry = entry.union(&taint::TaintSet::single(origin));
-                }
-
                 if let Ok(ast) = std::panic::catch_unwind(|| parser::parse(&out_str)) {
-                    let metrics = taint::analyze(&ast, &var_origins);
+                    let metrics = taint::analyze(&ast);
                     println!(
                         "[{}] {}Taint Metrics for {} {case_str}:\n{}",
                         stats::current_timestamp(),

@@ -4,30 +4,30 @@ use std::collections::HashMap;
 #[derive(Debug, Default)]
 pub struct Metrics {
     pub total_assignments: u32,
-    pub mixed_assignments: u32,
+    pub cross_shader_assignments: u32,
     pub total_cf_branches: u32,
-    pub mixed_cf_branches: u32,
+    pub cross_shader_cf_branches: u32,
 }
 
 impl std::fmt::Display for Metrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mix_assign_pct = if self.total_assignments > 0 {
-            (self.mixed_assignments as f64 / self.total_assignments as f64) * 100.0
+            (self.cross_shader_assignments as f64 / self.total_assignments as f64) * 100.0
         } else {
             0.0
         };
         let mix_cf_pct = if self.total_cf_branches > 0 {
-            (self.mixed_cf_branches as f64 / self.total_cf_branches as f64) * 100.0
+            (self.cross_shader_cf_branches as f64 / self.total_cf_branches as f64) * 100.0
         } else {
             0.0
         };
         write!(
             f,
-            "  Assignments: {}/{} ({:.1}% mixed)\n  CF Branches: {}/{} ({:.1}% mixed)",
-            self.mixed_assignments,
+            "  Assignments: {}/{} ({:.1}% cross-shader)\n  CF Branches: {}/{} ({:.1}% cross-shader)",
+            self.cross_shader_assignments,
             self.total_assignments,
             mix_assign_pct,
-            self.mixed_cf_branches,
+            self.cross_shader_cf_branches,
             self.total_cf_branches,
             mix_cf_pct
         )
@@ -76,9 +76,9 @@ impl TaintContext {
         self.globals.get(name).cloned().unwrap_or_default()
     }
 
-    pub fn push_cf(&mut self, taint: TaintSet) {
-        if taint.is_mixed() {
-            self.metrics.mixed_cf_branches += 1;
+    pub fn push_cf(&mut self, taint: TaintSet, current_shader_id: u32) {
+        if taint.has_foreign(current_shader_id) {
+            self.metrics.cross_shader_cf_branches += 1;
         }
         self.metrics.total_cf_branches += 1;
 
