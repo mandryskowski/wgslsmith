@@ -39,3 +39,35 @@ pub fn analyze(module: &Module) -> Metrics {
 
     ctx.metrics
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! test_case {
+        ($name:ident) => {
+            test_case!($name, $name);
+        };
+        ($name:ident, $fn:ident) => {
+            #[test]
+            fn $fn() {
+                const SRC: &str = include_str!(concat!("tests/", stringify!($name), ".wgsl"));
+                let ast = parser::parse(SRC);
+                let metrics = analyze(&ast);
+                // We use assert_display_snapshot instead of debug since `Metrics` 
+                // outputs a clean string representation.
+                insta::assert_display_snapshot!(metrics);
+            }
+        };
+    }
+
+    // You can add `.wgsl` files inside `crates/taint/src/tests/` and register them here:
+    // test_case!(my_shader_test);
+    test_case!(simple_assignment);
+    test_case!(simple_cf);
+    test_case!(only_rhs);
+    test_case!(global);
+    test_case!(global_postfix);
+    test_case!(rhs_global_in_lhs);
+    test_case!(func);
+}

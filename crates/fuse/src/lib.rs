@@ -225,7 +225,7 @@ fn fuse_modules(mut module_a: Module, module_b: Module, suffix: &str) -> Module 
                         }
                     }
 
-                    f_a.body.push(Statement::ContextMarker(ContextMarkerStatement { context: format!("FUSED_{}", hex_suffix) }));
+                    f_a.body.push(Statement::ContextMarker(ContextMarkerStatement { context: hex_suffix.clone() }));
                     f_a.body.extend(f_b.body.clone());
                     f_a.output = f_b.output.clone();
                     matched = true;

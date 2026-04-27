@@ -9,6 +9,7 @@ pub struct TaintAnalyzer<'a> {
     pub current_shader_id: u32,
     pub shader_names: HashMap<String, u32>,
     pub next_shader_id: u32,
+    pub var_decl_shader: HashMap<String, u32>,
 }
 
 impl<'a> TaintAnalyzer<'a> {
@@ -20,6 +21,7 @@ impl<'a> TaintAnalyzer<'a> {
             current_shader_id: 0,
             shader_names,
             next_shader_id: 1,
+            var_decl_shader: HashMap::new(),
         }
     }
 
@@ -38,17 +40,32 @@ impl<'a> TaintAnalyzer<'a> {
             }
         }
 
-        for var in &module.vars {
+        let mut register_global = |name: &str| {
             let mut origin = 0;
-            if let Some(idx) = var.name.rfind('_') {
-                let suffix = &var.name[idx..];
+            if let Some(idx) = name.rfind('_') {
+                let suffix = &name[idx..];
                 if suffix.len() > 1 && suffix[1..].chars().all(|c| c.is_ascii_hexdigit()) {
-                    if let Some(&id) = self.shader_names.get(&suffix[1..]) {
-                        origin = id;
-                    }
+                    let hex_suffix = &suffix[1..];
+                    let id = *self.shader_names.entry(hex_suffix.to_string()).or_insert_with(|| {
+                        let new_id = self.next_shader_id;
+                        self.next_shader_id += 1;
+                        new_id
+                    });
+                    origin = id;
                 }
             }
-            self.ctx.globals.insert(var.name.clone(), TaintSet::single(origin));
+            self.var_decl_shader.insert(name.to_string(), origin);
+            self.ctx.globals.insert(name.to_string(), TaintSet::single(origin));
+        };
+
+        for var in &module.vars {
+            register_global(&var.name);
+        }
+        for c in &module.consts {
+            register_global(&c.ident);
+        }
+        for o in &module.overrides {
+            register_global(&o.name);
         }
 
         for func in &module.functions {
@@ -56,7 +73,8 @@ impl<'a> TaintAnalyzer<'a> {
             if let Some(idx) = func.name.rfind('_') {
                 let suffix = &func.name[idx..];
                 if suffix.len() > 1 && suffix[1..].chars().all(|c| c.is_ascii_hexdigit()) {
-                    if let Some(&id) = self.shader_names.get(&suffix[1..]) {
+                    let hex_suffix = &suffix[1..];
+                    if let Some(&id) = self.shader_names.get(hex_suffix) {
                         func_origin = id;
                     }
                 }
@@ -66,11 +84,38 @@ impl<'a> TaintAnalyzer<'a> {
         }
     }
 
+    pub fn assign_var(&mut self, ident: &str, mut rhs_taint: TaintSet, is_decl: bool, is_strong: bool) {
+        self.ctx.metrics.total_assignments += 1;
+        
+        let decl_shader = if is_decl {
+            self.var_decl_shader.insert(ident.to_string(), self.current_shader_id);
+            self.current_shader_id
+        } else {
+            self.var_decl_shader.get(ident).copied().unwrap_or(self.current_shader_id)
+        };
+        
+        if rhs_taint.has_foreign(self.current_shader_id) || (!is_decl && decl_shader != self.current_shader_id) {
+            self.ctx.metrics.cross_shader_assignments += 1;
+        }
+
+        rhs_taint = rhs_taint.union(&TaintSet::single(self.current_shader_id));
+
+        if is_decl {
+            self.ctx.insert_var(ident.to_string(), rhs_taint);
+        } else if is_strong {
+            self.ctx.set_var(ident, rhs_taint);
+        } else {
+            let old = self.ctx.get_var(ident);
+            self.ctx.set_var(ident, old.union(&rhs_taint));
+        }
+    }
+
     pub fn visit_func(&mut self, func: &FnDecl) {
         self.ctx.enter_scope();
         for input in &func.inputs {
             let taint = self.ctx.get_var(&input.name);
-            self.ctx.insert_var(input.name.clone(), taint);
+            self.var_decl_shader.insert(input.name.clone(), self.current_shader_id);
+            self.ctx.insert_var(input.name.clone(), taint.union(&TaintSet::single(self.current_shader_id)));
         }
 
         for stmt in &func.body {
@@ -82,7 +127,8 @@ impl<'a> TaintAnalyzer<'a> {
     pub fn visit_stmt(&mut self, stmt: &Statement) {
         match stmt {
             Statement::ContextMarker(m) => {
-                let id = *self.shader_names.entry(m.context.clone()).or_insert_with(|| {
+                let ctx_name = m.context.strip_prefix("FUSED_").unwrap_or(&m.context).to_string();
+                let id = *self.shader_names.entry(ctx_name).or_insert_with(|| {
                     let new_id = self.next_shader_id;
                     self.next_shader_id += 1;
                     new_id
@@ -90,35 +136,37 @@ impl<'a> TaintAnalyzer<'a> {
                 self.current_shader_id = id;
             }
             Statement::LetDecl(s) => {
-                let mut taint = self.eval_expr(&s.initializer).union(&self.ctx.current_cf());
-                taint = taint.union(&TaintSet::single(self.current_shader_id));
-                self.ctx.insert_var(s.ident.clone(), taint);
+                let taint = self.eval_expr(&s.initializer).union(&self.ctx.current_cf());
+                self.assign_var(&s.ident, taint, true, true);
             }
             Statement::VarDecl(s) => {
-                let mut taint = self.ctx.current_cf().union(&TaintSet::single(self.current_shader_id));
+                let mut taint = self.ctx.current_cf().clone();
                 if let Some(init) = &s.initializer {
                     taint = taint.union(&self.eval_expr(init));
                 }
-                self.ctx.insert_var(s.ident.clone(), taint);
+                self.assign_var(&s.ident, taint, true, true);
             }
             Statement::ConstDecl(s) => {
-                let mut taint = self.eval_expr(&s.initializer).union(&self.ctx.current_cf());
-                taint = taint.union(&TaintSet::single(self.current_shader_id));
-                self.ctx.insert_var(s.ident.clone(), taint);
+                let taint = self.eval_expr(&s.initializer).union(&self.ctx.current_cf());
+                self.assign_var(&s.ident, taint, true, true);
             }
             Statement::Assignment(s) => {
                 let rhs_taint = self.eval_expr(&s.rhs).union(&self.ctx.current_cf());
 
-                if let AssignmentLhs::Expr(lhs_expr) = &s.lhs {
-                    if let Some(var) = self.get_lhs_base(lhs_expr) {
+                match &s.lhs {
+                    AssignmentLhs::Expr(lhs_expr) => {
+                        if let Some(var) = self.get_lhs_base(lhs_expr) {
+                            let is_strong = s.op == AssignmentOp::Simple 
+                                && matches!(lhs_expr.expr, LhsExpr::Ident(_))
+                                && self.ctx.cf_stack.is_empty();
+                            self.assign_var(&var, rhs_taint, false, is_strong);
+                        }
+                    }
+                    AssignmentLhs::Phony => {
                         self.ctx.metrics.total_assignments += 1;
                         if rhs_taint.has_foreign(self.current_shader_id) {
                             self.ctx.metrics.cross_shader_assignments += 1;
                         }
-
-                        let old_taint = self.ctx.get_var(&var);
-                        let new_taint = old_taint.union(&rhs_taint);
-                        self.ctx.set_var(&var, new_taint);
                     }
                 }
             }
@@ -179,48 +227,70 @@ impl<'a> TaintAnalyzer<'a> {
                 if let Some(init) = &s.header.init {
                     match init {
                         ForLoopInit::VarDecl(d) => {
-                            let mut taint = self.ctx.current_cf().union(&TaintSet::single(self.current_shader_id));
+                            let mut taint = self.ctx.current_cf().clone();
                             if let Some(init) = &d.initializer {
                                 taint = taint.union(&self.eval_expr(init));
                             }
-                            self.ctx.insert_var(d.ident.clone(), taint);
+                            self.assign_var(&d.ident, taint, true, true);
                         }
                         ForLoopInit::LetDecl(d) => {
-                            let mut taint = self.eval_expr(&d.initializer).union(&self.ctx.current_cf());
-                            taint = taint.union(&TaintSet::single(self.current_shader_id));
-                            self.ctx.insert_var(d.ident.clone(), taint);
+                            let taint = self.eval_expr(&d.initializer).union(&self.ctx.current_cf());
+                            self.assign_var(&d.ident, taint, true, true);
                         }
                         ForLoopInit::ConstDecl(d) => {
-                            let mut taint = self.eval_expr(&d.initializer).union(&self.ctx.current_cf());
-                            taint = taint.union(&TaintSet::single(self.current_shader_id));
-                            self.ctx.insert_var(d.ident.clone(), taint);
+                            let taint = self.eval_expr(&d.initializer).union(&self.ctx.current_cf());
+                            self.assign_var(&d.ident, taint, true, true);
                         }
                         ForLoopInit::Assignment(a) => {
                             let rhs_taint = self.eval_expr(&a.rhs).union(&self.ctx.current_cf());
-                            if let AssignmentLhs::Expr(lhs_expr) = &a.lhs {
-                                if let Some(var) = self.get_lhs_base(lhs_expr) {
+                            match &a.lhs {
+                                AssignmentLhs::Expr(lhs_expr) => {
+                                    if let Some(var) = self.get_lhs_base(lhs_expr) {
+                                        let is_strong = a.op == AssignmentOp::Simple 
+                                            && matches!(lhs_expr.expr, LhsExpr::Ident(_))
+                                            && self.ctx.cf_stack.is_empty();
+                                        self.assign_var(&var, rhs_taint, false, is_strong);
+                                    }
+                                }
+                                AssignmentLhs::Phony => {
                                     self.ctx.metrics.total_assignments += 1;
                                     if rhs_taint.has_foreign(self.current_shader_id) {
                                         self.ctx.metrics.cross_shader_assignments += 1;
                                     }
-                                    let old = self.ctx.get_var(&var);
-                                    self.ctx.set_var(&var, old.union(&rhs_taint));
                                 }
                             }
                         }
                         ForLoopInit::Increment(i) => {
-                            if let AssignmentLhs::Expr(lhs) = &i.lhs {
-                                if let Some(var) = self.get_lhs_base(lhs) {
-                                    let old = self.ctx.get_var(&var);
-                                    self.ctx.set_var(&var, old.union(&self.ctx.current_cf()));
+                            match &i.lhs {
+                                AssignmentLhs::Expr(lhs) => {
+                                    if let Some(var) = self.get_lhs_base(lhs) {
+                                        let old = self.ctx.get_var(&var);
+                                        let rhs_taint = old.union(&self.ctx.current_cf());
+                                        self.assign_var(&var, rhs_taint, false, false);
+                                    }
+                                }
+                                AssignmentLhs::Phony => {
+                                    self.ctx.metrics.total_assignments += 1;
+                                    if self.ctx.current_cf().has_foreign(self.current_shader_id) {
+                                        self.ctx.metrics.cross_shader_assignments += 1;
+                                    }
                                 }
                             }
                         }
                         ForLoopInit::Decrement(d) => {
-                            if let AssignmentLhs::Expr(lhs) = &d.lhs {
-                                if let Some(var) = self.get_lhs_base(lhs) {
-                                    let old = self.ctx.get_var(&var);
-                                    self.ctx.set_var(&var, old.union(&self.ctx.current_cf()));
+                            match &d.lhs {
+                                AssignmentLhs::Expr(lhs) => {
+                                    if let Some(var) = self.get_lhs_base(lhs) {
+                                        let old = self.ctx.get_var(&var);
+                                        let rhs_taint = old.union(&self.ctx.current_cf());
+                                        self.assign_var(&var, rhs_taint, false, false);
+                                    }
+                                }
+                                AssignmentLhs::Phony => {
+                                    self.ctx.metrics.total_assignments += 1;
+                                    if self.ctx.current_cf().has_foreign(self.current_shader_id) {
+                                        self.ctx.metrics.cross_shader_assignments += 1;
+                                    }
                                 }
                             }
                         }
@@ -242,30 +312,54 @@ impl<'a> TaintAnalyzer<'a> {
                     match upd {
                         ForLoopUpdate::Assignment(a) => {
                             let rhs_taint = self.eval_expr(&a.rhs).union(&self.ctx.current_cf());
-                            if let AssignmentLhs::Expr(lhs_expr) = &a.lhs {
-                                if let Some(var) = self.get_lhs_base(lhs_expr) {
+                            match &a.lhs {
+                                AssignmentLhs::Expr(lhs_expr) => {
+                                    if let Some(var) = self.get_lhs_base(lhs_expr) {
+                                        let is_strong = a.op == AssignmentOp::Simple 
+                                            && matches!(lhs_expr.expr, LhsExpr::Ident(_))
+                                            && self.ctx.cf_stack.is_empty();
+                                        self.assign_var(&var, rhs_taint, false, is_strong);
+                                    }
+                                }
+                                AssignmentLhs::Phony => {
                                     self.ctx.metrics.total_assignments += 1;
                                     if rhs_taint.has_foreign(self.current_shader_id) {
                                         self.ctx.metrics.cross_shader_assignments += 1;
                                     }
-                                    let old = self.ctx.get_var(&var);
-                                    self.ctx.set_var(&var, old.union(&rhs_taint));
                                 }
                             }
                         }
                         ForLoopUpdate::Increment(i) => {
-                            if let AssignmentLhs::Expr(lhs) = &i.lhs {
-                                if let Some(var) = self.get_lhs_base(lhs) {
-                                    let old = self.ctx.get_var(&var);
-                                    self.ctx.set_var(&var, old.union(&self.ctx.current_cf()));
+                            match &i.lhs {
+                                AssignmentLhs::Expr(lhs) => {
+                                    if let Some(var) = self.get_lhs_base(lhs) {
+                                        let old = self.ctx.get_var(&var);
+                                        let rhs_taint = old.union(&self.ctx.current_cf());
+                                        self.assign_var(&var, rhs_taint, false, false);
+                                    }
+                                }
+                                AssignmentLhs::Phony => {
+                                    self.ctx.metrics.total_assignments += 1;
+                                    if self.ctx.current_cf().has_foreign(self.current_shader_id) {
+                                        self.ctx.metrics.cross_shader_assignments += 1;
+                                    }
                                 }
                             }
                         }
                         ForLoopUpdate::Decrement(d) => {
-                            if let AssignmentLhs::Expr(lhs) = &d.lhs {
-                                if let Some(var) = self.get_lhs_base(lhs) {
-                                    let old = self.ctx.get_var(&var);
-                                    self.ctx.set_var(&var, old.union(&self.ctx.current_cf()));
+                            match &d.lhs {
+                                AssignmentLhs::Expr(lhs) => {
+                                    if let Some(var) = self.get_lhs_base(lhs) {
+                                        let old = self.ctx.get_var(&var);
+                                        let rhs_taint = old.union(&self.ctx.current_cf());
+                                        self.assign_var(&var, rhs_taint, false, false);
+                                    }
+                                }
+                                AssignmentLhs::Phony => {
+                                    self.ctx.metrics.total_assignments += 1;
+                                    if self.ctx.current_cf().has_foreign(self.current_shader_id) {
+                                        self.ctx.metrics.cross_shader_assignments += 1;
+                                    }
                                 }
                             }
                         }
@@ -312,18 +406,36 @@ impl<'a> TaintAnalyzer<'a> {
                 }
             }
             Statement::Increment(s) => {
-                if let AssignmentLhs::Expr(lhs) = &s.lhs {
-                    if let Some(var) = self.get_lhs_base(lhs) {
-                        let old = self.ctx.get_var(&var);
-                        self.ctx.set_var(&var, old.union(&self.ctx.current_cf()));
+                match &s.lhs {
+                    AssignmentLhs::Expr(lhs) => {
+                        if let Some(var) = self.get_lhs_base(lhs) {
+                            let old = self.ctx.get_var(&var);
+                            let rhs_taint = old.union(&self.ctx.current_cf());
+                            self.assign_var(&var, rhs_taint, false, false);
+                        }
+                    }
+                    AssignmentLhs::Phony => {
+                        self.ctx.metrics.total_assignments += 1;
+                        if self.ctx.current_cf().has_foreign(self.current_shader_id) {
+                            self.ctx.metrics.cross_shader_assignments += 1;
+                        }
                     }
                 }
             }
             Statement::Decrement(s) => {
-                if let AssignmentLhs::Expr(lhs) = &s.lhs {
-                    if let Some(var) = self.get_lhs_base(lhs) {
-                        let old = self.ctx.get_var(&var);
-                        self.ctx.set_var(&var, old.union(&self.ctx.current_cf()));
+                match &s.lhs {
+                    AssignmentLhs::Expr(lhs) => {
+                        if let Some(var) = self.get_lhs_base(lhs) {
+                            let old = self.ctx.get_var(&var);
+                            let rhs_taint = old.union(&self.ctx.current_cf());
+                            self.assign_var(&var, rhs_taint, false, false);
+                        }
+                    }
+                    AssignmentLhs::Phony => {
+                        self.ctx.metrics.total_assignments += 1;
+                        if self.ctx.current_cf().has_foreign(self.current_shader_id) {
+                            self.ctx.metrics.cross_shader_assignments += 1;
+                        }
                     }
                 }
             }
@@ -372,7 +484,11 @@ impl<'a> TaintAnalyzer<'a> {
         match &expr.expr {
             Expr::Lit(_) => TaintSet::new(),
             Expr::Var(v) => {
-                self.ctx.get_var(&v.ident)
+                let mut taint = self.ctx.get_var(&v.ident);
+                if let Some(&decl_shader) = self.var_decl_shader.get(&v.ident) {
+                    taint = taint.union(&TaintSet::single(decl_shader));
+                }
+                taint
             }
             Expr::TypeCons(t) => {
                 let mut taint = TaintSet::new();
@@ -399,7 +515,7 @@ impl<'a> TaintAnalyzer<'a> {
                 let mut func_origin = self.current_shader_id;
                 if let Some(idx) = c.ident.rfind('_') {
                     let suffix = &c.ident[idx..];
-                    if suffix.len() > 1 && suffix[1..].chars().all(|c| c.is_ascii_hexdigit()) {
+                    if suffix.len() > 1 && suffix[1..].chars().all(|ch| ch.is_ascii_hexdigit()) {
                         if let Some(&id) = self.shader_names.get(&suffix[1..]) {
                             func_origin = id;
                         }
