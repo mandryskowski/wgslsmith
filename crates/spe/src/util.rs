@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Write, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use time::{format_description, OffsetDateTime, UtcOffset};
 
@@ -90,7 +90,9 @@ pub fn read_shader_from_path(path: &str) -> Result<String, String> {
     };
 
     let mut shader = String::new();
-    input.read_to_string(&mut shader).map_err(|e| e.to_string())?;
+    input
+        .read_to_string(&mut shader)
+        .map_err(|e| e.to_string())?;
 
     Ok(shader)
 }

@@ -7,8 +7,8 @@ pub use context::{Metrics, TaintContext};
 pub use types::TaintSet;
 
 use ast::Module;
-use std::collections::HashMap;
 use clap::Parser;
+use std::collections::HashMap;
 
 #[derive(Parser)]
 pub struct Options {

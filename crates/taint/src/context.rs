@@ -24,8 +24,12 @@ impl std::fmt::Display for Metrics {
         write!(
             f,
             "  Assignments: {}/{} ({:.1}% mixed)\n  CF Branches: {}/{} ({:.1}% mixed)",
-            self.mixed_assignments, self.total_assignments, mix_assign_pct,
-            self.mixed_cf_branches, self.total_cf_branches, mix_cf_pct
+            self.mixed_assignments,
+            self.total_assignments,
+            mix_assign_pct,
+            self.mixed_cf_branches,
+            self.total_cf_branches,
+            mix_cf_pct
         )
     }
 }

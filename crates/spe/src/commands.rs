@@ -2,7 +2,6 @@ pub mod enumerate {
     use crate::enumerator;
     use crate::options::EnumerateOptions;
     use crate::util;
-    
 
     pub fn run(opt: EnumerateOptions, skip_original: bool) {
         let content = util::read_shader_from_path(&opt.shader_path).unwrap();

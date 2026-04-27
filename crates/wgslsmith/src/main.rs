@@ -76,7 +76,10 @@ enum Cmd {
     /// Run Skeletal Program Enumeration (SPE).
     Spe(spe::Options),
     /// Fuse two shaders.
-    Fuse { a: String, b: String },
+    Fuse {
+        a: String,
+        b: String,
+    },
     /// Taint analysis.
     Taint(taint::Options),
 }
