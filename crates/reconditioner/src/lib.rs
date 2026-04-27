@@ -347,6 +347,7 @@ impl Reconditioner {
                 self.recondition_expr(s.condition),
             )),
             Statement::Discard(s) => Statement::Discard(s),
+            Statement::ContextMarker(s) => Statement::ContextMarker(s),
         }
     }
 

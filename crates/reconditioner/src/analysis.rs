@@ -343,6 +343,7 @@ fn visit_stmt<'a>(
         Statement::Decrement(stmt) => handle_inc_dec(analysis, scope, cx, &stmt.lhs),
         Statement::ConstAssert(stmt) => visit_expr(analysis, scope, cx, &stmt.condition),
         Statement::Discard(_) => {}
+        Statement::ContextMarker(_) => {}
     }
 }
 

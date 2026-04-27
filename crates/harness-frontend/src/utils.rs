@@ -259,6 +259,7 @@ impl VarVisitor {
                 self.visit_expr_node(&s.condition);
             }
             Statement::Discard(_) => {}
+            Statement::ContextMarker(_) => {}
         }
     }
 

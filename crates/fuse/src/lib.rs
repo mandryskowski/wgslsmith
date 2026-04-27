@@ -12,7 +12,7 @@ pub fn fuse(module_a: Module, mut module_b: Module) -> Module {
 
     rename_module(&mut module_b, &suffix);
     adjust_groups(&module_a, &mut module_b);
-    fuse_modules(module_a, module_b)
+    fuse_modules(module_a, module_b, &suffix)
 }
 
 fn adjust_groups(module_a: &Module, module_b: &mut Module) {
@@ -147,7 +147,9 @@ fn get_provided_bindings(inputs: &[FnInput]) -> Vec<(Option<BuiltinValue>, Optio
     bindings
 }
 
-fn fuse_modules(mut module_a: Module, module_b: Module) -> Module {
+fn fuse_modules(mut module_a: Module, module_b: Module, suffix: &str) -> Module {
+    let hex_suffix = suffix.trim_start_matches('_').to_string();
+
     module_a.enables.extend(module_b.enables);
     module_a.enables.sort_by(|a, b| a.as_ref().cmp(b.as_ref()));
     module_a.enables.dedup();
@@ -223,6 +225,7 @@ fn fuse_modules(mut module_a: Module, module_b: Module) -> Module {
                         }
                     }
 
+                    f_a.body.push(Statement::ContextMarker(ContextMarkerStatement { context: format!("FUSED_{}", hex_suffix) }));
                     f_a.body.extend(f_b.body.clone());
                     f_a.output = f_b.output.clone();
                     matched = true;
@@ -635,6 +638,7 @@ fn rename_stmt(stmt: &mut Statement, suffix: &str, globals: &HashSet<String>) {
         }
         Statement::FnCall(s) => rename_call_stmt(s, suffix, globals),
         Statement::ConstAssert(s) => rename_expr(&mut s.condition, suffix, globals),
+        Statement::ContextMarker(_) => {}
         _ => {}
     }
 }

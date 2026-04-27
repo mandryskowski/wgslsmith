@@ -408,6 +408,7 @@ impl Concretizer {
                 Statement::ConstAssert(ConstAssertStatement::new(self.concretize_expr(condition)))
             }
             Statement::Discard(_) => Statement::Discard(DiscardStatement),
+            Statement::ContextMarker(stmt) => Statement::ContextMarker(stmt),
         }
     }
 

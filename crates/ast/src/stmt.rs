@@ -297,6 +297,17 @@ impl IncrementStatement {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ContextMarkerStatement {
+    pub context: String,
+}
+
+impl Display for ContextMarkerStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "// WGSLSMITH_CONTEXT_MARKER_{}", self.context)
+    }
+}
+
 #[derive(Debug, Display, PartialEq, Clone)]
 #[display("{lhs}--")]
 pub struct DecrementStatement {
@@ -719,6 +730,7 @@ pub enum Statement {
     Fallthrough,
     ForLoop(ForLoopStatement),
     FnCall(FnCallStatement),
+    ContextMarker(ContextMarkerStatement),
 }
 
 impl Statement {
@@ -763,6 +775,7 @@ impl Display for Statement {
             Statement::Switch(stmt) => stmt.fmt(f),
             Statement::ForLoop(stmt) => stmt.fmt(f),
             Statement::FnCall(stmt) => write!(f, "{stmt};"),
+            Statement::ContextMarker(stmt) => write!(f, "{stmt}"),
         }
     }
 }
