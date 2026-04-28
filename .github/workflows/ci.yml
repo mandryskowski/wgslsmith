@@ -161,7 +161,7 @@ jobs:
         if: matrix.target == 'linux64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libx11-dev
+          sudo apt-get install -y clang-18 llvm-18 libx11-dev
 
       - uses: pietrobolcato/action-read-yaml@1.1.0
         id: read_versions
@@ -193,6 +193,8 @@ jobs:
       - name: Build binaries
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
+          CC: ${{ matrix.target == 'linux64' && 'clang-18' || 'clang' }}
+          CXX: ${{ matrix.target == 'linux64' && 'clang++-18' || 'clang++' }}
         shell: bash
         run: |
           if [ "${{ matrix.target }}" == "android" ]; then
