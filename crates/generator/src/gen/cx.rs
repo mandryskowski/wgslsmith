@@ -159,6 +159,13 @@ impl Func {
             Func::User(signature) => signature.ident.to_owned(),
         }
     }
+
+    pub fn is_collective(&self) -> bool {
+        match self {
+            Func::Builtin(builtin, _) => builtin.is_collective(),
+            Func::User(_) => false,
+        }
+    }
 }
 
 pub struct FnContext {
@@ -190,13 +197,23 @@ impl FnContext {
         self.map.contains_key(ty)
     }
 
-    pub fn select(&self, rng: &mut impl Rng, return_ty: &DataType) -> Option<Rc<Func>> {
-        self.map
-            .get(return_ty)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-            .choose(rng)
-            .cloned()
+    pub fn select(
+        &self,
+        rng: &mut impl Rng,
+        return_ty: &DataType,
+        allow_collectives: bool,
+    ) -> Option<Rc<Func>> {
+        let funcs = self.map.get(return_ty).map(Vec::as_slice).unwrap_or(&[]);
+        if allow_collectives {
+            funcs.choose(rng).cloned()
+        } else {
+            let filtered: Vec<_> = funcs
+                .iter()
+                .filter(|f| !f.is_collective())
+                .cloned()
+                .collect();
+            filtered.choose(rng).cloned()
+        }
     }
 
     pub fn insert(&mut self, decl: FnDecl) -> Rc<Func> {

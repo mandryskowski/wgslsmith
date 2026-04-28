@@ -182,6 +182,41 @@ pub enum BuiltinFn {
 }
 
 impl BuiltinFn {
+    pub fn is_collective(&self) -> bool {
+        matches!(
+            self,
+            BuiltinFn::SubgroupAdd
+                | BuiltinFn::SubgroupAnd
+                | BuiltinFn::SubgroupExclusiveAdd
+                | BuiltinFn::SubgroupInclusiveAdd
+                | BuiltinFn::SubgroupAll
+                | BuiltinFn::SubgroupAny
+                | BuiltinFn::SubgroupBallot
+                | BuiltinFn::SubgroupBroadcast
+                | BuiltinFn::SubgroupBroadcastFirst
+                | BuiltinFn::SubgroupElect
+                | BuiltinFn::SubgroupMax
+                | BuiltinFn::SubgroupMin
+                | BuiltinFn::SubgroupMul
+                | BuiltinFn::SubgroupExclusiveMul
+                | BuiltinFn::SubgroupInclusiveMul
+                | BuiltinFn::SubgroupOr
+                | BuiltinFn::SubgroupShuffle
+                | BuiltinFn::SubgroupShuffleDown
+                | BuiltinFn::SubgroupShuffleUp
+                | BuiltinFn::SubgroupShuffleXor
+                | BuiltinFn::SubgroupXor
+                | BuiltinFn::QuadBroadcast
+                | BuiltinFn::QuadSwapDiagonal
+                | BuiltinFn::QuadSwapX
+                | BuiltinFn::QuadSwapY
+                | BuiltinFn::WorkgroupUniformLoad
+                | BuiltinFn::StorageBarrier
+                | BuiltinFn::TextureBarrier
+                | BuiltinFn::WorkgroupBarrier
+        )
+    }
+
     /// Determines the return type for a builtin function, given argument types.
     ///
     /// Note that this only does the bare minimum work for overload resolution and does not do any
