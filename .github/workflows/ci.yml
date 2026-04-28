@@ -195,6 +195,7 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
           CC: ${{ matrix.target == 'linux64' && 'clang-18' || 'clang' }}
           CXX: ${{ matrix.target == 'linux64' && 'clang++-18' || 'clang++' }}
+          RUSTFLAGS: ${{ matrix.sanitizer == 'asan-ubsan' && '-C link-arg=-shared-libasan' || '' }}
         shell: bash
         run: |
           if [ "${{ matrix.target }}" == "android" ]; then
