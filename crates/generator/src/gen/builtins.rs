@@ -207,14 +207,14 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
                 map.add(SubgroupMin, [ty.clone()], ty.clone());
                 map.add(SubgroupMax, [ty.clone()], ty.clone());
 
-                map.add(SubgroupBroadcast, [ty.clone(), U32.into()], ty.clone());
+                //map.add(SubgroupBroadcast, [ty.clone(), U32.into()], ty.clone());
                 map.add(SubgroupBroadcastFirst, [ty.clone()], ty.clone());
                 map.add(SubgroupShuffle, [ty.clone(), U32.into()], ty.clone());
                 map.add(SubgroupShuffleDown, [ty.clone(), U32.into()], ty.clone());
                 map.add(SubgroupShuffleUp, [ty.clone(), U32.into()], ty.clone());
                 map.add(SubgroupShuffleXor, [ty.clone(), U32.into()], ty.clone());
 
-                map.add(QuadBroadcast, [ty.clone(), U32.into()], ty.clone());
+                //map.add(QuadBroadcast, [ty.clone(), U32.into()], ty.clone());
                 map.add(QuadSwapDiagonal, [ty.clone()], ty.clone());
                 map.add(QuadSwapX, [ty.clone()], ty.clone());
                 map.add(QuadSwapY, [ty.clone()], ty.clone());
