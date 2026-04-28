@@ -1,0 +1,6 @@
+---
+source: crates/taint/src/lib.rs
+expression: metrics
+---
+  Assignments: 1/3 (33.3% cross-shader)
+  CF Branches: 0/0 (0.0% cross-shader)

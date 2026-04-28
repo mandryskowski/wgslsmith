@@ -70,4 +70,6 @@ mod tests {
     test_case!(global_postfix);
     test_case!(rhs_global_in_lhs);
     test_case!(func);
+    test_case!(func2);
+    test_case!(func3);
 }

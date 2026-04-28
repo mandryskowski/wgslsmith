@@ -2,7 +2,7 @@ use crate::context::TaintContext;
 use crate::types::TaintSet;
 use ast::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct TaintAnalyzer<'a> {
     pub ctx: &'a mut TaintContext,
@@ -10,6 +10,7 @@ pub struct TaintAnalyzer<'a> {
     pub shader_names: HashMap<String, u32>,
     pub next_shader_id: u32,
     pub var_decl_shader: HashMap<String, u32>,
+    pub fn_arg_taints: HashMap<String, Vec<TaintSet>>,
 }
 
 impl<'a> TaintAnalyzer<'a> {
@@ -22,6 +23,7 @@ impl<'a> TaintAnalyzer<'a> {
             shader_names,
             next_shader_id: 1,
             var_decl_shader: HashMap::new(),
+            fn_arg_taints: HashMap::new(),
         }
     }
 
@@ -68,20 +70,309 @@ impl<'a> TaintAnalyzer<'a> {
             register_global(&o.name);
         }
 
+        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+
         for func in &module.functions {
-            let mut func_origin = 0;
-            if let Some(idx) = func.name.rfind('_') {
-                let suffix = &func.name[idx..];
-                if suffix.len() > 1 && suffix[1..].chars().all(|c| c.is_ascii_hexdigit()) {
-                    let hex_suffix = &suffix[1..];
-                    if let Some(&id) = self.shader_names.get(hex_suffix) {
-                        func_origin = id;
+            in_degree.insert(func.name.clone(), 0);
+            adj.insert(func.name.clone(), Vec::new());
+        }
+
+        for func in &module.functions {
+            let mut called = HashSet::new();
+            for stmt in &func.body {
+                Self::extract_calls_stmt(stmt, &mut called);
+            }
+            for c in called {
+                if let Some(list) = adj.get_mut(&func.name) {
+                    list.push(c.clone());
+                }
+                if let Some(deg) = in_degree.get_mut(&c) {
+                    *deg += 1;
+                }
+            }
+        }
+
+        let mut queue = Vec::new();
+        for (name, deg) in &in_degree {
+            if *deg == 0 {
+                queue.push(name.clone());
+            }
+        }
+
+        let mut order = Vec::new();
+        while let Some(name) = queue.pop() {
+            order.push(name.clone());
+            if let Some(list) = adj.get(&name) {
+                for c in list {
+                    if let Some(deg) = in_degree.get_mut(c) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push(c.clone());
+                        }
                     }
                 }
             }
-            self.current_shader_id = func_origin;
-            self.visit_func(func);
         }
+
+        let mut visited_funcs = HashSet::new();
+        for name in &order {
+            visited_funcs.insert(name.clone());
+        }
+        for func in &module.functions {
+            if !visited_funcs.contains(&func.name) {
+                order.push(func.name.clone());
+            }
+        }
+
+        for name in order {
+            if let Some(func) = module.functions.iter().find(|f| f.name == name) {
+                let mut func_origin = 0;
+                if let Some(idx) = func.name.rfind('_') {
+                    let suffix = &func.name[idx..];
+                    if suffix.len() > 1 && suffix[1..].chars().all(|c| c.is_ascii_hexdigit()) {
+                        let hex_suffix = &suffix[1..];
+                        if let Some(&id) = self.shader_names.get(hex_suffix) {
+                            func_origin = id;
+                        }
+                    }
+                }
+                self.current_shader_id = func_origin;
+                self.visit_func(func);
+            }
+        }
+    }
+
+    fn extract_calls_expr(expr: &ExprNode, calls: &mut HashSet<String>) {
+        match &expr.expr {
+            Expr::FnCall(c) => {
+                calls.insert(c.ident.clone());
+                for arg in &c.args {
+                    Self::extract_calls_expr(arg, calls);
+                }
+            }
+            Expr::TypeCons(t) => {
+                for arg in &t.args {
+                    Self::extract_calls_expr(arg, calls);
+                }
+            }
+            Expr::Postfix(p) => {
+                Self::extract_calls_expr(&p.inner, calls);
+                if let Postfix::Index(idx) = &p.postfix {
+                    Self::extract_calls_expr(idx, calls);
+                }
+            }
+            Expr::UnOp(u) => Self::extract_calls_expr(&u.inner, calls),
+            Expr::BinOp(b) => {
+                Self::extract_calls_expr(&b.left, calls);
+                Self::extract_calls_expr(&b.right, calls);
+            }
+            Expr::Lit(_) | Expr::Var(_) => {}
+        }
+    }
+
+    fn extract_calls_lhs(lhs: &LhsExprNode, calls: &mut HashSet<String>) {
+        match &lhs.expr {
+            LhsExpr::Postfix(inner, p) => {
+                Self::extract_calls_lhs(inner, calls);
+                if let Postfix::Index(idx) = p {
+                    Self::extract_calls_expr(idx, calls);
+                }
+            }
+            LhsExpr::Deref(inner) => Self::extract_calls_lhs(inner, calls),
+            LhsExpr::AddressOf(inner) => Self::extract_calls_lhs(inner, calls),
+            LhsExpr::Ident(_) => {}
+        }
+    }
+
+    fn extract_calls_else(else_block: &Else, calls: &mut HashSet<String>) {
+        match else_block {
+            Else::If(s) => {
+                Self::extract_calls_expr(&s.condition, calls);
+                for bs in &s.body {
+                    Self::extract_calls_stmt(bs, calls);
+                }
+                if let Some(e) = &s.else_ {
+                    Self::extract_calls_else(e, calls);
+                }
+            }
+            Else::Else(stmts) => {
+                for s in stmts {
+                    Self::extract_calls_stmt(s, calls);
+                }
+            }
+        }
+    }
+
+    fn extract_calls_stmt(stmt: &Statement, calls: &mut HashSet<String>) {
+        match stmt {
+            Statement::LetDecl(s) => Self::extract_calls_expr(&s.initializer, calls),
+            Statement::VarDecl(s) => {
+                if let Some(init) = &s.initializer {
+                    Self::extract_calls_expr(init, calls);
+                }
+            }
+            Statement::ConstDecl(s) => Self::extract_calls_expr(&s.initializer, calls),
+            Statement::Assignment(s) => {
+                Self::extract_calls_expr(&s.rhs, calls);
+                if let AssignmentLhs::Expr(lhs) = &s.lhs {
+                    Self::extract_calls_lhs(lhs, calls);
+                }
+            }
+            Statement::Compound(stmts) => {
+                for s in stmts {
+                    Self::extract_calls_stmt(s, calls);
+                }
+            }
+            Statement::If(s) => {
+                Self::extract_calls_expr(&s.condition, calls);
+                for bs in &s.body {
+                    Self::extract_calls_stmt(bs, calls);
+                }
+                if let Some(else_block) = &s.else_ {
+                    Self::extract_calls_else(else_block, calls);
+                }
+            }
+            Statement::Loop(s) => {
+                for bs in &s.body {
+                    Self::extract_calls_stmt(bs, calls);
+                }
+                if let Some(cont) = &s.continuing {
+                    for cs in &cont.stmts {
+                        Self::extract_calls_stmt(cs, calls);
+                    }
+                    if let Some(br) = &cont.break_if {
+                        Self::extract_calls_expr(br, calls);
+                    }
+                }
+            }
+            Statement::While(s) => {
+                Self::extract_calls_expr(&s.condition, calls);
+                for bs in &s.body {
+                    Self::extract_calls_stmt(bs, calls);
+                }
+            }
+            Statement::ForLoop(s) => {
+                if let Some(init) = &s.header.init {
+                    match init {
+                        ForLoopInit::VarDecl(d) => {
+                            if let Some(init) = &d.initializer {
+                                Self::extract_calls_expr(init, calls);
+                            }
+                        }
+                        ForLoopInit::LetDecl(d) => Self::extract_calls_expr(&d.initializer, calls),
+                        ForLoopInit::ConstDecl(d) => Self::extract_calls_expr(&d.initializer, calls),
+                        ForLoopInit::Assignment(a) => {
+                            Self::extract_calls_expr(&a.rhs, calls);
+                            if let AssignmentLhs::Expr(lhs) = &a.lhs {
+                                Self::extract_calls_lhs(lhs, calls);
+                            }
+                        }
+                        ForLoopInit::Increment(i) => {
+                            if let AssignmentLhs::Expr(lhs) = &i.lhs {
+                                Self::extract_calls_lhs(lhs, calls);
+                            }
+                        }
+                        ForLoopInit::Decrement(d) => {
+                            if let AssignmentLhs::Expr(lhs) = &d.lhs {
+                                Self::extract_calls_lhs(lhs, calls);
+                            }
+                        }
+                        ForLoopInit::Call(c) => {
+                            calls.insert(c.ident.clone());
+                            for arg in &c.args {
+                                Self::extract_calls_expr(arg, calls);
+                            }
+                        }
+                    }
+                }
+                if let Some(cond) = &s.header.condition {
+                    Self::extract_calls_expr(cond, calls);
+                }
+                if let Some(upd) = &s.header.update {
+                    match upd {
+                        ForLoopUpdate::Assignment(a) => {
+                            Self::extract_calls_expr(&a.rhs, calls);
+                            if let AssignmentLhs::Expr(lhs) = &a.lhs {
+                                Self::extract_calls_lhs(lhs, calls);
+                            }
+                        }
+                        ForLoopUpdate::Increment(i) => {
+                            if let AssignmentLhs::Expr(lhs) = &i.lhs {
+                                Self::extract_calls_lhs(lhs, calls);
+                            }
+                        }
+                        ForLoopUpdate::Decrement(d) => {
+                            if let AssignmentLhs::Expr(lhs) = &d.lhs {
+                                Self::extract_calls_lhs(lhs, calls);
+                            }
+                        }
+                        ForLoopUpdate::Call(c) => {
+                            calls.insert(c.ident.clone());
+                            for arg in &c.args {
+                                Self::extract_calls_expr(arg, calls);
+                            }
+                        }
+                    }
+                }
+                for bs in &s.body {
+                    Self::extract_calls_stmt(bs, calls);
+                }
+            }
+            Statement::Switch(s) => {
+                Self::extract_calls_expr(&s.selector, calls);
+                for case in &s.cases {
+                    for bs in &case.body {
+                        Self::extract_calls_stmt(bs, calls);
+                    }
+                }
+                for bs in &s.default {
+                    Self::extract_calls_stmt(bs, calls);
+                }
+            }
+            Statement::FnCall(s) => {
+                calls.insert(s.ident.clone());
+                for arg in &s.args {
+                    Self::extract_calls_expr(arg, calls);
+                }
+            }
+            Statement::Increment(s) => {
+                if let AssignmentLhs::Expr(lhs) = &s.lhs {
+                    Self::extract_calls_lhs(lhs, calls);
+                }
+            }
+            Statement::Decrement(s) => {
+                if let AssignmentLhs::Expr(lhs) = &s.lhs {
+                    Self::extract_calls_lhs(lhs, calls);
+                }
+            }
+            Statement::Return(s) => {
+                if let Some(expr) = &s.value {
+                    Self::extract_calls_expr(expr, calls);
+                }
+            }
+            Statement::ContextMarker(_)
+            | Statement::Discard(_)
+            | Statement::ConstAssert(_)
+            | Statement::Break
+            | Statement::Continue
+            | Statement::Fallthrough => {}
+        }
+    }
+
+    pub fn record_fn_call(&mut self, ident: &str, args: &[ExprNode]) -> Vec<TaintSet> {
+        let mut arg_taints = Vec::new();
+        for arg in args {
+            arg_taints.push(self.eval_expr(arg));
+        }
+        if let Some(existing) = self.fn_arg_taints.get_mut(ident) {
+            for (e, a) in existing.iter_mut().zip(arg_taints.iter()) {
+                *e = e.union(a);
+            }
+        } else {
+            self.fn_arg_taints.insert(ident.to_string(), arg_taints.clone());
+        }
+        arg_taints
     }
 
     pub fn assign_var(&mut self, ident: &str, mut rhs_taint: TaintSet, is_decl: bool, is_strong: bool) {
@@ -112,8 +403,9 @@ impl<'a> TaintAnalyzer<'a> {
 
     pub fn visit_func(&mut self, func: &FnDecl) {
         self.ctx.enter_scope();
-        for input in &func.inputs {
-            let taint = self.ctx.get_var(&input.name);
+        let arg_taints = self.fn_arg_taints.get(&func.name).cloned().unwrap_or_default();
+        for (i, input) in func.inputs.iter().enumerate() {
+            let taint = arg_taints.get(i).cloned().unwrap_or_default();
             self.var_decl_shader.insert(input.name.clone(), self.current_shader_id);
             self.ctx.insert_var(input.name.clone(), taint.union(&TaintSet::single(self.current_shader_id)));
         }
@@ -295,9 +587,7 @@ impl<'a> TaintAnalyzer<'a> {
                             }
                         }
                         ForLoopInit::Call(c) => {
-                            for arg in &c.args {
-                                self.eval_expr(arg);
-                            }
+                            self.record_fn_call(&c.ident, &c.args);
                         }
                     }
                 }
@@ -364,9 +654,7 @@ impl<'a> TaintAnalyzer<'a> {
                             }
                         }
                         ForLoopUpdate::Call(c) => {
-                            for arg in &c.args {
-                                self.eval_expr(arg);
-                            }
+                            self.record_fn_call(&c.ident, &c.args);
                         }
                     }
                 }
@@ -401,9 +689,7 @@ impl<'a> TaintAnalyzer<'a> {
                 self.ctx.pop_cf();
             }
             Statement::FnCall(s) => {
-                for arg in &s.args {
-                    self.eval_expr(arg);
-                }
+                self.record_fn_call(&s.ident, &s.args);
             }
             Statement::Increment(s) => {
                 match &s.lhs {
@@ -522,8 +808,9 @@ impl<'a> TaintAnalyzer<'a> {
                     }
                 }
                 taint = taint.union(&TaintSet::single(func_origin));
-                for arg in &c.args {
-                    taint = taint.union(&self.eval_expr(arg));
+                let arg_taints = self.record_fn_call(&c.ident, &c.args);
+                for arg_taint in arg_taints {
+                    taint = taint.union(&arg_taint);
                 }
                 taint
             }
