@@ -161,7 +161,7 @@ jobs:
         if: matrix.target == 'linux64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-18 llvm-18 libx11-dev
+          sudo apt-get install clang-18 clang-tools-18 llvm-18 lld-18 p7zip-full
 
       - uses: pietrobolcato/action-read-yaml@1.1.0
         id: read_versions
