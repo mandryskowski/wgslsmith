@@ -804,7 +804,8 @@ fn parse_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
         Rule::decrement_statement => parse_decrement_statement(pair, env),
         Rule::fused_marker_statement => {
             let s = pair.as_str();
-            let start_idx = s.find("WGSLSMITH_CONTEXT_MARKER_").unwrap() + "WGSLSMITH_CONTEXT_MARKER_".len();
+            let start_idx =
+                s.find("WGSLSMITH_CONTEXT_MARKER_").unwrap() + "WGSLSMITH_CONTEXT_MARKER_".len();
             let ctx = s[start_idx..].trim().to_owned();
             Statement::ContextMarker(ContextMarkerStatement { context: ctx })
         }

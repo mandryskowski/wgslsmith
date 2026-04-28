@@ -91,7 +91,7 @@ pub struct DirOptions {
     /// Pass unstable_float to the generator
     #[clap(long, action, default_value = "false")]
     pub unstable_float: bool,
-    
+
     /// Print taint analysis metrics for fused shaders
     #[clap(long, action, default_value = "false")]
     pub print_taint: bool,

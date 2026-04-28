@@ -54,7 +54,7 @@ mod tests {
                 const SRC: &str = include_str!(concat!("tests/", stringify!($name), ".wgsl"));
                 let ast = parser::parse(SRC);
                 let metrics = analyze(&ast);
-                // We use assert_display_snapshot instead of debug since `Metrics` 
+                // We use assert_display_snapshot instead of debug since `Metrics`
                 // outputs a clean string representation.
                 insta::assert_display_snapshot!(metrics);
             }

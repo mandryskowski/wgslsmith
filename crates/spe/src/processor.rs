@@ -291,7 +291,7 @@ impl<'a> ShaderProcessor<'a> {
             if self.opt.print {
                 println!("// === {} {} ===\n{}", path_display, case_str, out_str);
             }
-            
+
             if self.opt.print_taint {
                 if let Ok(ast) = std::panic::catch_unwind(|| parser::parse(&out_str)) {
                     let metrics = taint::analyze(&ast);
