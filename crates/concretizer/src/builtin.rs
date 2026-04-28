@@ -1642,13 +1642,13 @@ fn step(edge: Lit, x: Lit) -> Option<Value> {
 fn ldexp(e1: Lit, e2: Lit) -> Option<Value> {
     match (e1, e2) {
         (Lit::F32(v), Lit::I32(exp)) => {
-            if exp > 128 {
+            if !(-127..=128).contains(&exp) {
                 return None;
             }
             Value::from_f32(in_float_range(v * 2.0_f32.powi(exp)))
         }
         (Lit::F16(v), Lit::I32(exp)) => {
-            if exp > 16 {
+            if !(-15..=15).contains(&exp) {
                 return None;
             }
             Value::from_f16(in_float16_range(half::f16::from_f32(
