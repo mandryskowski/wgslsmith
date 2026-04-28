@@ -36,7 +36,7 @@ impl Enumerator {
 
         let mut stack = Vec::new();
 
-        let mut get_ids = |enumerator: &mut Self, current: &[usize]| -> Frame {
+        let get_ids = |enumerator: &mut Self, current: &[usize]| -> Frame {
             let max_id = current
                 .iter()
                 .max()
@@ -69,7 +69,7 @@ impl Enumerator {
             let hole_idx = current.len();
             let mut found = false;
 
-            while let Some(id) = frame.ids.next() {
+            for id in frame.ids.by_ref() {
                 if self.is_valid_assignment(hole_idx, id, current) {
                     current.push(id);
                     found = true;
