@@ -175,6 +175,9 @@ pub enum BuiltinFn {
     QuadSwapY,
 
     // Synchronization
+    StorageBarrier,
+    TextureBarrier,
+    WorkgroupBarrier,
     WorkgroupUniformLoad,
 }
 
@@ -399,7 +402,7 @@ impl BuiltinFn {
                     return None;
                 }
             }
-            TextureStore => return None,
+            StorageBarrier | TextureBarrier | WorkgroupBarrier | TextureStore => return None,
             WorkgroupUniformLoad => {
                 let ty = first_param()?;
                 if let DataType::Ptr(view) = ty {

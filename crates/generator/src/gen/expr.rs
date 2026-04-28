@@ -392,7 +392,7 @@ impl super::Generator<'_> {
             }
             DataType::FrexpResult(t) => {
                 let member =
-                    if target == &**t || super::utils::accessible_types_of(&**t).contains(target) {
+                    if target == &**t || super::utils::accessible_types_of(t).contains(target) {
                         "fract"
                     } else {
                         "exp"
