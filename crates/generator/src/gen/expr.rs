@@ -214,7 +214,7 @@ impl super::Generator<'_> {
         let l_ty = match op {
             // These operators work on scalar/vector integers.
             // The result type depends on the operand type.
-            | BinOp::Plus
+            BinOp::Plus
             | BinOp::Minus
             | BinOp::Times
             | BinOp::Divide
