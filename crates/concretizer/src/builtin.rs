@@ -47,6 +47,38 @@ pub enum Builtin {
     Unpack4x8unorm,
     Unpack4xI8,
     Unpack4xU8,
+    Atan,
+    Cos,
+    Cosh,
+    Degrees,
+    InverseSqrt,
+    Log,
+    Log2,
+    Radians,
+    Sin,
+    Sinh,
+    Sqrt,
+    Tan,
+    Tanh,
+    Fract,
+    Ceil,
+    Floor,
+    Trunc,
+    Round,
+    Saturate,
+    Sign,
+    QuantizeToF16,
+    Step,
+    Pow,
+    Ldexp,
+    Fma,
+    Mix,
+    Length,
+    Distance,
+    Cross,
+    FaceForward,
+    Reflect,
+    Refract,
     SubgroupAdd,
     SubgroupExclusiveAdd,
     SubgroupInclusiveAdd,
@@ -77,6 +109,38 @@ pub enum Builtin {
 impl Builtin {
     pub fn convert(ident: String) -> Option<Builtin> {
         match ident.as_str() {
+            "atan" => Some(Builtin::Atan),
+            "cos" => Some(Builtin::Cos),
+            "cosh" => Some(Builtin::Cosh),
+            "degrees" => Some(Builtin::Degrees),
+            "inverseSqrt" => Some(Builtin::InverseSqrt),
+            "log" => Some(Builtin::Log),
+            "log2" => Some(Builtin::Log2),
+            "radians" => Some(Builtin::Radians),
+            "sin" => Some(Builtin::Sin),
+            "sinh" => Some(Builtin::Sinh),
+            "sqrt" => Some(Builtin::Sqrt),
+            "tan" => Some(Builtin::Tan),
+            "tanh" => Some(Builtin::Tanh),
+            "fract" => Some(Builtin::Fract),
+            "ceil" => Some(Builtin::Ceil),
+            "floor" => Some(Builtin::Floor),
+            "trunc" => Some(Builtin::Trunc),
+            "round" => Some(Builtin::Round),
+            "saturate" => Some(Builtin::Saturate),
+            "sign" => Some(Builtin::Sign),
+            "quantizeToF16" => Some(Builtin::QuantizeToF16),
+            "step" => Some(Builtin::Step),
+            "pow" => Some(Builtin::Pow),
+            "ldexp" => Some(Builtin::Ldexp),
+            "fma" => Some(Builtin::Fma),
+            "mix" => Some(Builtin::Mix),
+            "length" => Some(Builtin::Length),
+            "distance" => Some(Builtin::Distance),
+            "cross" => Some(Builtin::Cross),
+            "faceForward" => Some(Builtin::FaceForward),
+            "reflect" => Some(Builtin::Reflect),
+            "refract" => Some(Builtin::Refract),
             "clamp" => Some(Builtin::Clamp),
             "exp" => Some(Builtin::Exp),
             "exp2" => Some(Builtin::Exp2),
@@ -161,7 +225,12 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
             evaluate_four_arg_builtin(ident, arg1, arg2, arg3, arg4)
         }
 
-        Builtin::Select | Builtin::ExtractBits | Builtin::Clamp | Builtin::Smoothstep => {
+        Builtin::Select
+        | Builtin::ExtractBits
+        | Builtin::Clamp
+        | Builtin::Smoothstep
+        | Builtin::Fma
+        | Builtin::Mix => {
             let arg1 = args[0].clone().unwrap();
             let arg2 = args[1].clone().unwrap();
             let arg3 = args[2].clone().unwrap();
@@ -169,11 +238,54 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
             evaluate_three_arg_builtin(ident, arg1, arg2, arg3)
         }
 
-        Builtin::Min | Builtin::Max | Builtin::Dot4I8Packed | Builtin::Dot4U8Packed => {
+        Builtin::Min
+        | Builtin::Max
+        | Builtin::Dot4I8Packed
+        | Builtin::Dot4U8Packed
+        | Builtin::Step
+        | Builtin::Pow
+        | Builtin::Ldexp => {
             let arg1 = args[0].clone().unwrap();
             let arg2 = args[1].clone().unwrap();
 
             evaluate_two_arg_builtin(ident, arg1, arg2)
+        }
+
+        Builtin::Length => {
+            let arg = args[0].clone().unwrap();
+            evaluate_length(arg)
+        }
+
+        Builtin::Distance => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            evaluate_distance(arg1, arg2)
+        }
+
+        Builtin::Cross => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            evaluate_cross(arg1, arg2)
+        }
+
+        Builtin::Reflect => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            evaluate_reflect(arg1, arg2)
+        }
+
+        Builtin::FaceForward => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            let arg3 = args[2].clone().unwrap();
+            evaluate_face_forward(arg1, arg2, arg3)
+        }
+
+        Builtin::Refract => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            let arg3 = args[2].clone().unwrap();
+            evaluate_refract(arg1, arg2, arg3)
         }
 
         Builtin::Dot => {
@@ -276,8 +388,8 @@ fn evaluate_two_arg_builtin(ident: &Builtin, arg1: Value, arg2: Value) -> Option
         (Value::Vector(val1), Value::Vector(val2)) => {
             let mut result = Vec::new();
 
-            for (x, y) in val1.iter().zip(val2.iter()) {
-                let elem = evaluate_two_arg_builtin(ident, x.clone(), y.clone());
+            for (x, y) in val1.into_iter().zip(val2.into_iter()) {
+                let elem = evaluate_two_arg_builtin(ident, x, y);
 
                 match elem {
                     Some(e) => result.push(e),
@@ -306,8 +418,24 @@ fn evaluate_three_arg_builtin(
         (Value::Vector(val1), Value::Vector(val2), Value::Vector(val3)) => {
             let mut result = Vec::new();
 
-            for ((x, y), z) in val1.iter().zip(val2.iter()).zip(val3.iter()) {
-                let elem = evaluate_three_arg_builtin(ident, x.clone(), y.clone(), z.clone());
+            for ((x, y), z) in val1.into_iter().zip(val2.into_iter()).zip(val3.into_iter()) {
+                let elem = evaluate_three_arg_builtin(ident, x, y, z);
+
+                match elem {
+                    Some(e) => result.push(e),
+                    None => {
+                        return None;
+                    }
+                }
+            }
+
+            Some(Value::Vector(result))
+        }
+        (Value::Vector(val1), Value::Vector(val2), Value::Lit(val3)) => {
+            let mut result = Vec::new();
+
+            for (x, y) in val1.into_iter().zip(val2.into_iter()) {
+                let elem = evaluate_three_arg_builtin(ident, x, y, Value::Lit(val3));
 
                 match elem {
                     Some(e) => result.push(e),
@@ -371,6 +499,27 @@ fn evaluate(ident: &Builtin, val: Lit) -> Option<Value> {
         Builtin::ReverseBits => reverse_bits(val),
         Builtin::FirstLeadingBit => first_leading_bit(val),
         Builtin::FirstTrailingBit => first_trailing_bit(val),
+        Builtin::Atan => atan(val),
+        Builtin::Cos => cos(val),
+        Builtin::Cosh => cosh(val),
+        Builtin::Degrees => degrees(val),
+        Builtin::InverseSqrt => inverse_sqrt(val),
+        Builtin::Log => log(val),
+        Builtin::Log2 => log2(val),
+        Builtin::Radians => radians(val),
+        Builtin::Sin => sin(val),
+        Builtin::Sinh => sinh(val),
+        Builtin::Sqrt => sqrt(val),
+        Builtin::Tan => tan(val),
+        Builtin::Tanh => tanh(val),
+        Builtin::Fract => fract(val),
+        Builtin::Ceil => ceil(val),
+        Builtin::Floor => floor(val),
+        Builtin::Trunc => trunc(val),
+        Builtin::Round => round(val),
+        Builtin::Saturate => saturate(val),
+        Builtin::Sign => sign(val),
+        Builtin::QuantizeToF16 => quantize_to_f16(val),
         _ => todo!(),
     }
 }
@@ -379,6 +528,9 @@ fn evaluate_two_args(ident: &Builtin, val1: Lit, val2: Lit) -> Option<Value> {
     match ident {
         Builtin::Min => min(val1, val2),
         Builtin::Max => max(val1, val2),
+        Builtin::Pow => pow(val1, val2),
+        Builtin::Step => step(val1, val2),
+        Builtin::Ldexp => ldexp(val1, val2),
         Builtin::Dot4I8Packed => {
             if let (Lit::U32(a), Lit::U32(b)) = (val1, val2) {
                 let mut sum = 0i32;
@@ -415,6 +567,8 @@ fn evaluate_three_args(ident: &Builtin, val1: Lit, val2: Lit, val3: Lit) -> Opti
         Builtin::ExtractBits => extract_bits(val1, val2, val3),
         Builtin::Clamp => clamp(val1, val2, val3),
         Builtin::Smoothstep => smoothstep(val1, val2, val3),
+        Builtin::Fma => fma(val1, val2, val3),
+        Builtin::Mix => mix(val1, val2, val3),
         _ => todo!(),
     }
 }
@@ -1186,9 +1340,656 @@ fn evaluate_dot(arg1: Value, arg2: Value) -> Option<Value> {
                     }
                     Some(sum.into())
                 }
+                (Value::Lit(Lit::F16(_)), Value::Lit(Lit::F16(_))) => {
+                    let mut sum = 0.0f32;
+                    for (x, y) in v1.iter().zip(v2.iter()) {
+                        if let (Value::Lit(Lit::F16(xv)), Value::Lit(Lit::F16(yv))) = (x, y) {
+                            let product = xv.to_f32() * yv.to_f32();
+                            in_float16_range(half::f16::from_f32(product))?;
+                            sum += product;
+                            in_float16_range(half::f16::from_f32(sum))?;
+                        } else {
+                            return None;
+                        }
+                    }
+                    Some(Value::Lit(Lit::F16(half::f16::from_f32(sum))))
+                }
                 _ => None,
             }
         }
         _ => None,
+    }
+}
+
+fn atan(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.atan())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().atan()))),
+        _ => None,
+    }
+}
+
+fn cos(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.cos())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().cos()))),
+        _ => None,
+    }
+}
+
+fn cosh(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.cosh())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().cosh()))),
+        _ => None,
+    }
+}
+
+fn degrees(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.to_degrees())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(
+            v.to_f32().to_degrees(),
+        ))),
+        _ => None,
+    }
+}
+
+fn inverse_sqrt(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if v <= 0.0 {
+                return None;
+            }
+            Value::from_f32(in_float_range(1.0 / v.sqrt()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if f <= 0.0 {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(1.0 / f.sqrt())))
+        }
+        _ => None,
+    }
+}
+
+fn log(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if v <= 0.0 {
+                return None;
+            }
+            Value::from_f32(in_float_range(v.ln()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if f <= 0.0 {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(f.ln())))
+        }
+        _ => None,
+    }
+}
+
+fn log2(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if v <= 0.0 {
+                return None;
+            }
+            Value::from_f32(in_float_range(v.log2()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if f <= 0.0 {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(f.log2())))
+        }
+        _ => None,
+    }
+}
+
+fn radians(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.to_radians())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(
+            v.to_f32().to_radians(),
+        ))),
+        _ => None,
+    }
+}
+
+fn sin(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.sin())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().sin()))),
+        _ => None,
+    }
+}
+
+fn sinh(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.sinh())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().sinh()))),
+        _ => None,
+    }
+}
+
+fn sqrt(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            if v < 0.0 {
+                return None;
+            }
+            Value::from_f32(in_float_range(v.sqrt()))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            if f < 0.0 {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(f.sqrt())))
+        }
+        _ => None,
+    }
+}
+
+fn tan(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.tan())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().tan()))),
+        _ => None,
+    }
+}
+
+fn tanh(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.tanh())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().tanh()))),
+        _ => None,
+    }
+}
+
+fn fract(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v - v.floor())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(
+            v.to_f32() - v.to_f32().floor(),
+        ))),
+        _ => None,
+    }
+}
+
+fn ceil(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.ceil())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().ceil()))),
+        _ => None,
+    }
+}
+
+fn floor(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.floor())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().floor()))),
+        _ => None,
+    }
+}
+
+fn trunc(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.trunc())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().trunc()))),
+        _ => None,
+    }
+}
+
+fn round(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => Value::from_f32(in_float_range(v.round())),
+        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().round()))),
+        _ => None,
+    }
+}
+
+fn saturate(val: Lit) -> Option<Value> {
+    clamp(val, Lit::F32(0.0), Lit::F32(1.0)).or_else(|| {
+        clamp(
+            val,
+            Lit::F16(half::f16::from_f32(0.0)),
+            Lit::F16(half::f16::from_f32(1.0)),
+        )
+    })
+}
+
+fn sign(val: Lit) -> Option<Value> {
+    match val {
+        Lit::I32(v) => Value::from_i32(Some(v.signum())),
+        Lit::F32(v) => Value::from_f32(Some(if v > 0.0 {
+            1.0
+        } else if v < 0.0 {
+            -1.0
+        } else {
+            0.0
+        })),
+        Lit::F16(v) => Value::from_f16(Some(half::f16::from_f32(if v.to_f32() > 0.0 {
+            1.0
+        } else if v.to_f32() < 0.0 {
+            -1.0
+        } else {
+            0.0
+        }))),
+        _ => None,
+    }
+}
+
+fn quantize_to_f16(val: Lit) -> Option<Value> {
+    match val {
+        Lit::F32(v) => {
+            let f16_val = half::f16::from_f32(v);
+            if f16_val.is_infinite() || f16_val.is_nan() {
+                return None;
+            }
+            Value::from_f32(Some(f16_val.to_f32()))
+        }
+        _ => None,
+    }
+}
+
+fn pow(val1: Lit, val2: Lit) -> Option<Value> {
+    match (val1, val2) {
+        (Lit::F32(x), Lit::F32(y)) => {
+            if x < 0.0 {
+                return None;
+            }
+            if x == 0.0 && y <= 0.0 {
+                return None;
+            }
+            Value::from_f32(in_float_range(x.powf(y)))
+        }
+        (Lit::F16(x), Lit::F16(y)) => {
+            let xf = x.to_f32();
+            let yf = y.to_f32();
+            if xf < 0.0 {
+                return None;
+            }
+            if xf == 0.0 && yf <= 0.0 {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(xf.powf(yf))))
+        }
+        _ => None,
+    }
+}
+
+fn step(edge: Lit, x: Lit) -> Option<Value> {
+    match (edge, x) {
+        (Lit::F32(e), Lit::F32(v)) => Value::from_f32(Some(if e <= v { 1.0 } else { 0.0 })),
+        (Lit::F16(e), Lit::F16(v)) => {
+            Value::from_f16(Some(half::f16::from_f32(if e.to_f32() <= v.to_f32() {
+                1.0
+            } else {
+                0.0
+            })))
+        }
+        _ => None,
+    }
+}
+
+fn ldexp(e1: Lit, e2: Lit) -> Option<Value> {
+    match (e1, e2) {
+        (Lit::F32(v), Lit::I32(exp)) => {
+            if exp > 128 {
+                return None;
+            }
+            Value::from_f32(in_float_range(v * 2.0_f32.powi(exp)))
+        }
+        (Lit::F16(v), Lit::I32(exp)) => {
+            if exp > 16 {
+                return None;
+            }
+            Value::from_f16(in_float16_range(half::f16::from_f32(
+                v.to_f32() * 2.0_f32.powi(exp),
+            )))
+        }
+        _ => None,
+    }
+}
+
+fn fma(e1: Lit, e2: Lit, e3: Lit) -> Option<Value> {
+    match (e1, e2, e3) {
+        (Lit::F32(a), Lit::F32(b), Lit::F32(c)) => Value::from_f32(in_float_range(a * b + c)),
+        (Lit::F16(a), Lit::F16(b), Lit::F16(c)) => Value::from_f16(in_float16_range(
+            half::f16::from_f32(a.to_f32() * b.to_f32() + c.to_f32()),
+        )),
+        _ => None,
+    }
+}
+
+fn mix(e1: Lit, e2: Lit, e3: Lit) -> Option<Value> {
+    match (e1, e2, e3) {
+        (Lit::F32(a), Lit::F32(b), Lit::F32(c)) => {
+            Value::from_f32(in_float_range(a * (1.0 - c) + b * c))
+        }
+        (Lit::F16(a), Lit::F16(b), Lit::F16(c)) => Value::from_f16(in_float16_range(
+            half::f16::from_f32(a.to_f32() * (1.0 - c.to_f32()) + b.to_f32() * c.to_f32()),
+        )),
+        _ => None,
+    }
+}
+
+fn evaluate_length(arg: Value) -> Option<Value> {
+    match arg {
+        Value::Lit(Lit::F32(v)) => Value::from_f32(in_float_range(v.abs())),
+        Value::Lit(Lit::F16(v)) => {
+            Value::from_f16(in_float16_range(half::f16::from_f32(v.to_f32().abs())))
+        }
+        Value::Vector(vec) => {
+            let mut sum = 0.0;
+            let mut is_f16 = false;
+            for v in vec {
+                match v {
+                    Value::Lit(Lit::F32(f)) => {
+                        let sq = in_float_range(f * f)?;
+                        sum = in_float_range(sum + sq)?;
+                    }
+                    Value::Lit(Lit::F16(f)) => {
+                        let sq = in_float16_range(half::f16::from_f32(f.to_f32() * f.to_f32()))?
+                            .to_f32();
+                        sum = in_float16_range(half::f16::from_f32(sum + sq))?.to_f32();
+                        is_f16 = true;
+                    }
+                    _ => return None,
+                }
+            }
+            if is_f16 {
+                Value::from_f16(in_float16_range(half::f16::from_f32(sum.sqrt())))
+            } else {
+                Value::from_f32(in_float_range(sum.sqrt()))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_distance(arg1: Value, arg2: Value) -> Option<Value> {
+    match (arg1, arg2) {
+        (Value::Lit(Lit::F32(a)), Value::Lit(Lit::F32(b))) => {
+            Value::from_f32(in_float_range((a - b).abs()))
+        }
+        (Value::Lit(Lit::F16(a)), Value::Lit(Lit::F16(b))) => Value::from_f16(in_float16_range(
+            half::f16::from_f32((a.to_f32() - b.to_f32()).abs()),
+        )),
+        (Value::Vector(v1), Value::Vector(v2)) => {
+            if v1.len() != v2.len() {
+                return None;
+            }
+            let mut sum = 0.0;
+            let mut is_f16 = false;
+            for (a, b) in v1.into_iter().zip(v2.into_iter()) {
+                match (a, b) {
+                    (Value::Lit(Lit::F32(fa)), Value::Lit(Lit::F32(fb))) => {
+                        let diff = in_float_range(fa - fb)?;
+                        let sq = in_float_range(diff * diff)?;
+                        sum = in_float_range(sum + sq)?;
+                    }
+                    (Value::Lit(Lit::F16(fa)), Value::Lit(Lit::F16(fb))) => {
+                        let diff =
+                            in_float16_range(half::f16::from_f32(fa.to_f32() - fb.to_f32()))?
+                                .to_f32();
+                        let sq = in_float16_range(half::f16::from_f32(diff * diff))?.to_f32();
+                        sum = in_float16_range(half::f16::from_f32(sum + sq))?.to_f32();
+                        is_f16 = true;
+                    }
+                    _ => return None,
+                }
+            }
+            if is_f16 {
+                Value::from_f16(in_float16_range(half::f16::from_f32(sum.sqrt())))
+            } else {
+                Value::from_f32(in_float_range(sum.sqrt()))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_cross(arg1: Value, arg2: Value) -> Option<Value> {
+    match (arg1, arg2) {
+        (Value::Vector(v1), Value::Vector(v2)) => {
+            if v1.len() != 3 || v2.len() != 3 {
+                return None;
+            }
+            let (x1, y1, z1, is_f16) = match (&v1[0], &v1[1], &v1[2]) {
+                (Value::Lit(Lit::F32(x)), Value::Lit(Lit::F32(y)), Value::Lit(Lit::F32(z))) => {
+                    (*x, *y, *z, false)
+                }
+                (Value::Lit(Lit::F16(x)), Value::Lit(Lit::F16(y)), Value::Lit(Lit::F16(z))) => {
+                    (x.to_f32(), y.to_f32(), z.to_f32(), true)
+                }
+                _ => return None,
+            };
+            let (x2, y2, z2) = match (&v2[0], &v2[1], &v2[2]) {
+                (Value::Lit(Lit::F32(x)), Value::Lit(Lit::F32(y)), Value::Lit(Lit::F32(z))) => {
+                    (*x, *y, *z)
+                }
+                (Value::Lit(Lit::F16(x)), Value::Lit(Lit::F16(y)), Value::Lit(Lit::F16(z))) => {
+                    (x.to_f32(), y.to_f32(), z.to_f32())
+                }
+                _ => return None,
+            };
+
+            if is_f16 {
+                let p1 = in_float16_range(half::f16::from_f32(y1 * z2))?.to_f32();
+                let p2 = in_float16_range(half::f16::from_f32(z1 * y2))?.to_f32();
+                let rx = in_float16_range(half::f16::from_f32(p1 - p2))?;
+
+                let p3 = in_float16_range(half::f16::from_f32(z1 * x2))?.to_f32();
+                let p4 = in_float16_range(half::f16::from_f32(x1 * z2))?.to_f32();
+                let ry = in_float16_range(half::f16::from_f32(p3 - p4))?;
+
+                let p5 = in_float16_range(half::f16::from_f32(x1 * y2))?.to_f32();
+                let p6 = in_float16_range(half::f16::from_f32(y1 * x2))?.to_f32();
+                let rz = in_float16_range(half::f16::from_f32(p5 - p6))?;
+
+                Some(Value::Vector(vec![
+                    Value::Lit(Lit::F16(rx)),
+                    Value::Lit(Lit::F16(ry)),
+                    Value::Lit(Lit::F16(rz)),
+                ]))
+            } else {
+                let p1 = in_float_range(y1 * z2)?;
+                let p2 = in_float_range(z1 * y2)?;
+                let rx = in_float_range(p1 - p2)?;
+
+                let p3 = in_float_range(z1 * x2)?;
+                let p4 = in_float_range(x1 * z2)?;
+                let ry = in_float_range(p3 - p4)?;
+
+                let p5 = in_float_range(x1 * y2)?;
+                let p6 = in_float_range(y1 * x2)?;
+                let rz = in_float_range(p5 - p6)?;
+
+                Some(Value::Vector(vec![
+                    Value::Lit(Lit::F32(rx)),
+                    Value::Lit(Lit::F32(ry)),
+                    Value::Lit(Lit::F32(rz)),
+                ]))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_face_forward(arg1: Value, arg2: Value, arg3: Value) -> Option<Value> {
+    let dot = evaluate_dot(arg2, arg3)?;
+    let dot_val = match dot {
+        Value::Lit(Lit::F32(f)) => f,
+        Value::Lit(Lit::F16(f)) => f.to_f32(),
+        _ => return None,
+    };
+    if dot_val < 0.0 {
+        Some(arg1)
+    } else {
+        match arg1 {
+            Value::Vector(v) => {
+                let mut res = Vec::new();
+                for e in v {
+                    match e {
+                        Value::Lit(Lit::F32(f)) => res.push(Value::Lit(Lit::F32(-f))),
+                        Value::Lit(Lit::F16(f)) => {
+                            res.push(Value::Lit(Lit::F16(half::f16::from_f32(-f.to_f32()))))
+                        }
+                        _ => return None,
+                    }
+                }
+                Some(Value::Vector(res))
+            }
+            Value::Lit(Lit::F32(f)) => Some(Value::Lit(Lit::F32(-f))),
+            Value::Lit(Lit::F16(f)) => Some(Value::Lit(Lit::F16(half::f16::from_f32(-f.to_f32())))),
+            _ => None,
+        }
+    }
+}
+
+fn evaluate_reflect(arg1: Value, arg2: Value) -> Option<Value> {
+    let dot = evaluate_dot(arg2.clone(), arg1.clone())?;
+    match (arg1, arg2, dot) {
+        (Value::Vector(v1), Value::Vector(v2), Value::Lit(Lit::F32(d))) => {
+            let mut res = Vec::new();
+            for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+                if let (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) = (e1, e2) {
+                    let p = in_float_range(2.0 * d * f2)?;
+                    let r = in_float_range(f1 - p)?;
+                    res.push(Value::Lit(Lit::F32(r)));
+                } else {
+                    return None;
+                }
+            }
+            Some(Value::Vector(res))
+        }
+        (Value::Vector(v1), Value::Vector(v2), Value::Lit(Lit::F16(d))) => {
+            let mut res = Vec::new();
+            let d32 = d.to_f32();
+            for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+                if let (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) = (e1, e2) {
+                    let p =
+                        in_float16_range(half::f16::from_f32(2.0 * d32 * f2.to_f32()))?.to_f32();
+                    let r = in_float16_range(half::f16::from_f32(f1.to_f32() - p))?;
+                    res.push(Value::Lit(Lit::F16(r)));
+                } else {
+                    return None;
+                }
+            }
+            Some(Value::Vector(res))
+        }
+        (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2)), Value::Lit(Lit::F32(d))) => {
+            let p = in_float_range(2.0 * d * f2)?;
+            Some(Value::Lit(Lit::F32(in_float_range(f1 - p)?)))
+        }
+        (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2)), Value::Lit(Lit::F16(d))) => {
+            let p = in_float16_range(half::f16::from_f32(2.0 * d.to_f32() * f2.to_f32()))?.to_f32();
+            Some(Value::Lit(Lit::F16(in_float16_range(
+                half::f16::from_f32(f1.to_f32() - p),
+            )?)))
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_refract(arg1: Value, arg2: Value, arg3: Value) -> Option<Value> {
+    let dot = evaluate_dot(arg2.clone(), arg1.clone())?;
+    let (e3, is_f16) = match arg3 {
+        Value::Lit(Lit::F32(f)) => (f, false),
+        Value::Lit(Lit::F16(f)) => (f.to_f32(), true),
+        _ => return None,
+    };
+    let d = match dot {
+        Value::Lit(Lit::F32(f)) => f,
+        Value::Lit(Lit::F16(f)) => f.to_f32(),
+        _ => return None,
+    };
+
+    let k_p1 = e3 * e3;
+    let k_p2 = 1.0 - d * d;
+    let k = 1.0 - k_p1 * k_p2;
+    if k < 0.0 {
+        match arg1 {
+            Value::Vector(v) => {
+                let mut res = Vec::new();
+                for _ in v {
+                    if is_f16 {
+                        res.push(Value::Lit(Lit::F16(half::f16::ZERO)));
+                    } else {
+                        res.push(Value::Lit(Lit::F32(0.0)));
+                    }
+                }
+                Some(Value::Vector(res))
+            }
+            Value::Lit(_) => {
+                if is_f16 {
+                    Some(Value::Lit(Lit::F16(half::f16::ZERO)))
+                } else {
+                    Some(Value::Lit(Lit::F32(0.0)))
+                }
+            }
+        }
+    } else if is_f16 {
+        let sqrt_k = in_float16_range(half::f16::from_f32(k.sqrt()))?.to_f32();
+        match (arg1, arg2) {
+            (Value::Vector(v1), Value::Vector(v2)) => {
+                let mut res = Vec::new();
+                for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+                    if let (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) = (e1, e2) {
+                        let p1 = in_float16_range(half::f16::from_f32(e3 * f1.to_f32()))?.to_f32();
+                        let p2 = in_float16_range(half::f16::from_f32(e3 * d + sqrt_k))?.to_f32();
+                        let p3 = in_float16_range(half::f16::from_f32(p2 * f2.to_f32()))?.to_f32();
+                        let r = in_float16_range(half::f16::from_f32(p1 - p3))?;
+                        res.push(Value::Lit(Lit::F16(r)));
+                    } else {
+                        return None;
+                    }
+                }
+                Some(Value::Vector(res))
+            }
+            (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) => {
+                let p1 = in_float16_range(half::f16::from_f32(e3 * f1.to_f32()))?.to_f32();
+                let p2 = in_float16_range(half::f16::from_f32(e3 * d + sqrt_k))?.to_f32();
+                let p3 = in_float16_range(half::f16::from_f32(p2 * f2.to_f32()))?.to_f32();
+                Some(Value::Lit(Lit::F16(in_float16_range(
+                    half::f16::from_f32(p1 - p3),
+                )?)))
+            }
+            _ => None,
+        }
+    } else {
+        let sqrt_k = in_float_range(k.sqrt())?;
+        match (arg1, arg2) {
+            (Value::Vector(v1), Value::Vector(v2)) => {
+                let mut res = Vec::new();
+                for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+                    if let (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) = (e1, e2) {
+                        let p1 = in_float_range(e3 * f1)?;
+                        let p2 = in_float_range(e3 * d + sqrt_k)?;
+                        let p3 = in_float_range(p2 * f2)?;
+                        let r = in_float_range(p1 - p3)?;
+                        res.push(Value::Lit(Lit::F32(r)));
+                    } else {
+                        return None;
+                    }
+                }
+                Some(Value::Vector(res))
+            }
+            (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) => {
+                let p1 = in_float_range(e3 * f1)?;
+                let p2 = in_float_range(e3 * d + sqrt_k)?;
+                let p3 = in_float_range(p2 * f2)?;
+                Some(Value::Lit(Lit::F32(in_float_range(p1 - p3)?)))
+            }
+            _ => None,
+        }
     }
 }
