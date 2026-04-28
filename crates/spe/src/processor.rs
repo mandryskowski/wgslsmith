@@ -288,6 +288,10 @@ impl<'a> ShaderProcessor<'a> {
                 }
             };
 
+            if self.opt.print {
+                println!("// === {} {} ===\n{}", path_display, case_str, out_str);
+            }
+
             let mut current_src = out_str.clone();
 
             if let Some(reconditioned) =

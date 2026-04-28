@@ -576,16 +576,68 @@ impl Concretizer {
             Expr::Postfix(expr) => {
                 let concrete_inner = self.concretize_expr(*expr.inner);
 
+                let mut postfix_value = None;
+
                 let concrete_postfix = match expr.postfix {
                     Postfix::Index(index) => {
-                        Postfix::Index(Box::new(self.concretize_expr(*index).into()))
+                        let con_index = self.concretize_expr(*index);
+                        if let (Some(Value::Vector(vec)), Some(idx_val)) =
+                            (&concrete_inner.value, &con_index.value)
+                        {
+                            let idx = match idx_val {
+                                Value::Lit(Lit::I32(i)) => {
+                                    if *i >= 0 {
+                                        *i as usize
+                                    } else {
+                                        usize::MAX
+                                    }
+                                }
+                                Value::Lit(Lit::U32(u)) => *u as usize,
+                                _ => usize::MAX,
+                            };
+                            if idx < vec.len() {
+                                postfix_value = Some(vec[idx].clone());
+                            }
+                        }
+                        Postfix::Index(Box::new(con_index.into()))
                     }
-                    Postfix::Member(string) => Postfix::Member(string),
+                    Postfix::Member(string) => {
+                        if let Some(Value::Vector(vec)) = &concrete_inner.value {
+                            let mut res = Vec::new();
+                            let mut valid = true;
+                            for c in string.chars() {
+                                let idx = match c {
+                                    'x' | 'r' => 0,
+                                    'y' | 'g' => 1,
+                                    'z' | 'b' => 2,
+                                    'w' | 'a' => 3,
+                                    _ => {
+                                        valid = false;
+                                        break;
+                                    }
+                                };
+                                if idx < vec.len() {
+                                    res.push(vec[idx].clone());
+                                } else {
+                                    valid = false;
+                                    break;
+                                }
+                            }
+                            if valid && !res.is_empty() {
+                                if res.len() == 1 {
+                                    postfix_value = Some(res[0].clone());
+                                } else {
+                                    postfix_value = Some(Value::Vector(res));
+                                }
+                            }
+                        }
+                        Postfix::Member(string)
+                    }
                 };
 
                 ConNode {
                     node: PostfixExpr::new(concrete_inner, concrete_postfix).into(),
-                    value: None,
+                    value: postfix_value,
                 }
             }
             Expr::Var(expr) => {

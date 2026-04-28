@@ -82,4 +82,8 @@ pub struct DirOptions {
     /// Allow generating shaders in spe fuse.
     #[clap(long, action, default_value = "false")]
     pub allow_generate: bool,
+
+    /// Print the generated shaders to stdout before execution
+    #[clap(long, action, default_value = "false")]
+    pub print: bool,
 }

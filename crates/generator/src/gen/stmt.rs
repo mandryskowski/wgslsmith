@@ -28,13 +28,14 @@ enum StatementType {
     While,
     Break,
     Continue,
+    Barrier,
 }
 
 impl super::Generator<'_> {
     pub fn gen_stmt(&mut self) -> Statement {
         let mut allowed = vec![StatementType::LetDecl, StatementType::VarDecl];
 
-        if !self.fn_state.is_continuing {
+        if !self.fn_state.is_continuing && !self.fn_state.is_entrypoint {
             allowed.push(StatementType::Return);
         }
 
@@ -58,6 +59,11 @@ impl super::Generator<'_> {
             ]);
         }
 
+        if self.options.collectives && self.fn_state.is_entrypoint && self.fn_state.block_depth == 1
+        {
+            allowed.push(StatementType::Barrier);
+        }
+
         let weights = |t: &StatementType| match t {
             StatementType::LetDecl => 10,
             StatementType::VarDecl => 10,
@@ -71,6 +77,7 @@ impl super::Generator<'_> {
             StatementType::While => 5,
             StatementType::Break => 5,
             StatementType::Continue => 5,
+            StatementType::Barrier => 5,
         };
 
         match allowed.choose_weighted(self.rng, weights).unwrap() {
@@ -86,7 +93,14 @@ impl super::Generator<'_> {
             StatementType::While => self.gen_while_stmt(),
             StatementType::Break => Statement::Break,
             StatementType::Continue => Statement::Continue,
+            StatementType::Barrier => self.gen_barrier_stmt(),
         }
+    }
+
+    fn gen_barrier_stmt(&mut self) -> Statement {
+        let barriers = ["storageBarrier", "textureBarrier", "workgroupBarrier"];
+        let chosen = barriers.choose(self.rng).unwrap();
+        ast::FnCallStatement::new((*chosen).to_owned(), vec![]).into()
     }
 
     fn gen_let_stmt(&mut self) -> Statement {
@@ -159,7 +173,11 @@ impl super::Generator<'_> {
             .rng
             .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
 
-        let condition = self.gen_expr(&DataType::Scalar(ScalarType::Bool));
+        let condition = if chain_depth > 0 {
+            self.with_non_uniform(|this| this.gen_expr(&DataType::Scalar(ScalarType::Bool)))
+        } else {
+            self.gen_expr(&DataType::Scalar(ScalarType::Bool))
+        };
         let body = self.gen_stmt_block(max_count).1;
 
         let mut stmt = IfStatement::new(condition, body);
@@ -212,7 +230,9 @@ impl super::Generator<'_> {
             let break_if = if self.rng.gen_bool(0.5) {
                 Some(
                     self.with_scope(cont_scope, |this| {
-                        this.gen_expr(&DataType::Scalar(ScalarType::Bool))
+                        this.with_non_uniform(|this| {
+                            this.gen_expr(&DataType::Scalar(ScalarType::Bool))
+                        })
                     })
                     .1,
                 )
@@ -320,7 +340,7 @@ impl super::Generator<'_> {
                     BinOp::NotEqual,
                 ];
 
-                let condition = match this.rng.gen_range(0..=9) {
+                let condition = this.with_non_uniform(|this| match this.rng.gen_range(0..=9) {
                     0..=1 => None,
                     2..=5 => Some(this.gen_expr(&DataType::Scalar(ScalarType::Bool))),
                     6..=9 => Some(
@@ -332,7 +352,7 @@ impl super::Generator<'_> {
                         .into(),
                     ),
                     _ => unreachable!(),
-                };
+                });
 
                 let update = if this.rng.gen_bool(0.8) {
                     let assignment_op = if this.rng.gen_bool(0.5) {
@@ -345,7 +365,7 @@ impl super::Generator<'_> {
                     let stmt = if this.rng.gen_bool(0.7) {
                         AssignmentStatement::new(lhs, assignment_op, Lit::I32(1))
                     } else {
-                        this.gen_assignment_stmt()
+                        this.with_non_uniform(|this| this.gen_assignment_stmt())
                     };
 
                     Some(ForLoopUpdate::Assignment(stmt))
@@ -356,7 +376,9 @@ impl super::Generator<'_> {
                 (Some(init), condition, update)
             } else {
                 let condition = if this.rng.gen_bool(0.5) {
-                    Some(this.gen_expr(&DataType::Scalar(ScalarType::Bool)))
+                    Some(this.with_non_uniform(|this| {
+                        this.gen_expr(&DataType::Scalar(ScalarType::Bool))
+                    }))
                 } else {
                     None
                 };
@@ -389,7 +411,8 @@ impl super::Generator<'_> {
             .rng
             .gen_range(self.options.block_min_stmts..=self.options.block_max_stmts);
 
-        let condition = self.gen_expr(&DataType::Scalar(ScalarType::Bool));
+        let condition =
+            self.with_non_uniform(|this| this.gen_expr(&DataType::Scalar(ScalarType::Bool)));
 
         let is_loop = std::mem::replace(&mut self.fn_state.is_loop, true);
         let body = self.gen_stmt_block(max_count).1;

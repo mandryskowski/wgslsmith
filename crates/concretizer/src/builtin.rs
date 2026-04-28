@@ -47,6 +47,31 @@ pub enum Builtin {
     Unpack4x8unorm,
     Unpack4xI8,
     Unpack4xU8,
+    SubgroupAdd,
+    SubgroupExclusiveAdd,
+    SubgroupInclusiveAdd,
+    SubgroupAll,
+    SubgroupAny,
+    SubgroupBallot,
+    SubgroupBroadcast,
+    SubgroupBroadcastFirst,
+    SubgroupElect,
+    SubgroupMax,
+    SubgroupMin,
+    SubgroupMul,
+    SubgroupExclusiveMul,
+    SubgroupInclusiveMul,
+    SubgroupOr,
+    SubgroupShuffle,
+    SubgroupShuffleDown,
+    SubgroupShuffleUp,
+    SubgroupShuffleXor,
+    SubgroupXor,
+    QuadBroadcast,
+    QuadSwapDiagonal,
+    QuadSwapX,
+    QuadSwapY,
+    WorkgroupUniformLoad,
 }
 
 impl Builtin {
@@ -94,6 +119,31 @@ impl Builtin {
             "unpack4x8unorm" => Some(Builtin::Unpack4x8unorm),
             "unpack4xI8" => Some(Builtin::Unpack4xI8),
             "unpack4xU8" => Some(Builtin::Unpack4xU8),
+            "subgroupAdd" => Some(Builtin::SubgroupAdd),
+            "subgroupExclusiveAdd" => Some(Builtin::SubgroupExclusiveAdd),
+            "subgroupInclusiveAdd" => Some(Builtin::SubgroupInclusiveAdd),
+            "subgroupAll" => Some(Builtin::SubgroupAll),
+            "subgroupAny" => Some(Builtin::SubgroupAny),
+            "subgroupBallot" => Some(Builtin::SubgroupBallot),
+            "subgroupBroadcast" => Some(Builtin::SubgroupBroadcast),
+            "subgroupBroadcastFirst" => Some(Builtin::SubgroupBroadcastFirst),
+            "subgroupElect" => Some(Builtin::SubgroupElect),
+            "subgroupMax" => Some(Builtin::SubgroupMax),
+            "subgroupMin" => Some(Builtin::SubgroupMin),
+            "subgroupMul" => Some(Builtin::SubgroupMul),
+            "subgroupExclusiveMul" => Some(Builtin::SubgroupExclusiveMul),
+            "subgroupInclusiveMul" => Some(Builtin::SubgroupInclusiveMul),
+            "subgroupOr" => Some(Builtin::SubgroupOr),
+            "subgroupShuffle" => Some(Builtin::SubgroupShuffle),
+            "subgroupShuffleDown" => Some(Builtin::SubgroupShuffleDown),
+            "subgroupShuffleUp" => Some(Builtin::SubgroupShuffleUp),
+            "subgroupShuffleXor" => Some(Builtin::SubgroupShuffleXor),
+            "subgroupXor" => Some(Builtin::SubgroupXor),
+            "quadBroadcast" => Some(Builtin::QuadBroadcast),
+            "quadSwapDiagonal" => Some(Builtin::QuadSwapDiagonal),
+            "quadSwapX" => Some(Builtin::QuadSwapX),
+            "quadSwapY" => Some(Builtin::QuadSwapY),
+            "workgroupUniformLoad" => Some(Builtin::WorkgroupUniformLoad),
             _ => None,
         }
     }
@@ -165,6 +215,31 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
             let arg = args[0].clone().unwrap();
             evaluate_determinant(arg)
         }
+        Builtin::SubgroupAdd
+        | Builtin::SubgroupExclusiveAdd
+        | Builtin::SubgroupInclusiveAdd
+        | Builtin::SubgroupAll
+        | Builtin::SubgroupAny
+        | Builtin::SubgroupBallot
+        | Builtin::SubgroupBroadcast
+        | Builtin::SubgroupBroadcastFirst
+        | Builtin::SubgroupElect
+        | Builtin::SubgroupMax
+        | Builtin::SubgroupMin
+        | Builtin::SubgroupMul
+        | Builtin::SubgroupExclusiveMul
+        | Builtin::SubgroupInclusiveMul
+        | Builtin::SubgroupOr
+        | Builtin::SubgroupShuffle
+        | Builtin::SubgroupShuffleDown
+        | Builtin::SubgroupShuffleUp
+        | Builtin::SubgroupShuffleXor
+        | Builtin::SubgroupXor
+        | Builtin::QuadBroadcast
+        | Builtin::QuadSwapDiagonal
+        | Builtin::QuadSwapX
+        | Builtin::QuadSwapY
+        | Builtin::WorkgroupUniformLoad => None,
 
         _ => {
             let single_arg = args[0].clone().unwrap();

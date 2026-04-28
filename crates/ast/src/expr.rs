@@ -154,7 +154,7 @@ impl BinOp {
 
         match self {
             // These operators produce the same result type as the first operand.
-            | BinOp::Plus
+            BinOp::Plus
             | BinOp::Minus
             | BinOp::Divide
             | BinOp::Mod
@@ -182,7 +182,7 @@ impl BinOp {
 
             // These operators produce a scalar/vector bool with the same number of components
             // as the operands (though the operands may have a different scalar type).
-            | BinOp::Less
+            BinOp::Less
             | BinOp::LessEqual
             | BinOp::Greater
             | BinOp::GreaterEqual

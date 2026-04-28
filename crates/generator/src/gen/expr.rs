@@ -103,6 +103,14 @@ impl super::Generator<'_> {
 
             UnOpExpr::new(UnOp::AddressOf, var_expr).into()
         } else {
+            if mem_view.storage_class != ast::StorageClass::Function
+                && mem_view.storage_class != ast::StorageClass::Private
+            {
+                panic!(
+                    "Cannot generate local variable for pointer with storage class {:?}",
+                    mem_view.storage_class
+                );
+            }
             let ident = self.scope.next_name();
             let initializer = self.gen_expr(mem_view.inner.as_ref());
             self.current_block
@@ -206,7 +214,7 @@ impl super::Generator<'_> {
         let l_ty = match op {
             // These operators work on scalar/vector integers.
             // The result type depends on the operand type.
-            | BinOp::Plus
+            BinOp::Plus
             | BinOp::Minus
             | BinOp::Times
             | BinOp::Divide
@@ -258,7 +266,11 @@ impl super::Generator<'_> {
             _ => l_ty.clone(),
         };
 
-        let r = self.gen_expr(&r_ty);
+        let r = if matches!(op, BinOp::LogAnd | BinOp::LogOr) {
+            self.with_non_uniform(|this| this.gen_expr(&r_ty))
+        } else {
+            self.gen_expr(&r_ty)
+        };
 
         self.fn_state.expression_depth -= 1;
 
@@ -293,9 +305,13 @@ impl super::Generator<'_> {
     }
 
     fn gen_raw_fn_call_expr(&mut self, ty: &DataType) -> ExprNode {
+        let allow_collectives = self.fn_state.is_entrypoint
+            && self.fn_state.block_depth == 1
+            && !self.fn_state.is_non_uniform;
+
         // Produce a function call with p=0.8 or p=1 if max functions reached
         if self.cx.fns.len() >= self.options.max_fns || self.rng.gen_bool(0.8) {
-            if let Some(func) = self.cx.fns.select(self.rng, ty) {
+            if let Some(func) = self.cx.fns.select(self.rng, ty, allow_collectives) {
                 let (name, params, return_type) = match func.as_ref() {
                     Func::Builtin(builtin, overload) => (
                         builtin.as_ref(),
@@ -369,8 +385,44 @@ impl super::Generator<'_> {
             DataType::Struct(decl) => self.gen_struct_accessor(&decl.clone(), target, expr),
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
             DataType::Ref(_) | DataType::Texture(_) | DataType::Sampler(_) => todo!(),
-            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => todo!(),
-            DataType::FrexpResult(_) | DataType::ModfResult(_) => todo!(),
+            DataType::Atomic(_) => unreachable!("Atomic does not have accessors"),
+            DataType::AtomicCompareExchangeResult(_) => {
+                let member = if target == &DataType::Scalar(ScalarType::Bool) {
+                    "exchanged"
+                } else {
+                    "old_value"
+                };
+                let expr: ExprNode = PostfixExpr::new(expr, Postfix::member(member)).into();
+                if expr.data_type.dereference() == target {
+                    return expr;
+                }
+                self.gen_accessor(target, expr)
+            }
+            DataType::FrexpResult(t) => {
+                let member =
+                    if target == &**t || super::utils::accessible_types_of(t).contains(target) {
+                        "fract"
+                    } else {
+                        "exp"
+                    };
+                let expr: ExprNode = PostfixExpr::new(expr, Postfix::member(member)).into();
+                if expr.data_type.dereference() == target {
+                    return expr;
+                }
+                self.gen_accessor(target, expr)
+            }
+            DataType::ModfResult(_) => {
+                let member = if self.rng.gen_bool(0.5) {
+                    "fract"
+                } else {
+                    "whole"
+                };
+                let expr: ExprNode = PostfixExpr::new(expr, Postfix::member(member)).into();
+                if expr.data_type.dereference() == target {
+                    return expr;
+                }
+                self.gen_accessor(target, expr)
+            }
         }
     }
 
