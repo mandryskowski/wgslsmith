@@ -86,4 +86,8 @@ pub struct DirOptions {
     /// Print the generated shaders to stdout before execution
     #[clap(long, action, default_value = "false")]
     pub print: bool,
+
+    /// Pass unstable_float to the generator
+    #[clap(long, action, default_value = "false")]
+    pub unstable_float: bool,
 }

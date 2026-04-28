@@ -131,6 +131,10 @@ pub struct Options {
     #[clap(long, action)]
     pub collectives: bool,
 
+    /// Enable unstable float functions that are currently not reconditioned
+    #[clap(long, action)]
+    pub unstable_float: bool,
+
     /// Path to output file (use `-` for stdout)
     #[clap(short, long, action, default_value = "-")]
     pub output: String,

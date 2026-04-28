@@ -117,62 +117,70 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
     }
 
     for ty in scalar_and_vectors_of(F32) {
-        for builtin in [
-            // Acos - // TODO: recondition,
-            // Acosh - not implemented in tint/naga,
-            // Asin - // TODO: recondition,
-            // Asinh - not implemnted in tint/naga,
-            // Atan - // TODO: recondition,
-            // Atanh - not implemented in tint/naga,
-            Ceil, // Cos,
-            // Cosh,
-            // Degrees,
-            Exp, Exp2, Floor, Fract,
-            // InverseSqrt - // TODO: recondition,
-            // Log - // TODO: recondition,
-            // Log2 - // TODO: recondition,
-            // QuantizeToF16 - buggy,
-            // Radians,
-            Round, Saturate, Sign,
-            // Sin,
-            // Sinh,
-            // Sqrt - // TODO: recondition,
-            // Tan - // TODO: recondition,
-            // Tanh - // TODO: recondition,
-            Trunc,
-        ] {
+        for builtin in [Ceil, Exp, Exp2, Floor, Fract, Round, Saturate, Sign, Trunc] {
             map.add(builtin, [ty.clone()], ty.clone());
         }
 
-        for builtin in [Max, Min /*, Pow */, Step] {
+        if options.unstable_float {
+            for builtin in [
+                Acos,
+                Acosh,
+                Asin,
+                Asinh,
+                Atan,
+                Atanh,
+                Cos,
+                Cosh,
+                Degrees,
+                InverseSqrt,
+                Log,
+                Log2,
+                QuantizeToF16,
+                Radians,
+                Sin,
+                Sinh,
+                Sqrt,
+                Tan,
+                Tanh,
+            ] {
+                map.add(builtin, [ty.clone()], ty.clone());
+            }
+        }
+
+        for builtin in [Max, Min, Step] {
             map.add(builtin, [ty.clone(), ty.clone()], ty.clone());
         }
 
-        // for builtin in [Fma, Mix, Smoothstep] {
-        //     map.add(builtin, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
-        // }
+        if options.unstable_float {
+            map.add(Pow, [ty.clone(), ty.clone()], ty.clone());
 
-        // map.add(Distance, [ty.clone(), ty.clone()], F32);
-        // map.add(Ldexp, [ty.clone(), ty.map(I32)], ty.clone()); // https://github.com/gfx-rs/naga/issues/1908
-        // map.add(Length, [ty.clone()], F32);
+            for builtin in [Fma, Mix, Smoothstep] {
+                map.add(builtin, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
+            }
+
+            map.add(Distance, [ty.clone(), ty.clone()], F32);
+            map.add(Ldexp, [ty.clone(), ty.map(I32)], ty.clone());
+            map.add(Length, [ty.clone()], F32);
+        }
     }
 
-    // map.add(Cross, [Vector(3, F32), Vector(3, F32)], Vector(3, F32));
+    if options.unstable_float {
+        map.add(Cross, [Vector(3, F32), Vector(3, F32)], Vector(3, F32));
 
-    // for ty in vectors_of(F32) {
-    //     map.add(
-    //         FaceForward,
-    //         [ty.clone(), ty.clone(), ty.clone()],
-    //         ty.clone(),
-    //     );
+        for ty in vectors_of(F32) {
+            map.add(
+                FaceForward,
+                [ty.clone(), ty.clone(), ty.clone()],
+                ty.clone(),
+            );
 
-    //     map.add(Reflect, [ty.clone(), ty.clone()], ty.clone());
+            map.add(Reflect, [ty.clone(), ty.clone()], ty.clone());
 
-    //     // Unimplemented in naga
-    //     if enabled.contains(&Refract) {
-    //         map.add(Refract, [ty.clone(), ty.clone(), F32.into()], ty.clone());
-    //     }
-    // }
+            if options.enabled_fns.contains(&Refract) {
+                map.add(Refract, [ty.clone(), ty.clone(), F32.into()], ty.clone());
+            }
+        }
+    }
 
     map.add(Pack4x8snorm, [Vector(4, F32)], U32);
     map.add(Pack4x8unorm, [Vector(4, F32)], U32);
