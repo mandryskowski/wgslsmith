@@ -117,6 +117,16 @@ pub mod fuse {
         let (mut skipped_log, mut failures_log) =
             util::get_logs(log_to_file, out_dir_opt.as_deref(), append);
 
+        let subgroup_support_ratio = if opt.configs.is_empty() {
+            0.0
+        } else {
+            support_map
+                .get(&ast::EnableExtension::Subgroups)
+                .map(|supported| supported.len() as f64 / opt.configs.len() as f64)
+                .unwrap_or(0.0)
+        };
+        let collectives_prob = subgroup_support_ratio * 0.5;
+
         let entries: Vec<_> = WalkDir::new(&opt.directory)
             .into_iter()
             .filter_map(Result::ok)
@@ -294,7 +304,7 @@ pub mod fuse {
                         preset: None,
                         recondition: false,
                         output: "-".to_owned(),
-                        collectives: false,
+                        collectives: rng.gen_bool(collectives_prob),
                     });
 
                     let next_module = generator::Generator::new(&mut gen_rng, gen_opts)
