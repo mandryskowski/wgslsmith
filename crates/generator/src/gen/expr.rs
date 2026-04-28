@@ -378,7 +378,7 @@ impl super::Generator<'_> {
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
             DataType::Ref(_) | DataType::Texture(_) | DataType::Sampler(_) => todo!(),
             DataType::Atomic(_) => unreachable!("Atomic does not have accessors"),
-            DataType::AtomicCompareExchangeResult(t) => {
+            DataType::AtomicCompareExchangeResult(_) => {
                 let member = if target == &DataType::Scalar(ScalarType::Bool) {
                     "exchanged"
                 } else {
