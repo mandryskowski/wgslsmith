@@ -91,6 +91,15 @@ impl Scope {
         self.all_vars.push_back_mut((name, data_type));
     }
 
+    pub fn insert_unassignable_reference(&mut self, name: String, data_type: DataType) {
+        self.insert_symbol(&name, &data_type);
+        if let DataType::Ref(mem_view) = &data_type {
+            self.references
+                .push_back_mut((name.clone(), mem_view.clone()));
+        }
+        self.all_vars.push_back_mut((name, data_type));
+    }
+
     fn insert_symbol(&mut self, name: &str, ty: &DataType) {
         for key in iter::once(ty.clone()).chain(utils::accessible_types_of(ty)) {
             let symbols = if let Some(symbols) = self.symbols.get_mut(&key) {

@@ -103,6 +103,14 @@ impl super::Generator<'_> {
 
             UnOpExpr::new(UnOp::AddressOf, var_expr).into()
         } else {
+            if mem_view.storage_class != ast::StorageClass::Function
+                && mem_view.storage_class != ast::StorageClass::Private
+            {
+                panic!(
+                    "Cannot generate local variable for pointer with storage class {:?}",
+                    mem_view.storage_class
+                );
+            }
             let ident = self.scope.next_name();
             let initializer = self.gen_expr(mem_view.inner.as_ref());
             self.current_block
@@ -369,8 +377,44 @@ impl super::Generator<'_> {
             DataType::Struct(decl) => self.gen_struct_accessor(&decl.clone(), target, expr),
             DataType::Ptr(_) => self.gen_pointer_deref(target, expr),
             DataType::Ref(_) | DataType::Texture(_) | DataType::Sampler(_) => todo!(),
-            DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => todo!(),
-            DataType::FrexpResult(_) | DataType::ModfResult(_) => todo!(),
+            DataType::Atomic(_) => unreachable!("Atomic does not have accessors"),
+            DataType::AtomicCompareExchangeResult(t) => {
+                let member = if target == &DataType::Scalar(ScalarType::Bool) {
+                    "exchanged"
+                } else {
+                    "old_value"
+                };
+                let expr: ExprNode = PostfixExpr::new(expr, Postfix::member(member)).into();
+                if expr.data_type.dereference() == target {
+                    return expr;
+                }
+                self.gen_accessor(target, expr)
+            }
+            DataType::FrexpResult(t) => {
+                let member =
+                    if target == &**t || super::utils::accessible_types_of(&**t).contains(target) {
+                        "fract"
+                    } else {
+                        "exp"
+                    };
+                let expr: ExprNode = PostfixExpr::new(expr, Postfix::member(member)).into();
+                if expr.data_type.dereference() == target {
+                    return expr;
+                }
+                self.gen_accessor(target, expr)
+            }
+            DataType::ModfResult(_) => {
+                let member = if self.rng.gen_bool(0.5) {
+                    "fract"
+                } else {
+                    "whole"
+                };
+                let expr: ExprNode = PostfixExpr::new(expr, Postfix::member(member)).into();
+                if expr.data_type.dereference() == target {
+                    return expr;
+                }
+                self.gen_accessor(target, expr)
+            }
         }
     }
 

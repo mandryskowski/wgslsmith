@@ -251,6 +251,27 @@ impl<'a> Generator<'a> {
             global_vars.extend(self.gen_global_var(name, &mut workgroup_size));
         }
 
+        let atomic_vars = [
+            ("wg_atomic_u32", DataType::Atomic(ScalarType::U32)),
+            ("wg_atomic_i32", DataType::Atomic(ScalarType::I32)),
+        ];
+        for (name, ty) in atomic_vars {
+            global_vars.push(GlobalVarDecl {
+                attrs: vec![],
+                qualifier: Some(VarQualifier {
+                    storage_class: StorageClass::WorkGroup,
+                    access_mode: None,
+                }),
+                name: name.to_owned(),
+                data_type: ty.clone(),
+                initializer: None,
+            });
+            self.global_scope.insert_unassignable_reference(
+                name.to_owned(),
+                DataType::Ref(MemoryViewType::new(ty.clone(), StorageClass::WorkGroup)),
+            );
+        }
+
         if self.wg_size > 1 {
             let divergent_vars = divergence::generate_divergent_globals(
                 &mut self.global_scope,
