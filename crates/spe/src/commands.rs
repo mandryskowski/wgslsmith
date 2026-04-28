@@ -294,6 +294,7 @@ pub mod fuse {
                         preset: None,
                         recondition: false,
                         output: "-".to_owned(),
+                        collectives: false,
                     });
 
                     let next_module = generator::Generator::new(&mut gen_rng, gen_opts)

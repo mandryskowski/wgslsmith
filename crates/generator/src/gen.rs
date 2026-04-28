@@ -272,6 +272,31 @@ impl<'a> Generator<'a> {
             );
         }
 
+        if self.options.collectives {
+            let wg_vars = [
+                ("wg_u32", DataType::Scalar(ScalarType::U32)),
+                ("wg_i32", DataType::Scalar(ScalarType::I32)),
+                ("wg_f32", DataType::Scalar(ScalarType::F32)),
+                ("wg_bool", DataType::Scalar(ScalarType::Bool)),
+            ];
+            for (name, ty) in wg_vars {
+                global_vars.push(GlobalVarDecl {
+                    attrs: vec![],
+                    qualifier: Some(VarQualifier {
+                        storage_class: StorageClass::WorkGroup,
+                        access_mode: None,
+                    }),
+                    name: name.to_owned(),
+                    data_type: ty.clone(),
+                    initializer: None,
+                });
+                self.global_scope.insert_mutable(
+                    name.to_owned(),
+                    DataType::Ref(MemoryViewType::new(ty.clone(), StorageClass::WorkGroup)),
+                );
+            }
+        }
+
         if self.wg_size > 1 {
             let divergent_vars = divergence::generate_divergent_globals(
                 &mut self.global_scope,
@@ -297,6 +322,9 @@ impl<'a> Generator<'a> {
         let mut enables = vec![];
         if self.options.enable_f16 {
             enables.push(ast::EnableExtension::F16);
+        }
+        if self.options.collectives {
+            enables.push(ast::EnableExtension::Subgroups);
         }
 
         Module {

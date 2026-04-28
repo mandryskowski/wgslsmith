@@ -169,9 +169,9 @@ pub struct FnContext {
 }
 
 impl FnContext {
-    pub fn new(_options: Rc<Options>) -> Self {
+    pub fn new(options: Rc<Options>) -> Self {
         FnContext {
-            map: builtins::gen_builtins(),
+            map: builtins::gen_builtins(&options),
             decls: vec![],
             imported: std::collections::HashSet::new(),
             count: 0,

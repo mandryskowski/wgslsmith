@@ -28,6 +28,7 @@ enum StatementType {
     While,
     Break,
     Continue,
+    Barrier,
 }
 
 impl super::Generator<'_> {
@@ -58,6 +59,10 @@ impl super::Generator<'_> {
             ]);
         }
 
+        if self.options.collectives {
+            allowed.push(StatementType::Barrier);
+        }
+
         let weights = |t: &StatementType| match t {
             StatementType::LetDecl => 10,
             StatementType::VarDecl => 10,
@@ -71,6 +76,7 @@ impl super::Generator<'_> {
             StatementType::While => 5,
             StatementType::Break => 5,
             StatementType::Continue => 5,
+            StatementType::Barrier => 5,
         };
 
         match allowed.choose_weighted(self.rng, weights).unwrap() {
@@ -86,7 +92,14 @@ impl super::Generator<'_> {
             StatementType::While => self.gen_while_stmt(),
             StatementType::Break => Statement::Break,
             StatementType::Continue => Statement::Continue,
+            StatementType::Barrier => self.gen_barrier_stmt(),
         }
+    }
+
+    fn gen_barrier_stmt(&mut self) -> Statement {
+        let barriers = ["storageBarrier", "textureBarrier", "workgroupBarrier"];
+        let chosen = barriers.choose(self.rng).unwrap();
+        ast::FnCallStatement::new((*chosen).to_owned(), vec![]).into()
     }
 
     fn gen_let_stmt(&mut self) -> Statement {

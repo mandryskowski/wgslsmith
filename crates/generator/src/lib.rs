@@ -127,6 +127,10 @@ pub struct Options {
     #[clap(long, action)]
     pub recondition: bool,
 
+    /// Enable WGSL collective and synchronization built-in functions
+    #[clap(long, action)]
+    pub collectives: bool,
+
     /// Path to output file (use `-` for stdout)
     #[clap(short, long, action, default_value = "-")]
     pub output: String,
