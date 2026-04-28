@@ -1,5 +1,5 @@
 use crate::value::Value;
-use ast::Lit;
+use ast::{DataType, Lit, ScalarType};
 
 // Division
 pub(crate) fn is_zero(val: &Value) -> bool {
@@ -95,5 +95,34 @@ pub fn is_invalid_smoothstep_bounds(low: &Value, high: &Value) -> bool {
         (Value::Vector(l_vec), Value::Lit(_)) => {
             l_vec.iter().any(|l| is_invalid_smoothstep_bounds(l, high))
         }
+    }
+}
+
+// ldexp
+pub fn is_invalid_ldexp_call(data_type: &DataType, vals: &[Option<Value>]) -> bool {
+    if vals.len() < 2 {
+        return false;
+    }
+
+    let e2 = &vals[1];
+
+    if let Some(e2_val) = e2 {
+        is_invalid_ldexp_exp(data_type, e2_val)
+    } else {
+        false
+    }
+}
+
+fn is_invalid_ldexp_exp(data_type: &DataType, e2: &Value) -> bool {
+    match e2 {
+        Value::Lit(Lit::I32(exp)) => {
+            if let Some(ScalarType::F16) = data_type.as_scalar() {
+                *exp < -15 || *exp > 15
+            } else {
+                *exp < -127 || *exp > 128
+            }
+        }
+        Value::Vector(vec) => vec.iter().any(|v| is_invalid_ldexp_exp(data_type, v)),
+        _ => false,
     }
 }

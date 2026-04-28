@@ -685,6 +685,10 @@ impl Concretizer {
                 }
             }
 
+            if ident == "ldexp" && helper::is_invalid_ldexp_call(&data_type, &vals) {
+                return self.default_node(data_type);
+            }
+
             return ConNode {
                 node: FnCallExpr {
                     ident,
