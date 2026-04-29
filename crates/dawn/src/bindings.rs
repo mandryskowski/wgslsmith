@@ -788,15 +788,19 @@ impl<'a> ErrorScope<'a> {
     }
 
     fn execute<T>(&self, block: impl FnOnce() -> T) -> Result<T> {
-        unsafe {
-            wgpuDevicePushErrorScope(
-                self.device.handle,
-                WGPUErrorFilter_WGPUErrorFilter_Validation,
-            );
+        let filters = [
+            WGPUErrorFilter_WGPUErrorFilter_Validation,
+            WGPUErrorFilter_WGPUErrorFilter_Internal,
+        ];
+
+        for &filter in &filters {
+            unsafe {
+                wgpuDevicePushErrorScope(self.device.handle, filter);
+            }
         }
 
         struct ErrorCapture {
-            callback_fired: bool,
+            callback_fired: usize,
             error_message: Option<String>,
         }
 
@@ -808,7 +812,7 @@ impl<'a> ErrorScope<'a> {
             _userdata2: *mut c_void,
         ) {
             let capture = unsafe { &mut *(userdata1 as *mut ErrorCapture) };
-            capture.callback_fired = true;
+            capture.callback_fired += 1;
 
             if error_type == WGPUErrorType_WGPUErrorType_NoError {
                 return;
@@ -818,31 +822,41 @@ impl<'a> ErrorScope<'a> {
                 let slice = std::slice::from_raw_parts(message.data as *const u8, message.length);
                 let message_str = String::from_utf8_lossy(slice);
                 eprintln!("{message_str}");
-                capture.error_message = Some(message_str.into_owned());
-            } else {
+
+                if let Some(ref mut existing) = capture.error_message {
+                    existing.push_str(": ");
+                    existing.push_str(&message_str);
+                } else {
+                    capture.error_message = Some(message_str.into_owned());
+                }
+            } else if capture.error_message.is_none() {
                 capture.error_message = Some("Unknown error".to_owned());
             }
         }
 
         let result = block();
         let mut capture = ErrorCapture {
-            callback_fired: false,
+            callback_fired: 0,
             error_message: None,
         };
 
-        let callback_info = WGPUPopErrorScopeCallbackInfo {
-            nextInChain: null_mut(),
-            mode: WGPUCallbackMode_WGPUCallbackMode_AllowProcessEvents,
-            callback: Some(callback),
-            userdata1: &mut capture as *mut _ as *mut c_void,
-            userdata2: null_mut(),
-        };
+        for _ in 0..filters.len() {
+            let callback_info = WGPUPopErrorScopeCallbackInfo {
+                nextInChain: null_mut(),
+                mode: WGPUCallbackMode_WGPUCallbackMode_AllowProcessEvents,
+                callback: Some(callback),
+                userdata1: &mut capture as *mut _ as *mut c_void,
+                userdata2: null_mut(),
+            };
 
-        unsafe {
-            wgpuDevicePopErrorScope(self.device.handle, callback_info);
+            unsafe {
+                wgpuDevicePopErrorScope(self.device.handle, callback_info);
+            }
         }
 
-        self.device._instance.process_events();
+        while capture.callback_fired < filters.len() {
+            self.device._instance.process_events();
+        }
 
         if let Some(err) = capture.error_message {
             Err(eyre!(format!("{}\n{err}", self.message)))
@@ -872,6 +886,9 @@ unsafe extern "C" fn default_error_callback(
         }
         WGPUErrorType_WGPUErrorType_OutOfMemory => {
             panic!("out of memory");
+        }
+        WGPUErrorType_WGPUErrorType_Internal => {
+            panic!("internal error");
         }
         WGPUErrorType_WGPUErrorType_Unknown => {
             panic!("an unknown error occurred");
