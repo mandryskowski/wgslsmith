@@ -132,6 +132,15 @@ pub struct Options {
 
     #[clap(long, action, requires = "use_daemon_flag")]
     pub daemon_port: Option<u16>,
+
+    #[clap(long, action, default_value = "false")]
+    enable_divergence: bool,
+
+    #[clap(long, action, default_value = "false")]
+    collectives: bool,
+
+    #[clap(long, action, default_value = "false")]
+    unstable_float: bool,
 }
 
 impl Options {
@@ -166,13 +175,21 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
         .args(["--block-min-stmts", "1"])
         .args(["--block-max-stmts", "2"])
         .args(["--max-fns", "3"])
-        .args(["--enable-divergence"])
         .tap_mut(|cmd| {
             if options.enable_pointers {
                 cmd.arg("--enable-pointers");
             }
             if options.enable_f16 {
                 cmd.arg("--enable-f16");
+            }
+            if options.enable_divergence {
+                cmd.arg("--enable-divergence");
+            }
+            if options.collectives {
+                cmd.arg("--collectives");
+            }
+            if options.unstable_float {
+                cmd.arg("--unstable-float");
             }
         })
         .stdout(Stdio::piped())

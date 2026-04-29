@@ -117,15 +117,13 @@ pub mod fuse {
         let (mut skipped_log, mut failures_log) =
             util::get_logs(log_to_file, out_dir_opt.as_deref(), append);
 
-        let subgroup_support_ratio = if opt.configs.is_empty() {
-            0.0
-        } else {
+        let get_support_ratio = |ext: &ast::EnableExtension| {
             support_map
-                .get(&ast::EnableExtension::Subgroups)
+                .get(ext)
                 .map(|supported| supported.len() as f64 / opt.configs.len() as f64)
                 .unwrap_or(0.0)
         };
-        let collectives_prob = subgroup_support_ratio * 0.5;
+        let collectives_prob = get_support_ratio(&ast::EnableExtension::Subgroups) * 0.5;
 
         let entries: Vec<_> = WalkDir::new(&opt.directory)
             .into_iter()
@@ -287,7 +285,7 @@ pub mod fuse {
                         enable_pointers: true,
                         skip_pointer_checks: true,
                         log: None,
-                        enable_f16: true,
+                        enable_f16: rng.gen_bool(get_support_ratio(&ast::EnableExtension::F16)),
                         enable_divergence: false,
                         fn_min_stmts: 1,
                         fn_max_stmts: 3,
