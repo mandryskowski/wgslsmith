@@ -286,7 +286,6 @@ pub mod fuse {
                         skip_pointer_checks: true,
                         log: None,
                         enable_f16: rng.gen_bool(get_support_ratio(&ast::EnableExtension::F16)),
-                        enable_divergence: false,
                         fn_min_stmts: 1,
                         fn_max_stmts: 3,
                         block_min_stmts: 0,
