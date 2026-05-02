@@ -134,9 +134,6 @@ pub struct Options {
     pub daemon_port: Option<u16>,
 
     #[clap(long, action, default_value = "false")]
-    enable_divergence: bool,
-
-    #[clap(long, action, default_value = "false")]
     collectives: bool,
 
     #[clap(long, action, default_value = "false")]
@@ -181,9 +178,6 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
             }
             if options.enable_f16 {
                 cmd.arg("--enable-f16");
-            }
-            if options.enable_divergence {
-                cmd.arg("--enable-divergence");
             }
             if options.collectives {
                 cmd.arg("--collectives");
