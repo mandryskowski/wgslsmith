@@ -95,9 +95,8 @@ pub struct Options {
     #[clap(long, action)]
     enable_pointers: bool,
 
-    /// Enable generating shaders with f16 type
-    #[clap(long, action)]
-    enable_f16: bool,
+    #[clap(long = "gen-ext", action)]
+    pub extensions: Vec<generator::GeneratorExtension>,
 
     #[clap(short, long = "config", action)]
     pub configs: Vec<ConfigId>,
@@ -132,9 +131,6 @@ pub struct Options {
 
     #[clap(long, action, requires = "use_daemon_flag")]
     pub daemon_port: Option<u16>,
-
-    #[clap(long, action, default_value = "false")]
-    collectives: bool,
 
     #[clap(long, action, default_value = "false")]
     unstable_float: bool,
@@ -176,11 +172,12 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
             if options.enable_pointers {
                 cmd.arg("--enable-pointers");
             }
-            if options.enable_f16 {
-                cmd.arg("--enable-f16");
-            }
-            if options.collectives {
-                cmd.arg("--collectives");
+            for ext in &options.extensions {
+                cmd.arg("--gen-ext");
+                _ = match ext {
+                    generator::GeneratorExtension::F16 => cmd.arg("f16"),
+                    generator::GeneratorExtension::Subgroups => cmd.arg("subgroups"),
+                }
             }
             if options.unstable_float {
                 cmd.arg("--unstable-float");

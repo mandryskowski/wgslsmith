@@ -59,7 +59,9 @@ impl super::Generator<'_> {
             ]);
         }
 
-        if self.options.collectives && self.fn_state.is_entrypoint && self.fn_state.block_depth == 1
+        if self.options.collectives()
+            && self.fn_state.is_entrypoint
+            && self.fn_state.block_depth == 1
         {
             allowed.push(StatementType::Barrier);
         }

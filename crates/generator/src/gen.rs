@@ -206,7 +206,7 @@ impl<'a> Generator<'a> {
             );
         }
 
-        if self.options.collectives {
+        if self.options.collectives() {
             let wg_vars = [
                 ("wg_u32", DataType::Scalar(ScalarType::U32)),
                 ("wg_i32", DataType::Scalar(ScalarType::I32)),
@@ -244,11 +244,11 @@ impl<'a> Generator<'a> {
         functions.push(entrypoint);
 
         let mut enables = vec![];
-        if self.options.enable_f16 {
-            enables.push(ast::EnableExtension::F16);
-        }
-        if self.options.collectives {
-            enables.push(ast::EnableExtension::Subgroups);
+        for ext in &self.options.extensions {
+            let enable = ast::EnableExtension::from(*ext);
+            if !enables.contains(&enable) {
+                enables.push(enable);
+            }
         }
 
         Module {

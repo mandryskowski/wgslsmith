@@ -18,6 +18,21 @@ use rand::{Rng, SeedableRng};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::EnvFilter;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, strum::EnumIter)]
+pub enum GeneratorExtension {
+    F16,
+    Subgroups,
+}
+
+impl From<GeneratorExtension> for ast::EnableExtension {
+    fn from(ext: GeneratorExtension) -> Self {
+        match ext {
+            GeneratorExtension::F16 => ast::EnableExtension::F16,
+            GeneratorExtension::Subgroups => ast::EnableExtension::Subgroups,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
     /// Preset for crash-testing Tint.
@@ -63,9 +78,9 @@ pub struct Options {
     #[clap(long, action)]
     pub log: Option<String>,
 
-    /// Enable f16 type
-    #[clap(long, action)]
-    pub enable_f16: bool,
+    /// Generator extensions to enable
+    #[clap(long = "gen-ext", action)]
+    pub extensions: Vec<GeneratorExtension>,
 
     /// Minimum number of statements to generate in function bodies
     #[clap(long, action, default_value = "5")]
@@ -123,10 +138,6 @@ pub struct Options {
     #[clap(long, action)]
     pub recondition: bool,
 
-    /// Enable WGSL collective and synchronization built-in functions
-    #[clap(long, action)]
-    pub collectives: bool,
-
     /// Enable unstable float functions that are currently not reconditioned
     #[clap(long, action)]
     pub unstable_float: bool,
@@ -134,6 +145,16 @@ pub struct Options {
     /// Path to output file (use `-` for stdout)
     #[clap(short, long, action, default_value = "-")]
     pub output: String,
+}
+
+impl Options {
+    pub fn enable_f16(&self) -> bool {
+        self.extensions.contains(&GeneratorExtension::F16)
+    }
+
+    pub fn collectives(&self) -> bool {
+        self.extensions.contains(&GeneratorExtension::Subgroups)
+    }
 }
 
 pub fn run(mut options: Options) -> eyre::Result<()> {

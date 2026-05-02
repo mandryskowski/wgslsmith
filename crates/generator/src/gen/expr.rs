@@ -54,7 +54,7 @@ impl super::Generator<'_> {
             let is_binop_valid = match ty {
                 DataType::Scalar(_) => true,
                 DataType::Vector(_, ScalarType::I32 | ScalarType::U32 | ScalarType::F32) => true,
-                DataType::Vector(_, ScalarType::F16) if self.options.enable_f16 => true,
+                DataType::Vector(_, ScalarType::F16) if self.options.enable_f16() => true,
                 _ => false,
             };
             if is_binop_valid {
@@ -235,7 +235,7 @@ impl super::Generator<'_> {
             // actual type does not.
             BinOp::Less | BinOp::LessEqual | BinOp::Greater | BinOp::GreaterEqual => {
                 let mut choices = vec![ScalarType::I32, ScalarType::U32, ScalarType::F32];
-                if self.options.enable_f16 {
+                if self.options.enable_f16() {
                     choices.push(ScalarType::F16);
                 }
                 ty.map(*choices.choose(&mut self.rng).unwrap())
@@ -251,7 +251,7 @@ impl super::Generator<'_> {
                     ScalarType::F32,
                     ScalarType::Bool,
                 ];
-                if self.options.enable_f16 {
+                if self.options.enable_f16() {
                     choices.push(ScalarType::F16);
                 }
                 ty.map(*choices.choose(&mut self.rng).unwrap())

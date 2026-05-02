@@ -77,6 +77,7 @@ pub mod fuse {
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::Ordering;
+    use strum::IntoEnumIterator;
     use walkdir::WalkDir;
 
     pub fn run(opt: DirOptions, skip_original: bool) {
@@ -123,7 +124,6 @@ pub mod fuse {
                 .map(|supported| supported.len() as f64 / opt.configs.len() as f64)
                 .unwrap_or(0.0)
         };
-        let collectives_prob = get_support_ratio(&ast::EnableExtension::Subgroups) * 0.5;
 
         let entries: Vec<_> = WalkDir::new(&opt.directory)
             .into_iter()
@@ -285,7 +285,9 @@ pub mod fuse {
                         enable_pointers: true,
                         skip_pointer_checks: true,
                         log: None,
-                        enable_f16: rng.gen_bool(get_support_ratio(&ast::EnableExtension::F16)),
+                        extensions: generator::GeneratorExtension::iter()
+                            .filter(|&ext| rng.gen_bool(get_support_ratio(&ext.into()) * 0.5))
+                            .collect(),
                         fn_min_stmts: 1,
                         fn_max_stmts: 3,
                         block_min_stmts: 0,
@@ -301,7 +303,6 @@ pub mod fuse {
                         preset: None,
                         recondition: false,
                         output: "-".to_owned(),
-                        collectives: rng.gen_bool(collectives_prob),
                         unstable_float: opt.unstable_float,
                     });
 

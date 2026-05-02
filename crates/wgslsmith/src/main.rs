@@ -211,8 +211,8 @@ fn main() -> eyre::Result<()> {
         Cmd::Spe(options) => {
             spe::run(options);
             Ok(())
-        },
-         Cmd::Fuse { a, b } => {
+        }
+        Cmd::Fuse { a, b } => {
             let shader_a = read_shader_from_path(&a)?;
             let shader_b = read_shader_from_path(&b)?;
             let module_a = parser::parse(&shader_a);

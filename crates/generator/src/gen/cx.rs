@@ -80,7 +80,7 @@ impl TypeContext {
             SelectionFilter::Uniform => vec![ScalarType::I32, ScalarType::U32],
         };
 
-        if self.options.enable_f16 && filter != SelectionFilter::Uniform {
+        if self.options.enable_f16() && filter != SelectionFilter::Uniform {
             allowed_scalars.push(ScalarType::F16);
         }
 
@@ -119,7 +119,7 @@ impl TypeContext {
             }
             DataTypeKind::Matrix => {
                 let mut mat_scalars = vec![ScalarType::F32];
-                if self.options.enable_f16 && filter != SelectionFilter::Uniform {
+                if self.options.enable_f16() && filter != SelectionFilter::Uniform {
                     mat_scalars.push(ScalarType::F16);
                 }
                 DataType::Matrix(
