@@ -203,7 +203,7 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
     map.add(Dot4I8Packed, [U32.into(), U32.into()], I32);
     map.add(Dot4U8Packed, [U32.into(), U32.into()], U32);
 
-    if options.collectives {
+    if options.collectives() {
         for s_ty in [I32, U32, F32] {
             for ty in scalar_and_vectors_of(s_ty) {
                 map.add(SubgroupAdd, [ty.clone()], ty.clone());

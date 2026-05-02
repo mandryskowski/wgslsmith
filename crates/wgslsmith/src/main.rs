@@ -75,6 +75,12 @@ enum Cmd {
     RerunDaemon(rerun_daemon::Options),
     /// Run Skeletal Program Enumeration (SPE).
     Spe(spe::Options),
+
+    /// Fuse two shaders.
+    Fuse {
+        a: String,
+        b: String,
+    },
 }
 
 #[derive(Parser)]
@@ -204,6 +210,19 @@ fn main() -> eyre::Result<()> {
         Cmd::RerunDaemon(options) => rerun_daemon::run(&config, options),
         Cmd::Spe(options) => {
             spe::run(options);
+            Ok(())
+        }
+        Cmd::Fuse { a, b } => {
+            let shader_a = read_shader_from_path(&a)?;
+            let shader_b = read_shader_from_path(&b)?;
+            let module_a = parser::parse(&shader_a);
+            let module_b = parser::parse(&shader_b);
+            let fused_module = fuse::fuse(module_a, module_b);
+            let mut out_str = String::new();
+            ast::writer::Writer::default()
+                .write_module(&mut out_str, &fused_module)
+                .unwrap();
+            println!("{}", out_str);
             Ok(())
         }
     }
