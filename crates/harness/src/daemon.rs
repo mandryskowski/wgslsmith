@@ -18,6 +18,10 @@ pub struct DaemonOptions {
     /// Timeout since the last received request in seconds.
     #[clap(long, action, default_value = "300")]
     pub inactivity_timeout: u64,
+
+    /// Kill the daemon after the specified number of seconds.
+    #[clap(long, action)]
+    pub kill_after: Option<u64>,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -96,6 +100,17 @@ impl DaemonServer {
             Duration::from_secs(options.inactivity_timeout),
             last_activity.clone(),
         );
+
+        if let Some(kill_after) = options.kill_after {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(kill_after));
+                println!(
+                    "Daemon uptime limit reached ({}s). Shutting down.",
+                    kill_after
+                );
+                std::process::exit(0);
+            });
+        }
 
         loop {
             if self.shutting_down.load(Ordering::SeqCst) {
