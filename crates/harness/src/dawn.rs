@@ -47,6 +47,67 @@ enum BufferSet {
         size: usize,
         buffer: DeviceBuffer,
     },
+    Texture {
+        group: u32,
+        binding: u32,
+        _texture: DeviceTexture,
+        view: DeviceTextureView,
+    },
+    Sampler {
+        group: u32,
+        binding: u32,
+        sampler: DeviceSampler,
+    },
+}
+
+fn map_texture_format_dawn(
+    format: &Option<reflection::TextureFormat>,
+) -> dawn::webgpu::WGPUTextureFormat {
+    use reflection::TextureFormat::*;
+    match format {
+        Some(Rgba8Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA8Unorm,
+        Some(Rgba8Snorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA8Snorm,
+        Some(Rgba8Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA8Uint,
+        Some(Rgba8Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA8Sint,
+        Some(Rgba16Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA16Unorm,
+        Some(Rgba16Snorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA16Snorm,
+        Some(Rgba16Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA16Uint,
+        Some(Rgba16Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA16Sint,
+        Some(Rgba16Float) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA16Float,
+        Some(Rg8Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG8Unorm,
+        Some(Rg8Snorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG8Snorm,
+        Some(Rg8Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG8Uint,
+        Some(Rg8Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG8Sint,
+        Some(Rg16Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG16Unorm,
+        Some(Rg16Snorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG16Snorm,
+        Some(Rg16Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG16Uint,
+        Some(Rg16Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG16Sint,
+        Some(Rg16Float) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG16Float,
+        Some(R32Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R32Uint,
+        Some(R32Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R32Sint,
+        Some(R32Float) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R32Float,
+        Some(Rg32Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG32Uint,
+        Some(Rg32Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG32Sint,
+        Some(Rg32Float) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG32Float,
+        Some(Rgba32Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA32Uint,
+        Some(Rgba32Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA32Sint,
+        Some(Rgba32Float) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGBA32Float,
+        Some(Bgra8Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_BGRA8Unorm,
+        Some(Bgra8UnormSrgb) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_BGRA8UnormSrgb,
+        Some(R8Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R8Unorm,
+        Some(R8Snorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R8Snorm,
+        Some(R8Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R8Uint,
+        Some(R8Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R8Sint,
+        Some(R16Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R16Unorm,
+        Some(R16Snorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R16Snorm,
+        Some(R16Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R16Uint,
+        Some(R16Sint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R16Sint,
+        Some(R16Float) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_R16Float,
+        Some(Rgb10A2Unorm) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGB10A2Unorm,
+        Some(Rgb10A2Uint) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RGB10A2Uint,
+        Some(Rg11B10Ufloat) => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_RG11B10Ufloat,
+        None => dawn::webgpu::WGPUTextureFormat_WGPUTextureFormat_Depth32Float,
+    }
 }
 
 pub fn get_adapters() -> Vec<types::Adapter> {
@@ -193,7 +254,7 @@ pub async fn run(
 
     for resource in &meta.resources {
         let size = resource.size as usize;
-        match resource.kind {
+        match &resource.kind {
             ResourceKind::StorageBuffer => {
                 let actual_size = size + 2 * CANARY_SIZE;
 
@@ -251,10 +312,149 @@ pub async fn run(
                     buffer,
                 })
             }
-            ResourceKind::Texture { .. } | ResourceKind::Sampler { .. } => {
-                return Err(eyre!(
-                    "unimplemented: textures and samplers not supported yet"
-                ))
+            ResourceKind::Texture { dim, format } => {
+                let dimension = match dim {
+                    reflection::TextureDimension::D1 => {
+                        dawn::webgpu::WGPUTextureDimension_WGPUTextureDimension_1D
+                    }
+                    reflection::TextureDimension::D2
+                    | reflection::TextureDimension::D2Array
+                    | reflection::TextureDimension::Cube
+                    | reflection::TextureDimension::CubeArray => {
+                        dawn::webgpu::WGPUTextureDimension_WGPUTextureDimension_2D
+                    }
+                    reflection::TextureDimension::D3 => {
+                        dawn::webgpu::WGPUTextureDimension_WGPUTextureDimension_3D
+                    }
+                };
+                let wgpu_format = map_texture_format_dawn(format);
+                let is_depth = format.is_none();
+                let mut usage = DeviceTextureUsage::TEXTURE_BINDING | DeviceTextureUsage::COPY_DST;
+
+                let supports_storage = matches!(
+                    format,
+                    Some(
+                        reflection::TextureFormat::Rgba8Unorm
+                            | reflection::TextureFormat::Rgba8Snorm
+                            | reflection::TextureFormat::Rgba8Uint
+                            | reflection::TextureFormat::Rgba8Sint
+                            | reflection::TextureFormat::Rgba16Uint
+                            | reflection::TextureFormat::Rgba16Sint
+                            | reflection::TextureFormat::Rgba16Float
+                            | reflection::TextureFormat::R32Uint
+                            | reflection::TextureFormat::R32Sint
+                            | reflection::TextureFormat::R32Float
+                            | reflection::TextureFormat::Rg32Uint
+                            | reflection::TextureFormat::Rg32Sint
+                            | reflection::TextureFormat::Rg32Float
+                            | reflection::TextureFormat::Rgba32Uint
+                            | reflection::TextureFormat::Rgba32Sint
+                            | reflection::TextureFormat::Rgba32Float
+                            | reflection::TextureFormat::Bgra8Unorm
+                    )
+                );
+                if supports_storage {
+                    usage |= DeviceTextureUsage::STORAGE_BINDING;
+                }
+
+                let layers = if matches!(
+                    dim,
+                    reflection::TextureDimension::Cube | reflection::TextureDimension::CubeArray
+                ) {
+                    6
+                } else {
+                    1
+                };
+                let texture = device.create_texture(
+                    wgpu_format,
+                    usage,
+                    dimension,
+                    dawn::webgpu::WGPUExtent3D {
+                        width: 1,
+                        height: 1,
+                        depthOrArrayLayers: layers,
+                    },
+                )?;
+
+                let view = unsafe {
+                    let mut desc: dawn::webgpu::WGPUTextureViewDescriptor = std::mem::zeroed();
+                    desc.format = wgpu_format;
+                    desc.dimension = match dim {
+                        reflection::TextureDimension::D1 => dawn::webgpu::WGPUTextureViewDimension_WGPUTextureViewDimension_1D,
+                        reflection::TextureDimension::D2 => dawn::webgpu::WGPUTextureViewDimension_WGPUTextureViewDimension_2D,
+                        reflection::TextureDimension::D2Array => dawn::webgpu::WGPUTextureViewDimension_WGPUTextureViewDimension_2DArray,
+                        reflection::TextureDimension::Cube => dawn::webgpu::WGPUTextureViewDimension_WGPUTextureViewDimension_Cube,
+                        reflection::TextureDimension::CubeArray => dawn::webgpu::WGPUTextureViewDimension_WGPUTextureViewDimension_CubeArray,
+                        reflection::TextureDimension::D3 => dawn::webgpu::WGPUTextureViewDimension_WGPUTextureViewDimension_3D,
+                    };
+                    desc.baseMipLevel = 0;
+                    desc.mipLevelCount = 1;
+                    desc.baseArrayLayer = 0;
+                    desc.arrayLayerCount = layers;
+                    desc.aspect = dawn::webgpu::WGPUTextureAspect_WGPUTextureAspect_All;
+                    dawn::DeviceTextureView {
+                        handle: dawn::webgpu::wgpuTextureCreateView(texture.handle, &desc),
+                    }
+                };
+
+                if !is_depth {
+                    let data = vec![1u8; 16 * layers as usize];
+                    queue.write_texture(
+                        &dawn::webgpu::WGPUTexelCopyTextureInfo {
+                            texture: texture.handle,
+                            mipLevel: 0,
+                            origin: dawn::webgpu::WGPUOrigin3D { x: 0, y: 0, z: 0 },
+                            aspect: dawn::webgpu::WGPUTextureAspect_WGPUTextureAspect_All,
+                        },
+                        &data,
+                        &dawn::webgpu::WGPUTexelCopyBufferLayout {
+                            offset: 0,
+                            bytesPerRow: 16,
+                            rowsPerImage: 1,
+                        },
+                        &dawn::webgpu::WGPUExtent3D {
+                            width: 1,
+                            height: 1,
+                            depthOrArrayLayers: layers,
+                        },
+                    );
+                }
+
+                buffer_sets.push(BufferSet::Texture {
+                    group: resource.group,
+                    binding: resource.binding,
+                    _texture: texture,
+                    view,
+                });
+            }
+            ResourceKind::Sampler { kind } => {
+                let sampler = device.create_sampler(&dawn::webgpu::WGPUSamplerDescriptor {
+                    label: dawn::webgpu::WGPUStringView {
+                        data: std::ptr::null(),
+                        length: 0,
+                    },
+                    nextInChain: std::ptr::null_mut(),
+                    addressModeU: dawn::webgpu::WGPUAddressMode_WGPUAddressMode_ClampToEdge,
+                    addressModeV: dawn::webgpu::WGPUAddressMode_WGPUAddressMode_ClampToEdge,
+                    addressModeW: dawn::webgpu::WGPUAddressMode_WGPUAddressMode_ClampToEdge,
+                    magFilter: dawn::webgpu::WGPUFilterMode_WGPUFilterMode_Nearest,
+                    minFilter: dawn::webgpu::WGPUFilterMode_WGPUFilterMode_Nearest,
+                    mipmapFilter: dawn::webgpu::WGPUMipmapFilterMode_WGPUMipmapFilterMode_Nearest,
+                    lodMinClamp: 0.0,
+                    lodMaxClamp: 32.0,
+                    compare: if matches!(kind, reflection::SamplerKind::Comparison) {
+                        dawn::webgpu::WGPUCompareFunction_WGPUCompareFunction_LessEqual
+                    } else {
+                        dawn::webgpu::WGPUCompareFunction_WGPUCompareFunction_Undefined
+                    },
+                    maxAnisotropy: 1,
+                })?;
+
+                buffer_sets.push(BufferSet::Sampler {
+                    group: resource.group,
+                    binding: resource.binding,
+                    sampler,
+                });
             }
         }
     }
@@ -263,20 +463,55 @@ pub async fn run(
     let mut groups = HashSet::new();
 
     for buffer in &buffer_sets {
-        let (group, binding, buffer_obj, offset, size) = match buffer {
+        let (group, binding, resource, offset, size) = match buffer {
             BufferSet::Storage {
                 group,
                 binding,
                 storage,
                 size,
                 ..
-            } => (*group, *binding, storage, CANARY_SIZE, *size),
+            } => (
+                *group,
+                *binding,
+                BindGroupEntryResource::Buffer(storage),
+                CANARY_SIZE,
+                *size,
+            ),
             BufferSet::Uniform {
                 group,
                 binding,
                 buffer,
                 size,
-            } => (*group, *binding, buffer, 0, *size),
+            } => (
+                *group,
+                *binding,
+                BindGroupEntryResource::Buffer(buffer),
+                0,
+                *size,
+            ),
+            BufferSet::Texture {
+                group,
+                binding,
+                view,
+                ..
+            } => (
+                *group,
+                *binding,
+                BindGroupEntryResource::TextureView(view),
+                0,
+                0,
+            ),
+            BufferSet::Sampler {
+                group,
+                binding,
+                sampler,
+            } => (
+                *group,
+                *binding,
+                BindGroupEntryResource::Sampler(sampler),
+                0,
+                0,
+            ),
         };
 
         groups.insert(group);
@@ -285,7 +520,7 @@ pub async fn run(
             .or_insert_with(Vec::new)
             .push(BindGroupEntry {
                 binding,
-                resource: BindGroupEntryResource::Buffer(buffer_obj),
+                resource,
                 offset,
                 size,
             });

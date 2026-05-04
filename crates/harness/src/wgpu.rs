@@ -71,6 +71,54 @@ impl WgpuState {
     }
 }
 
+fn map_texture_format_wgpu(format: Option<reflection::TextureFormat>) -> wgpu::TextureFormat {
+    use reflection::TextureFormat::*;
+    match format {
+        Some(Rgba8Unorm) => wgpu::TextureFormat::Rgba8Unorm,
+        Some(Rgba8Snorm) => wgpu::TextureFormat::Rgba8Snorm,
+        Some(Rgba8Uint) => wgpu::TextureFormat::Rgba8Uint,
+        Some(Rgba8Sint) => wgpu::TextureFormat::Rgba8Sint,
+        Some(Rgba16Unorm) => wgpu::TextureFormat::Rgba16Unorm,
+        Some(Rgba16Snorm) => wgpu::TextureFormat::Rgba16Snorm,
+        Some(Rgba16Uint) => wgpu::TextureFormat::Rgba16Uint,
+        Some(Rgba16Sint) => wgpu::TextureFormat::Rgba16Sint,
+        Some(Rgba16Float) => wgpu::TextureFormat::Rgba16Float,
+        Some(Rg8Unorm) => wgpu::TextureFormat::Rg8Unorm,
+        Some(Rg8Snorm) => wgpu::TextureFormat::Rg8Snorm,
+        Some(Rg8Uint) => wgpu::TextureFormat::Rg8Uint,
+        Some(Rg8Sint) => wgpu::TextureFormat::Rg8Sint,
+        Some(Rg16Unorm) => wgpu::TextureFormat::Rg16Unorm,
+        Some(Rg16Snorm) => wgpu::TextureFormat::Rg16Snorm,
+        Some(Rg16Uint) => wgpu::TextureFormat::Rg16Uint,
+        Some(Rg16Sint) => wgpu::TextureFormat::Rg16Sint,
+        Some(Rg16Float) => wgpu::TextureFormat::Rg16Float,
+        Some(R32Uint) => wgpu::TextureFormat::R32Uint,
+        Some(R32Sint) => wgpu::TextureFormat::R32Sint,
+        Some(R32Float) => wgpu::TextureFormat::R32Float,
+        Some(Rg32Uint) => wgpu::TextureFormat::Rg32Uint,
+        Some(Rg32Sint) => wgpu::TextureFormat::Rg32Sint,
+        Some(Rg32Float) => wgpu::TextureFormat::Rg32Float,
+        Some(Rgba32Uint) => wgpu::TextureFormat::Rgba32Uint,
+        Some(Rgba32Sint) => wgpu::TextureFormat::Rgba32Sint,
+        Some(Rgba32Float) => wgpu::TextureFormat::Rgba32Float,
+        Some(Bgra8Unorm) => wgpu::TextureFormat::Bgra8Unorm,
+        Some(Bgra8UnormSrgb) => wgpu::TextureFormat::Bgra8UnormSrgb,
+        Some(R8Unorm) => wgpu::TextureFormat::R8Unorm,
+        Some(R8Snorm) => wgpu::TextureFormat::R8Snorm,
+        Some(R8Uint) => wgpu::TextureFormat::R8Uint,
+        Some(R8Sint) => wgpu::TextureFormat::R8Sint,
+        Some(R16Unorm) => wgpu::TextureFormat::R16Unorm,
+        Some(R16Snorm) => wgpu::TextureFormat::R16Snorm,
+        Some(R16Uint) => wgpu::TextureFormat::R16Uint,
+        Some(R16Sint) => wgpu::TextureFormat::R16Sint,
+        Some(R16Float) => wgpu::TextureFormat::R16Float,
+        Some(Rgb10A2Unorm) => wgpu::TextureFormat::Rgb10a2Unorm,
+        Some(Rgb10A2Uint) => wgpu::TextureFormat::Rgb10a2Uint,
+        Some(Rg11B10Ufloat) => wgpu::TextureFormat::Rg11b10Ufloat,
+        None => wgpu::TextureFormat::Depth32Float,
+    }
+}
+
 pub fn get_adapters() -> Vec<types::Adapter> {
     let wgpu_state = WgpuState::new();
     let instance = wgpu_state.instance;
@@ -320,11 +368,22 @@ pub async fn run(
             binding: u32,
             buffer: Buffer,
         },
+        Texture {
+            group: u32,
+            binding: u32,
+            _texture: wgpu::Texture,
+            view: wgpu::TextureView,
+        },
+        Sampler {
+            group: u32,
+            binding: u32,
+            sampler: wgpu::Sampler,
+        },
     }
 
     for resource in &meta.resources {
         let size = resource.size as u64;
-        match resource.kind {
+        match &resource.kind {
             ResourceKind::StorageBuffer => {
                 let actual_size = size + 2 * CANARY_SIZE;
                 let gpu_buffer = device.create_buffer(&BufferDescriptor {
@@ -390,10 +449,137 @@ pub async fn run(
                     buffer,
                 });
             }
-            ResourceKind::Texture { .. } | ResourceKind::Sampler { .. } => {
-                return Err(eyre!(
-                    "unimplemented: textures and samplers not supported yet"
-                ))
+            ResourceKind::Texture { dim, format } => {
+                let dimension = match dim {
+                    reflection::TextureDimension::D1 => wgpu::TextureDimension::D1,
+                    reflection::TextureDimension::D2
+                    | reflection::TextureDimension::D2Array
+                    | reflection::TextureDimension::Cube
+                    | reflection::TextureDimension::CubeArray => wgpu::TextureDimension::D2,
+                    reflection::TextureDimension::D3 => wgpu::TextureDimension::D3,
+                };
+                let wgpu_format = map_texture_format_wgpu(*format);
+                let is_depth = format.is_none();
+
+                let mut usage =
+                    wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST;
+                let supports_storage = matches!(
+                    format,
+                    Some(
+                        reflection::TextureFormat::Rgba8Unorm
+                            | reflection::TextureFormat::Rgba8Snorm
+                            | reflection::TextureFormat::Rgba8Uint
+                            | reflection::TextureFormat::Rgba8Sint
+                            | reflection::TextureFormat::Rgba16Uint
+                            | reflection::TextureFormat::Rgba16Sint
+                            | reflection::TextureFormat::Rgba16Float
+                            | reflection::TextureFormat::R32Uint
+                            | reflection::TextureFormat::R32Sint
+                            | reflection::TextureFormat::R32Float
+                            | reflection::TextureFormat::Rg32Uint
+                            | reflection::TextureFormat::Rg32Sint
+                            | reflection::TextureFormat::Rg32Float
+                            | reflection::TextureFormat::Rgba32Uint
+                            | reflection::TextureFormat::Rgba32Sint
+                            | reflection::TextureFormat::Rgba32Float
+                            | reflection::TextureFormat::Bgra8Unorm
+                    )
+                );
+                if supports_storage {
+                    usage |= wgpu::TextureUsages::STORAGE_BINDING;
+                }
+
+                let layers = if matches!(
+                    dim,
+                    reflection::TextureDimension::Cube | reflection::TextureDimension::CubeArray
+                ) {
+                    6
+                } else {
+                    1
+                };
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Texture"),
+                    size: wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: layers,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension,
+                    format: wgpu_format,
+                    usage,
+                    view_formats: &[],
+                });
+
+                let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(match dim {
+                        reflection::TextureDimension::D1 => wgpu::TextureViewDimension::D1,
+                        reflection::TextureDimension::D2 => wgpu::TextureViewDimension::D2,
+                        reflection::TextureDimension::D2Array => {
+                            wgpu::TextureViewDimension::D2Array
+                        }
+                        reflection::TextureDimension::Cube => wgpu::TextureViewDimension::Cube,
+                        reflection::TextureDimension::CubeArray => {
+                            wgpu::TextureViewDimension::CubeArray
+                        }
+                        reflection::TextureDimension::D3 => wgpu::TextureViewDimension::D3,
+                    }),
+                    ..Default::default()
+                });
+
+                if !is_depth {
+                    let data = vec![1u8; 16 * layers as usize];
+                    queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &data,
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(16),
+                            rows_per_image: Some(1),
+                        },
+                        wgpu::Extent3d {
+                            width: 1,
+                            height: 1,
+                            depth_or_array_layers: layers,
+                        },
+                    );
+                }
+
+                resource_buffers.push(ResourceBuffer::Texture {
+                    group: resource.group,
+                    binding: resource.binding,
+                    _texture: texture,
+                    view,
+                });
+            }
+            ResourceKind::Sampler { kind } => {
+                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("Sampler"),
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Nearest,
+                    min_filter: wgpu::FilterMode::Nearest,
+                    mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                    compare: if matches!(kind, reflection::SamplerKind::Comparison) {
+                        Some(wgpu::CompareFunction::LessEqual)
+                    } else {
+                        None
+                    },
+                    ..Default::default()
+                });
+
+                resource_buffers.push(ResourceBuffer::Sampler {
+                    group: resource.group,
+                    binding: resource.binding,
+                    sampler,
+                });
             }
         }
     }
@@ -422,6 +608,17 @@ pub async fn run(
                 binding,
                 buffer,
             } => (*group, *binding, buffer.as_entire_binding()),
+            ResourceBuffer::Texture {
+                group,
+                binding,
+                view,
+                ..
+            } => (*group, *binding, wgpu::BindingResource::TextureView(view)),
+            ResourceBuffer::Sampler {
+                group,
+                binding,
+                sampler,
+            } => (*group, *binding, wgpu::BindingResource::Sampler(sampler)),
         };
 
         groups.insert(group);
