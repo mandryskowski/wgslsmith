@@ -299,8 +299,8 @@ pub fn daemon_exec(config: ConfigId, daemon_port: Option<u16>) -> eyre::Result<(
         ) {
             Ok(s) => s,
             Err(_) => {
-                eprintln!("Daemon not running. Spawning...");
-                spawn_daemon(&address)?;
+                //eprintln!("Daemon not running. Spawning...");
+                //spawn_daemon(&address)?;
                 wait_for_connection(&address)?
             }
         };
