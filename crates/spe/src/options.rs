@@ -90,4 +90,8 @@ pub struct DirOptions {
     /// Pass unstable_float to the generator
     #[clap(long, action, default_value = "false")]
     pub unstable_float: bool,
+
+    /// Maximum number of enumerations to test per shader
+    #[clap(long)]
+    pub max_enumerations: Option<usize>,
 }
