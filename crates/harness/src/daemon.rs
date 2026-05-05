@@ -244,58 +244,58 @@ impl DaemonServer {
                 });
 
                 let result = if let Some(cmd) = &self.override_cmd {
-                    println!("{cmd}");
-                    let mut parts = cmd.split_whitespace();
-                    if let Some(program) = parts.next() {
-                        let args: Vec<&str> = parts.collect();
-                        let mut child = std::process::Command::new(program)
-                            .args(args)
-                            .stdin(std::process::Stdio::piped())
-                            .stdout(std::process::Stdio::piped())
-                            .stderr(std::process::Stdio::piped())
-                            .spawn();
+                    #[cfg(not(target_os = "windows"))]
+                    let mut command = std::process::Command::new("sh");
+                    #[cfg(not(target_os = "windows"))]
+                    command.arg("-c").arg(cmd);
 
-                        match child {
-                            Ok(mut child) => {
-                                if let Some(mut stdin) = child.stdin.take() {
-                                    let _ = stdin.write_all(req.execution_input.shader.as_bytes());
-                                }
-                                match child.wait_with_output() {
-                                    Ok(output) => {
-                                        if output.status.success() {
-                                            let dummy_buffers = req
-                                                .execution_input
-                                                .pipeline_desc
-                                                .resources
-                                                .iter()
-                                                .filter(|r| {
-                                                    matches!(
-                                                        r.kind,
-                                                        reflection::ResourceKind::StorageBuffer
-                                                    )
-                                                })
-                                                .map(|r| vec![0; r.size as usize])
-                                                .collect();
-                                            Ok(dummy_buffers)
-                                        } else {
-                                            Err(color_eyre::eyre::eyre!(
-                                                "Command failed: {}",
-                                                String::from_utf8_lossy(&output.stderr)
-                                            ))
-                                        }
-                                    }
-                                    Err(e) => Err(color_eyre::eyre::eyre!(
-                                        "Failed to wait for command: {}",
-                                        e
-                                    )),
-                                }
+                    #[cfg(target_os = "windows")]
+                    let mut command = std::process::Command::new("cmd");
+                    #[cfg(target_os = "windows")]
+                    command.arg("/C").arg(cmd);
+
+                    let child = command
+                        .stdin(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .spawn();
+
+                    match child {
+                        Ok(mut child) => {
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = stdin.write_all(req.execution_input.shader.as_bytes());
                             }
-                            Err(e) => {
-                                Err(color_eyre::eyre::eyre!("Failed to spawn command: {}", e))
+                            match child.wait_with_output() {
+                                Ok(output) => {
+                                    if output.status.success() {
+                                        let dummy_buffers = req
+                                            .execution_input
+                                            .pipeline_desc
+                                            .resources
+                                            .iter()
+                                            .filter(|r| {
+                                                matches!(
+                                                    r.kind,
+                                                    reflection::ResourceKind::StorageBuffer
+                                                )
+                                            })
+                                            .map(|r| vec![0; r.size as usize])
+                                            .collect();
+                                        Ok(dummy_buffers)
+                                    } else {
+                                        Err(color_eyre::eyre::eyre!(
+                                            "Command failed: {}",
+                                            String::from_utf8_lossy(&output.stderr)
+                                        ))
+                                    }
+                                }
+                                Err(e) => Err(color_eyre::eyre::eyre!(
+                                    "Failed to wait for command: {}",
+                                    e
+                                )),
                             }
                         }
-                    } else {
-                        Err(color_eyre::eyre::eyre!("Invalid override-cmd"))
+                        Err(e) => Err(color_eyre::eyre::eyre!("Failed to spawn command: {}", e)),
                     }
                 } else {
                     crate::execute_config(
