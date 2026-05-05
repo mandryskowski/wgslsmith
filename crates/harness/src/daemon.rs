@@ -22,6 +22,10 @@ pub struct DaemonOptions {
     /// Kill the daemon after the specified number of seconds.
     #[clap(long, action)]
     pub kill_after: Option<u64>,
+
+    /// Hacky option to override the command used to run the shader.
+    #[clap(long, action)]
+    pub override_cmd: Option<String>,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -45,6 +49,7 @@ pub struct DaemonServer {
     webgpu_state: WebGPUState,
     active_requests: Arc<AtomicUsize>,
     shutting_down: Arc<AtomicBool>,
+    override_cmd: Option<String>,
 }
 
 impl DaemonServer {
@@ -53,10 +58,12 @@ impl DaemonServer {
             webgpu_state: crate::WebGPUState::new(dawn_flags),
             active_requests: Arc::new(AtomicUsize::new(0)),
             shutting_down: Arc::new(AtomicBool::new(false)),
+            override_cmd: None,
         }
     }
 
     pub fn main_loop(&mut self, options: DaemonOptions) -> eyre::Result<()> {
+        self.override_cmd = options.override_cmd.clone();
         let start_time = Instant::now();
         let mut last_log_time = start_time;
 
@@ -236,12 +243,68 @@ impl DaemonServer {
                     }
                 });
 
-                let result = crate::execute_config(
-                    &req.execution_input.shader,
-                    &req.execution_input.pipeline_desc,
-                    &req.config,
-                    Some(&mut self.webgpu_state),
-                );
+                let result = if let Some(cmd) = &self.override_cmd {
+                    println!("{cmd}");
+                    let mut parts = cmd.split_whitespace();
+                    if let Some(program) = parts.next() {
+                        let args: Vec<&str> = parts.collect();
+                        let mut child = std::process::Command::new(program)
+                            .args(args)
+                            .stdin(std::process::Stdio::piped())
+                            .stdout(std::process::Stdio::piped())
+                            .stderr(std::process::Stdio::piped())
+                            .spawn();
+
+                        match child {
+                            Ok(mut child) => {
+                                if let Some(mut stdin) = child.stdin.take() {
+                                    let _ = stdin.write_all(req.execution_input.shader.as_bytes());
+                                }
+                                match child.wait_with_output() {
+                                    Ok(output) => {
+                                        if output.status.success() {
+                                            let dummy_buffers = req
+                                                .execution_input
+                                                .pipeline_desc
+                                                .resources
+                                                .iter()
+                                                .filter(|r| {
+                                                    matches!(
+                                                        r.kind,
+                                                        reflection::ResourceKind::StorageBuffer
+                                                    )
+                                                })
+                                                .map(|r| vec![0; r.size as usize])
+                                                .collect();
+                                            Ok(dummy_buffers)
+                                        } else {
+                                            Err(color_eyre::eyre::eyre!(
+                                                "Command failed: {}",
+                                                String::from_utf8_lossy(&output.stderr)
+                                            ))
+                                        }
+                                    }
+                                    Err(e) => Err(color_eyre::eyre::eyre!(
+                                        "Failed to wait for command: {}",
+                                        e
+                                    )),
+                                }
+                            }
+                            Err(e) => {
+                                Err(color_eyre::eyre::eyre!("Failed to spawn command: {}", e))
+                            }
+                        }
+                    } else {
+                        Err(color_eyre::eyre::eyre!("Invalid override-cmd"))
+                    }
+                } else {
+                    crate::execute_config(
+                        &req.execution_input.shader,
+                        &req.execution_input.pipeline_desc,
+                        &req.config,
+                        Some(&mut self.webgpu_state),
+                    )
+                };
 
                 if state
                     .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
