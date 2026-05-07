@@ -278,9 +278,19 @@ pub mod fuse {
                     // Generate a smaller random shader utilizing context collected from the base_module
                     let seed = rng.gen();
                     let mut gen_rng = rand::rngs::StdRng::seed_from_u64(seed);
+
+                    let stage_roll = rng.gen_range(0..100);
+                    let stage = if stage_roll < 15 {
+                        generator::ShaderStage::Vertex
+                    } else if stage_roll < 30 {
+                        generator::ShaderStage::Fragment
+                    } else {
+                        generator::ShaderStage::Compute
+                    };
+
                     let gen_opts = std::rc::Rc::new(generator::Options {
                         seed: Some(seed),
-                        stage: generator::ShaderStage::Compute,
+                        stage,
                         debug: false,
                         enabled_fns: vec![],
                         enable_pointers: true,
