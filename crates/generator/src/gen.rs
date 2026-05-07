@@ -15,8 +15,8 @@ use ast::types::{DataType, MemoryViewType};
 use ast::{
     AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, Expr, ExprNode,
     FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement,
-    Lit, Module, Postfix, PostfixExpr, ScalarType, ShaderStage, Statement, StorageClass, VarExpr,
-    VarQualifier,
+    Lit, Module, Postfix, PostfixExpr, ReturnStatement, ScalarType, ShaderStage, Statement,
+    StorageClass, VarExpr, VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
@@ -114,6 +114,16 @@ impl<'a> Generator<'a> {
         self.global_scope
             .insert_readonly("u_input".to_owned(), DataType::Struct(ub_type_decl.clone()));
 
+        let can_write_storage = matches!(
+            self.options.stage,
+            crate::ShaderStage::Compute | crate::ShaderStage::Fragment
+        );
+        let storage_access = if can_write_storage {
+            AccessMode::ReadWrite
+        } else {
+            AccessMode::Read
+        };
+
         let mut global_vars = vec![
             GlobalVarDecl {
                 attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(0)],
@@ -129,7 +139,7 @@ impl<'a> Generator<'a> {
                 attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(1)],
                 qualifier: Some(VarQualifier {
                     storage_class: StorageClass::Storage,
-                    access_mode: Some(AccessMode::ReadWrite),
+                    access_mode: Some(storage_access),
                 }),
                 name: "s_output".to_owned(),
                 data_type: DataType::Struct(sb_type_decl.clone()),
@@ -139,7 +149,7 @@ impl<'a> Generator<'a> {
                 attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(2)],
                 qualifier: Some(VarQualifier {
                     storage_class: StorageClass::Storage,
-                    access_mode: Some(AccessMode::ReadWrite),
+                    access_mode: Some(storage_access),
                 }),
                 name: "hash_output".to_owned(),
                 data_type: DataType::Scalar(ScalarType::U32),
@@ -162,21 +172,25 @@ impl<'a> Generator<'a> {
                 attrs: vec![GlobalVarAttr::Group(0), GlobalVarAttr::Binding(3 + i)],
                 qualifier: Some(VarQualifier {
                     storage_class: StorageClass::Storage,
-                    access_mode: Some(AccessMode::ReadWrite),
+                    access_mode: Some(storage_access),
                 }),
                 name: name.clone(),
                 data_type: data_type.clone(),
                 initializer: None,
             });
 
-            self.global_scope.insert_mutable(
-                name,
-                DataType::Ref(MemoryViewType {
-                    inner: Rc::new(data_type),
-                    storage_class: StorageClass::Storage,
-                    access_mode: AccessMode::ReadWrite,
-                }),
-            );
+            let ref_type = DataType::Ref(MemoryViewType {
+                inner: Rc::new(data_type.clone()),
+                storage_class: StorageClass::Storage,
+                access_mode: storage_access,
+            });
+
+            if can_write_storage {
+                self.global_scope.insert_mutable(name, ref_type);
+            } else {
+                self.global_scope
+                    .insert_unassignable_reference(name, ref_type);
+            }
         }
 
         let mut workgroup_size = 0;
@@ -186,35 +200,12 @@ impl<'a> Generator<'a> {
             global_vars.push(self.gen_global_var(name, &mut workgroup_size));
         }
 
-        let atomic_vars = [
-            ("wg_atomic_u32", DataType::Atomic(ScalarType::U32)),
-            ("wg_atomic_i32", DataType::Atomic(ScalarType::I32)),
-        ];
-        for (name, ty) in atomic_vars {
-            global_vars.push(GlobalVarDecl {
-                attrs: vec![],
-                qualifier: Some(VarQualifier {
-                    storage_class: StorageClass::WorkGroup,
-                    access_mode: None,
-                }),
-                name: name.to_owned(),
-                data_type: ty.clone(),
-                initializer: None,
-            });
-            self.global_scope.insert_unassignable_reference(
-                name.to_owned(),
-                DataType::Ref(MemoryViewType::new(ty.clone(), StorageClass::WorkGroup)),
-            );
-        }
-
-        if self.options.collectives() {
-            let wg_vars = [
-                ("wg_u32", DataType::Scalar(ScalarType::U32)),
-                ("wg_i32", DataType::Scalar(ScalarType::I32)),
-                ("wg_f32", DataType::Scalar(ScalarType::F32)),
-                ("wg_bool", DataType::Scalar(ScalarType::Bool)),
+        if self.options.stage == crate::ShaderStage::Compute {
+            let atomic_vars = [
+                ("wg_atomic_u32", DataType::Atomic(ScalarType::U32)),
+                ("wg_atomic_i32", DataType::Atomic(ScalarType::I32)),
             ];
-            for (name, ty) in wg_vars {
+            for (name, ty) in atomic_vars {
                 global_vars.push(GlobalVarDecl {
                     attrs: vec![],
                     qualifier: Some(VarQualifier {
@@ -225,10 +216,35 @@ impl<'a> Generator<'a> {
                     data_type: ty.clone(),
                     initializer: None,
                 });
-                self.global_scope.insert_mutable(
+                self.global_scope.insert_unassignable_reference(
                     name.to_owned(),
                     DataType::Ref(MemoryViewType::new(ty.clone(), StorageClass::WorkGroup)),
                 );
+            }
+
+            if self.options.collectives() {
+                let wg_vars = [
+                    ("wg_u32", DataType::Scalar(ScalarType::U32)),
+                    ("wg_i32", DataType::Scalar(ScalarType::I32)),
+                    ("wg_f32", DataType::Scalar(ScalarType::F32)),
+                    ("wg_bool", DataType::Scalar(ScalarType::Bool)),
+                ];
+                for (name, ty) in wg_vars {
+                    global_vars.push(GlobalVarDecl {
+                        attrs: vec![],
+                        qualifier: Some(VarQualifier {
+                            storage_class: StorageClass::WorkGroup,
+                            access_mode: None,
+                        }),
+                        name: name.to_owned(),
+                        data_type: ty.clone(),
+                        initializer: None,
+                    });
+                    self.global_scope.insert_mutable(
+                        name.to_owned(),
+                        DataType::Ref(MemoryViewType::new(ty.clone(), StorageClass::WorkGroup)),
+                    );
+                }
             }
         }
 
@@ -281,11 +297,12 @@ impl<'a> Generator<'a> {
             data_type = DataType::Array(Rc::new(data_type), Some(self.rng.gen_range(1..=32)));
         }
 
-        storage_class = if self.rng.gen_bool(0.5) {
-            StorageClass::WorkGroup
-        } else {
-            StorageClass::Private
-        };
+        storage_class =
+            if self.options.stage == crate::ShaderStage::Compute && self.rng.gen_bool(0.5) {
+                StorageClass::WorkGroup
+            } else {
+                StorageClass::Private
+            };
 
         // If the global variable won't fit in the workgroup storage, fallback to private
         if storage_class == StorageClass::WorkGroup {
@@ -331,39 +348,64 @@ impl<'a> Generator<'a> {
         let mut function_scope = self.global_scope.clone();
         let mut inputs = vec![];
 
-        let mut available_builtins = vec![
-            (
-                BuiltinValue::LocalInvocationId,
-                DataType::Vector(3, ScalarType::U32),
-            ),
-            (
-                BuiltinValue::LocalInvocationIndex,
-                DataType::Scalar(ScalarType::U32),
-            ),
-            (
-                BuiltinValue::GlobalInvocationId,
-                DataType::Vector(3, ScalarType::U32),
-            ),
-            (
-                BuiltinValue::WorkgroupId,
-                DataType::Vector(3, ScalarType::U32),
-            ),
-            (
-                BuiltinValue::NumWorkgroups,
-                DataType::Vector(3, ScalarType::U32),
-            ),
-        ];
+        let mut available_builtins = match self.options.stage {
+            crate::ShaderStage::Compute => {
+                let mut b = vec![
+                    (
+                        BuiltinValue::LocalInvocationId,
+                        DataType::Vector(3, ScalarType::U32),
+                    ),
+                    (
+                        BuiltinValue::LocalInvocationIndex,
+                        DataType::Scalar(ScalarType::U32),
+                    ),
+                    (
+                        BuiltinValue::GlobalInvocationId,
+                        DataType::Vector(3, ScalarType::U32),
+                    ),
+                    (
+                        BuiltinValue::WorkgroupId,
+                        DataType::Vector(3, ScalarType::U32),
+                    ),
+                    (
+                        BuiltinValue::NumWorkgroups,
+                        DataType::Vector(3, ScalarType::U32),
+                    ),
+                ];
 
-        if self.options.collectives() {
-            available_builtins.push((
-                BuiltinValue::SubgroupInvocationId,
-                DataType::Scalar(ScalarType::U32),
-            ));
-            available_builtins.push((
-                BuiltinValue::SubgroupSize,
-                DataType::Scalar(ScalarType::U32),
-            ));
-        }
+                if self.options.collectives() {
+                    b.push((
+                        BuiltinValue::SubgroupInvocationId,
+                        DataType::Scalar(ScalarType::U32),
+                    ));
+                    b.push((
+                        BuiltinValue::SubgroupSize,
+                        DataType::Scalar(ScalarType::U32),
+                    ));
+                }
+                b
+            }
+            crate::ShaderStage::Vertex => {
+                vec![
+                    (BuiltinValue::VertexIndex, DataType::Scalar(ScalarType::U32)),
+                    (
+                        BuiltinValue::InstanceIndex,
+                        DataType::Scalar(ScalarType::U32),
+                    ),
+                ]
+            }
+            crate::ShaderStage::Fragment => {
+                vec![
+                    (BuiltinValue::Position, DataType::Vector(4, ScalarType::F32)),
+                    (
+                        BuiltinValue::FrontFacing,
+                        DataType::Scalar(ScalarType::Bool),
+                    ),
+                    (BuiltinValue::SampleIndex, DataType::Scalar(ScalarType::U32)),
+                    (BuiltinValue::SampleMask, DataType::Scalar(ScalarType::U32)),
+                ]
+            }
+        };
 
         let num_params = self.rng.gen_range(0..=available_builtins.len());
         available_builtins.shuffle(self.rng);
@@ -377,6 +419,26 @@ impl<'a> Generator<'a> {
             });
             function_scope.insert_readonly(name, data_type);
         }
+
+        let (output, ret_type) = match self.options.stage {
+            crate::ShaderStage::Compute => (None, None),
+            crate::ShaderStage::Vertex => (
+                Some(ast::FnOutput {
+                    attrs: vec![FnParamReturnAttr::Builtin(BuiltinValue::Position)],
+                    data_type: DataType::Vector(4, ScalarType::F32),
+                }),
+                Some(DataType::Vector(4, ScalarType::F32)),
+            ),
+            crate::ShaderStage::Fragment => (
+                Some(ast::FnOutput {
+                    attrs: vec![FnParamReturnAttr::Location(0)],
+                    data_type: DataType::Vector(4, ScalarType::F32),
+                }),
+                Some(DataType::Vector(4, ScalarType::F32)),
+            ),
+        };
+
+        self.return_type = ret_type.clone();
 
         let stmt_count = self.rng.gen_range(5..10);
         let (_, block) = self.with_scope(function_scope, |this| {
@@ -401,19 +463,34 @@ impl<'a> Generator<'a> {
                     .into(),
                 );
 
-                let out_rhs = this.gen_expr(&out_buf_type);
-                let out_lhs = AssignmentLhs::name("s_output", out_buf_type.clone());
+                let can_write_storage = matches!(
+                    this.options.stage,
+                    crate::ShaderStage::Compute | crate::ShaderStage::Fragment
+                );
 
-                this.current_block
-                    .push(AssignmentStatement::new(out_lhs, AssignmentOp::Simple, out_rhs).into());
-
-                if this.rng.gen_bool(0.5) {
-                    let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
-                    let hash_lhs = AssignmentLhs::name("hash_output", ScalarType::U32);
+                if can_write_storage {
+                    let out_rhs = this.gen_expr(&out_buf_type);
+                    let out_lhs = AssignmentLhs::name("s_output", out_buf_type.clone());
 
                     this.current_block.push(
-                        AssignmentStatement::new(hash_lhs, AssignmentOp::Simple, hash_val).into(),
+                        AssignmentStatement::new(out_lhs, AssignmentOp::Simple, out_rhs).into(),
                     );
+
+                    if this.rng.gen_bool(0.5) {
+                        let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
+                        let hash_lhs = AssignmentLhs::name("hash_output", ScalarType::U32);
+
+                        this.current_block.push(
+                            AssignmentStatement::new(hash_lhs, AssignmentOp::Simple, hash_val)
+                                .into(),
+                        );
+                    }
+                }
+
+                if let Some(ret_ty) = &ret_type {
+                    let ret_val = this.gen_expr(ret_ty);
+                    this.current_block
+                        .push(Statement::Return(ReturnStatement::new(ret_val)));
                 }
             });
 
@@ -421,18 +498,21 @@ impl<'a> Generator<'a> {
         });
 
         self.fn_state.is_entrypoint = prev_is_entrypoint;
+        self.return_type = None;
+
+        let mut attrs = vec![FnAttr::Stage(self.options.stage.into())];
+        if self.options.stage == crate::ShaderStage::Compute {
+            attrs.push(FnAttr::WorkgroupSize(vec![ExprNode {
+                data_type: DataType::Scalar(ScalarType::U32),
+                expr: Expr::Lit(Lit::U32(1)),
+            }]));
+        }
 
         FnDecl {
-            attrs: vec![
-                FnAttr::Stage(ShaderStage::Compute),
-                FnAttr::WorkgroupSize(vec![ExprNode {
-                    data_type: DataType::Scalar(ScalarType::U32),
-                    expr: Expr::Lit(Lit::U32(1)),
-                }]),
-            ],
+            attrs,
             name: "main".to_owned(),
             inputs,
-            output: None,
+            output,
             body: block,
         }
     }

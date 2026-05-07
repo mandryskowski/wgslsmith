@@ -18,6 +18,24 @@ use rand::{Rng, SeedableRng};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::EnvFilter;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, strum::EnumIter, Default)]
+pub enum ShaderStage {
+    #[default]
+    Compute,
+    Vertex,
+    Fragment,
+}
+
+impl From<ShaderStage> for ast::ShaderStage {
+    fn from(ext: ShaderStage) -> Self {
+        match ext {
+            ShaderStage::Compute => ast::ShaderStage::Compute,
+            ShaderStage::Vertex => ast::ShaderStage::Vertex,
+            ShaderStage::Fragment => ast::ShaderStage::Fragment,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, strum::EnumIter)]
 pub enum GeneratorExtension {
     F16,
@@ -129,6 +147,10 @@ pub struct Options {
     /// Maximum compute workgroup storage size
     #[clap(long, action, default_value = "16384")]
     pub max_compute_workgroup_storage_size: u32,
+
+    /// Shader stage to generate
+    #[clap(long, action, value_enum, default_value = "compute")]
+    pub stage: ShaderStage,
 
     /// Preset options configuration. Individual options may still be overridden.
     #[clap(long, action)]

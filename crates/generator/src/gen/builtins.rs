@@ -54,30 +54,32 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
     }
 
     for s_ty in [I32, U32] {
-        let atomic_ty = DataType::Atomic(s_ty);
-        let ptr_ty = DataType::Ptr(ast::types::MemoryViewType::new(
-            atomic_ty,
-            ast::StorageClass::WorkGroup,
-        ));
+        if options.stage == crate::ShaderStage::Compute {
+            let atomic_ty = DataType::Atomic(s_ty);
+            let ptr_ty = DataType::Ptr(ast::types::MemoryViewType::new(
+                atomic_ty,
+                ast::StorageClass::WorkGroup,
+            ));
 
-        for builtin in [
-            AtomicAdd,
-            AtomicAnd,
-            AtomicExchange,
-            AtomicMax,
-            AtomicMin,
-            AtomicOr,
-            AtomicSub,
-            AtomicXor,
-        ] {
-            map.add(builtin, [ptr_ty.clone(), s_ty.into()], s_ty);
+            for builtin in [
+                AtomicAdd,
+                AtomicAnd,
+                AtomicExchange,
+                AtomicMax,
+                AtomicMin,
+                AtomicOr,
+                AtomicSub,
+                AtomicXor,
+            ] {
+                map.add(builtin, [ptr_ty.clone(), s_ty.into()], s_ty);
+            }
+            map.add(AtomicLoad, [ptr_ty.clone()], s_ty);
+            map.add(
+                AtomicCompareExchangeWeak,
+                [ptr_ty.clone(), s_ty.into(), s_ty.into()],
+                DataType::AtomicCompareExchangeResult(s_ty),
+            );
         }
-        map.add(AtomicLoad, [ptr_ty.clone()], s_ty);
-        map.add(
-            AtomicCompareExchangeWeak,
-            [ptr_ty.clone(), s_ty.into(), s_ty.into()],
-            DataType::AtomicCompareExchangeResult(s_ty),
-        );
 
         for ty in scalar_and_vectors_of(s_ty) {
             map.add(Clamp, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
@@ -228,11 +230,13 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
                 map.add(QuadSwapY, [ty.clone()], ty.clone());
             }
 
-            let wg_ptr_ty = DataType::Ptr(ast::types::MemoryViewType::new(
-                DataType::Scalar(s_ty),
-                ast::StorageClass::WorkGroup,
-            ));
-            map.add(WorkgroupUniformLoad, [wg_ptr_ty], DataType::Scalar(s_ty));
+            if options.stage == crate::ShaderStage::Compute {
+                let wg_ptr_ty = DataType::Ptr(ast::types::MemoryViewType::new(
+                    DataType::Scalar(s_ty),
+                    ast::StorageClass::WorkGroup,
+                ));
+                map.add(WorkgroupUniformLoad, [wg_ptr_ty], DataType::Scalar(s_ty));
+            }
         }
 
         for s_ty in [I32, U32] {
@@ -242,12 +246,14 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
                 map.add(SubgroupXor, [ty.clone()], ty.clone());
             }
 
-            let atomic_ty = DataType::Atomic(s_ty);
-            let wg_ptr_atomic_ty = DataType::Ptr(ast::types::MemoryViewType::new(
-                atomic_ty,
-                ast::StorageClass::WorkGroup,
-            ));
-            map.add(WorkgroupUniformLoad, [wg_ptr_atomic_ty], s_ty);
+            if options.stage == crate::ShaderStage::Compute {
+                let atomic_ty = DataType::Atomic(s_ty);
+                let wg_ptr_atomic_ty = DataType::Ptr(ast::types::MemoryViewType::new(
+                    atomic_ty,
+                    ast::StorageClass::WorkGroup,
+                ));
+                map.add(WorkgroupUniformLoad, [wg_ptr_atomic_ty], s_ty);
+            }
         }
 
         map.add(SubgroupAll, [Bool.into()], Bool);
@@ -255,15 +261,17 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
         map.add(SubgroupBallot, [Bool.into()], DataType::Vector(4, U32));
         //map.add(SubgroupElect, vec![], Bool); // not supported in dawn
 
-        let wg_ptr_bool_ty = DataType::Ptr(ast::types::MemoryViewType::new(
-            DataType::Scalar(Bool),
-            ast::StorageClass::WorkGroup,
-        ));
-        map.add(
-            WorkgroupUniformLoad,
-            [wg_ptr_bool_ty],
-            DataType::Scalar(Bool),
-        );
+        if options.stage == crate::ShaderStage::Compute {
+            let wg_ptr_bool_ty = DataType::Ptr(ast::types::MemoryViewType::new(
+                DataType::Scalar(Bool),
+                ast::StorageClass::WorkGroup,
+            ));
+            map.add(
+                WorkgroupUniformLoad,
+                [wg_ptr_bool_ty],
+                DataType::Scalar(Bool),
+            );
+        }
     }
 
     map
