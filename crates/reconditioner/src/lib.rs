@@ -274,10 +274,10 @@ impl Reconditioner {
                             .map(|s| self.recondition_stmt(s))
                             .collect();
 
-                        // Naga incorrectly forbids shadowing declarations from loop body in continuing block
-                        if new_stmts.len() != 1 || !matches!(new_stmts[0], Statement::Compound(_)) {
-                            new_stmts = vec![Statement::Compound(new_stmts)];
-                        }
+                        // // Naga incorrectly forbids shadowing declarations from loop body in continuing block
+                        // if new_stmts.len() != 1 || !matches!(new_stmts[0], Statement::Compound(_)) {
+                        //     new_stmts = vec![Statement::Compound(new_stmts)];
+                        // }
 
                         ContinuingBlock {
                             stmts: new_stmts,
