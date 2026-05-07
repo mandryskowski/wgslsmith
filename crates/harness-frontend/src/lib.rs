@@ -214,6 +214,9 @@ pub mod cli {
 
         #[clap(long, action, requires = "use_daemon_flag")]
         pub daemon_port: Option<u16>,
+
+        #[clap(long, action)]
+        pub perf_file: Option<String>,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {
@@ -225,12 +228,58 @@ pub mod cli {
 
         let mut executions: Vec<(ConfigId, Vec<Vec<u8>>)> = vec![];
         let mut is_fail = false;
+        let mut start_times = HashMap::new();
+        let head = shader.lines().next().unwrap_or("").to_owned();
+        let perf_file_path = options.perf_file.clone();
+
+        let log_perf = |config: &ConfigId, start_time: std::time::Instant| {
+            if let Some(perf_file) = &perf_file_path {
+                let runtime = start_time.elapsed().as_secs_f64();
+                let date = chrono::Utc::now().to_rfc3339();
+                let log = serde_json::json!({
+                    "date": date,
+                    "config": config.to_string(),
+                    "runtime": runtime,
+                    "head": head,
+                });
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(perf_file)
+                {
+                    use std::io::Write;
+                    let _ = writeln!(file, "{}", log);
+                }
+            }
+        };
+
         let mut on_event = |event: ExecutionEvent| {
             printer.print_execution_event(&event, &pipeline_desc)?;
-            if let ExecutionEvent::Success(config, buffers) = event {
-                executions.push((config, buffers));
-            } else if let ExecutionEvent::Failure(_) = event {
-                is_fail = true
+            match event {
+                ExecutionEvent::Start(config) => {
+                    start_times.insert(config, std::time::Instant::now());
+                }
+                ExecutionEvent::Success(config, buffers) => {
+                    if let Some(start_time) = start_times.remove(&config) {
+                        log_perf(&config, start_time);
+                    }
+                    executions.push((config, buffers));
+                }
+                ExecutionEvent::Failure(_) => {
+                    is_fail = true;
+                    if start_times.len() == 1 {
+                        let config = start_times.keys().next().unwrap().clone();
+                        if let Some(start_time) = start_times.remove(&config) {
+                            log_perf(&config, start_time);
+                        }
+                    }
+                }
+                ExecutionEvent::Timeout(config) => {
+                    if let Some(start_time) = start_times.remove(&config) {
+                        log_perf(&config, start_time);
+                    }
+                }
+                _ => {}
             }
             Ok(())
         };

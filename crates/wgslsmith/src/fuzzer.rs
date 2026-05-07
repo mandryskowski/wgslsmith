@@ -134,6 +134,9 @@ pub struct Options {
 
     #[clap(long, action, default_value = "false")]
     unstable_float: bool,
+
+    #[clap(long, action)]
+    pub perf_file: Option<PathBuf>,
 }
 
 impl Options {
@@ -156,6 +159,11 @@ impl Options {
                 exec_params.push("--daemon-port".to_string());
                 exec_params.push(port.to_string());
             }
+        }
+
+        if let Some(perf_file) = &self.perf_file {
+            exec_params.push("--perf-file".to_string());
+            exec_params.push(perf_file.to_string_lossy().into_owned());
         }
 
         exec_params

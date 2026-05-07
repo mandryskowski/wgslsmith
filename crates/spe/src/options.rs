@@ -94,4 +94,8 @@ pub struct DirOptions {
     /// Maximum number of enumerations to test per shader
     #[clap(long)]
     pub max_enumerations: Option<usize>,
+
+    /// File to append execution performance logs to
+    #[clap(long, action)]
+    pub perf_file: Option<PathBuf>,
 }
