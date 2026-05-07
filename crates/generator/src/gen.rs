@@ -13,9 +13,10 @@ use std::rc::Rc;
 
 use ast::types::{DataType, MemoryViewType};
 use ast::{
-    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, Expr, ExprNode, FnAttr, FnDecl,
-    GlobalVarAttr, GlobalVarDecl, LetDeclStatement, Lit, Module, Postfix, PostfixExpr, ScalarType,
-    ShaderStage, Statement, StorageClass, VarExpr, VarQualifier,
+    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, Expr, ExprNode,
+    FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement,
+    Lit, Module, Postfix, PostfixExpr, ScalarType, ShaderStage, Statement, StorageClass, VarExpr,
+    VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
@@ -327,8 +328,58 @@ impl<'a> Generator<'a> {
     fn gen_entrypoint_function(&mut self, in_buf_type: DataType, out_buf_type: DataType) -> FnDecl {
         let prev_is_entrypoint = std::mem::replace(&mut self.fn_state.is_entrypoint, true);
 
+        let mut function_scope = self.global_scope.clone();
+        let mut inputs = vec![];
+
+        let mut available_builtins = vec![
+            (
+                BuiltinValue::LocalInvocationId,
+                DataType::Vector(3, ScalarType::U32),
+            ),
+            (
+                BuiltinValue::LocalInvocationIndex,
+                DataType::Scalar(ScalarType::U32),
+            ),
+            (
+                BuiltinValue::GlobalInvocationId,
+                DataType::Vector(3, ScalarType::U32),
+            ),
+            (
+                BuiltinValue::WorkgroupId,
+                DataType::Vector(3, ScalarType::U32),
+            ),
+            (
+                BuiltinValue::NumWorkgroups,
+                DataType::Vector(3, ScalarType::U32),
+            ),
+        ];
+
+        if self.options.collectives() {
+            available_builtins.push((
+                BuiltinValue::SubgroupInvocationId,
+                DataType::Scalar(ScalarType::U32),
+            ));
+            available_builtins.push((
+                BuiltinValue::SubgroupSize,
+                DataType::Scalar(ScalarType::U32),
+            ));
+        }
+
+        let num_params = self.rng.gen_range(0..=available_builtins.len());
+        available_builtins.shuffle(self.rng);
+
+        for (builtin, data_type) in available_builtins.into_iter().take(num_params) {
+            let name = format!("gl_{}", builtin);
+            inputs.push(FnInput {
+                attrs: vec![FnParamReturnAttr::Builtin(builtin)],
+                name: name.clone(),
+                data_type: data_type.clone(),
+            });
+            function_scope.insert_readonly(name, data_type);
+        }
+
         let stmt_count = self.rng.gen_range(5..10);
-        let (_, block) = self.with_scope(self.global_scope.clone(), |this| {
+        let (_, block) = self.with_scope(function_scope, |this| {
             let (scope, mut block) = this.gen_stmt_block(stmt_count);
 
             if let Some(Statement::Return(_)) = block.last() {
@@ -378,7 +429,7 @@ impl<'a> Generator<'a> {
                 }]),
             ],
             name: "main".to_owned(),
-            inputs: vec![],
+            inputs,
             output: None,
             body: block,
         }
