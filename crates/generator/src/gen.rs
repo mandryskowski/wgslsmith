@@ -407,12 +407,14 @@ impl<'a> Generator<'a> {
                 this.current_block
                     .push(AssignmentStatement::new(out_lhs, AssignmentOp::Simple, out_rhs).into());
 
-                let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
-                let hash_lhs = AssignmentLhs::name("hash_output", ScalarType::U32);
+                if this.rng.gen_bool(0.5) {
+                    let hash_val = this.gen_scope_hash_expr(&this.scope.clone());
+                    let hash_lhs = AssignmentLhs::name("hash_output", ScalarType::U32);
 
-                this.current_block.push(
-                    AssignmentStatement::new(hash_lhs, AssignmentOp::Simple, hash_val).into(),
-                );
+                    this.current_block.push(
+                        AssignmentStatement::new(hash_lhs, AssignmentOp::Simple, hash_val).into(),
+                    );
+                }
             });
 
             std::mem::replace(&mut this.current_block, prev_block)
