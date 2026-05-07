@@ -274,6 +274,30 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
         }
     }
 
+    if options.stage == crate::ShaderStage::Fragment {
+        let mut float_types = vec![F32];
+        if options.enable_f16() {
+            float_types.push(F16);
+        }
+        for s_ty in float_types {
+            for ty in scalar_and_vectors_of(s_ty) {
+                for builtin in [
+                    Dpdx,
+                    DpdxCoarse,
+                    DpdxFine,
+                    Dpdy,
+                    DpdyCoarse,
+                    DpdyFine,
+                    Fwidth,
+                    FwidthCoarse,
+                    FwidthFine,
+                ] {
+                    map.add(builtin, [ty.clone()], ty.clone());
+                }
+            }
+        }
+    }
+
     map
 }
 

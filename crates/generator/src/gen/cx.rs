@@ -160,9 +160,9 @@ impl Func {
         }
     }
 
-    pub fn is_collective(&self) -> bool {
+    pub fn requires_uniformity(&self) -> bool {
         match self {
-            Func::Builtin(builtin, _) => builtin.is_collective(),
+            Func::Builtin(builtin, _) => builtin.requires_uniformity(),
             Func::User(_) => false,
         }
     }
@@ -201,15 +201,15 @@ impl FnContext {
         &self,
         rng: &mut impl Rng,
         return_ty: &DataType,
-        allow_collectives: bool,
+        assume_uniformity: bool,
     ) -> Option<Rc<Func>> {
         let funcs = self.map.get(return_ty).map(Vec::as_slice).unwrap_or(&[]);
-        if allow_collectives {
+        if assume_uniformity {
             funcs.choose(rng).cloned()
         } else {
             let filtered: Vec<_> = funcs
                 .iter()
-                .filter(|f| !f.is_collective())
+                .filter(|f| !f.requires_uniformity())
                 .cloned()
                 .collect();
             filtered.choose(rng).cloned()

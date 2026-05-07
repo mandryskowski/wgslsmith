@@ -15,8 +15,8 @@ use ast::types::{DataType, MemoryViewType};
 use ast::{
     AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, Expr, ExprNode,
     FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement,
-    Lit, Module, Postfix, PostfixExpr, ReturnStatement, ScalarType, ShaderStage, Statement,
-    StorageClass, VarExpr, VarQualifier,
+    Lit, Module, Postfix, PostfixExpr, ReturnStatement, ScalarType, Statement, StorageClass,
+    VarExpr, VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;

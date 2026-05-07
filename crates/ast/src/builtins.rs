@@ -182,7 +182,7 @@ pub enum BuiltinFn {
 }
 
 impl BuiltinFn {
-    pub fn is_collective(&self) -> bool {
+    pub fn requires_uniformity(&self) -> bool {
         matches!(
             self,
             BuiltinFn::SubgroupAdd
@@ -214,6 +214,15 @@ impl BuiltinFn {
                 | BuiltinFn::StorageBarrier
                 | BuiltinFn::TextureBarrier
                 | BuiltinFn::WorkgroupBarrier
+                | BuiltinFn::Dpdx
+                | BuiltinFn::DpdxCoarse
+                | BuiltinFn::DpdxFine
+                | BuiltinFn::Dpdy
+                | BuiltinFn::DpdyCoarse
+                | BuiltinFn::DpdyFine
+                | BuiltinFn::Fwidth
+                | BuiltinFn::FwidthCoarse
+                | BuiltinFn::FwidthFine
         )
     }
 
