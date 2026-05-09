@@ -269,7 +269,7 @@ impl Reconditioner {
                 LoopStatement::new(
                     self.recondition_loop_body(body),
                     continuing.map(|ContinuingBlock { stmts, break_if }| {
-                        let mut new_stmts: Vec<Statement> = stmts
+                        let new_stmts: Vec<Statement> = stmts
                             .into_iter()
                             .map(|s| self.recondition_stmt(s))
                             .collect();
