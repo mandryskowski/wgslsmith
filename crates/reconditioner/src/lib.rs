@@ -269,15 +269,15 @@ impl Reconditioner {
                 LoopStatement::new(
                     self.recondition_loop_body(body),
                     continuing.map(|ContinuingBlock { stmts, break_if }| {
-                        let mut new_stmts: Vec<Statement> = stmts
+                        let new_stmts: Vec<Statement> = stmts
                             .into_iter()
                             .map(|s| self.recondition_stmt(s))
                             .collect();
 
-                        // Naga incorrectly forbids shadowing declarations from loop body in continuing block
-                        if new_stmts.len() != 1 || !matches!(new_stmts[0], Statement::Compound(_)) {
-                            new_stmts = vec![Statement::Compound(new_stmts)];
-                        }
+                        // // Naga incorrectly forbids shadowing declarations from loop body in continuing block
+                        // if new_stmts.len() != 1 || !matches!(new_stmts[0], Statement::Compound(_)) {
+                        //     new_stmts = vec![Statement::Compound(new_stmts)];
+                        // }
 
                         ContinuingBlock {
                             stmts: new_stmts,

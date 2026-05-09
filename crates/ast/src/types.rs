@@ -51,9 +51,7 @@ impl Display for MemoryViewType {
             write!(f, "{}, {}", self.storage_class, self.inner)?;
         }
 
-        if self.storage_class == StorageClass::Storage {
-            write!(f, ", read_write")?;
-        } else if self.access_mode != self.storage_class.default_access_mode() {
+        if self.access_mode != self.storage_class.default_access_mode() {
             write!(f, ", {}", self.access_mode)?;
         }
         Ok(())

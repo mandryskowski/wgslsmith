@@ -106,10 +106,10 @@ impl Writer {
         if let Some(qualifier) = &decl.qualifier {
             if qualifier.storage_class != StorageClass::Handle {
                 write!(f, "<{}", qualifier.storage_class)?;
-                if qualifier.storage_class == StorageClass::Storage {
-                    write!(f, ", read_write")?;
-                } else if let Some(access_mode) = &qualifier.access_mode {
-                    write!(f, ", {access_mode}")?;
+                if let Some(access_mode) = &qualifier.access_mode {
+                    if *access_mode != qualifier.storage_class.default_access_mode() {
+                        write!(f, ", {access_mode}")?;
+                    }
                 }
                 write!(f, ">")?;
             }
