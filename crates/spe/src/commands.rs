@@ -406,17 +406,33 @@ pub mod process_dir {
         let (mut skipped_log, mut failures_log) =
             util::get_logs(log_to_file, out_dir_opt.as_deref(), append);
 
-        let entries: Vec<_> = WalkDir::new(&opt.directory)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| {
-                let p = e.path();
-                p.extension().is_some_and(|ext| ext == "wgsl")
-                    && !p.to_string_lossy().ends_with(".expected.wgsl")
-            })
-            .collect();
+        let file_paths: Vec<_> = if let Some(passed_shaders_file) = &opt.passed_shaders {
+            println!(
+                "Loading passed shaders from {}",
+                passed_shaders_file.display()
+            );
+            let content = std::fs::read_to_string(passed_shaders_file)
+                .expect("Failed to read passed shaders file");
+            content
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .map(std::path::PathBuf::from)
+                .collect()
+        } else {
+            WalkDir::new(&opt.directory)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|e| {
+                    let p = e.path();
+                    p.extension().is_some_and(|ext| ext == "wgsl")
+                        && !p.to_string_lossy().ends_with(".expected.wgsl")
+                })
+                .map(|e| e.path().to_path_buf())
+                .collect()
+        };
 
-        let total_files = entries.len();
+        let total_files = file_paths.len();
         let mut shaders_processed = 0;
 
         let mut ignore_regexes = Vec::new();
@@ -443,8 +459,7 @@ pub mod process_dir {
             ignore_regexes: &ignore_regexes,
         };
 
-        for (file_idx, entry) in entries.into_iter().enumerate() {
-            let path = entry.path();
+        for (file_idx, path) in file_paths.iter().enumerate() {
             let file_num = file_idx + 1;
 
             if let Some(start_index) = effective_start_index {
