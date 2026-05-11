@@ -8,20 +8,47 @@ pub struct Enumerator {
     pub results: Vec<Vec<usize>>,
     pub scope_parents: Vec<usize>,
     pub limit: Option<usize>,
-    pub step_count: usize,
     pub rng: rand::rngs::StdRng,
+    pub is_ancestor_matrix: Vec<bool>,
+    pub num_scopes: usize,
+    pub recursive_calls: usize,
 }
 
 impl Enumerator {
     pub fn new(ctx: &Context, limit: Option<usize>) -> Self {
+        let num_scopes = ctx.scope_parents.len();
+        let mut is_ancestor_matrix = vec![false; num_scopes * num_scopes];
+
+        for desc in 0..num_scopes {
+            let mut curr = desc;
+            loop {
+                is_ancestor_matrix[curr * num_scopes + desc] = true;
+                if curr == 0 {
+                    break;
+                }
+                let p = ctx.scope_parents[curr];
+                if p == curr {
+                    break;
+                }
+                curr = p;
+            }
+        }
+
         Self {
             holes: ctx.holes.clone(),
             results: vec![],
             scope_parents: ctx.scope_parents.clone(),
             limit,
-            step_count: 0,
             rng: rand::rngs::StdRng::seed_from_u64(42),
+            is_ancestor_matrix,
+            num_scopes,
+            recursive_calls: 0,
         }
+    }
+
+    #[inline(always)]
+    pub fn is_ancestor_fast(&self, anc: usize, desc: usize) -> bool {
+        self.is_ancestor_matrix[anc * self.num_scopes + desc]
     }
 
     pub fn enumerate(&mut self, current: &mut Vec<usize>) {
@@ -29,136 +56,113 @@ impl Enumerator {
             self.results.push(current.clone());
             return;
         }
-
-        struct Frame {
-            ids: std::vec::IntoIter<usize>,
+        if self.holes.len() > 10_000 {
+            println!(
+                "Skeleton has too many holes: {}. Skipping enumeration to avoid stack exhaustion.",
+                self.holes.len()
+            );
+            return;
         }
 
-        let mut stack = Vec::new();
+        self.recursive_calls = 0;
+        self.solve_recursive(current, false, 100_000);
 
-        let get_ids = |enumerator: &mut Self, current: &[usize]| -> Frame {
-            let max_id = current
-                .iter()
-                .max()
-                .copied()
-                .map(|m| m as i32)
-                .unwrap_or(-1);
-            let next_available = (max_id + 1) as usize;
+        if self.recursive_calls >= 100_000 {
+            self.results.clear();
 
-            let mut ids: Vec<usize> = (0..=next_available).collect();
-            ids.shuffle(&mut enumerator.rng);
-
-            Frame {
-                ids: ids.into_iter(),
-            }
-        };
-
-        stack.push(get_ids(self, current));
-        self.step_count += 1;
-
-        while let Some(frame) = stack.last_mut() {
-            if self.step_count > 100_000 {
-                break;
-            }
-            if let Some(lim) = self.limit {
-                if self.results.len() >= lim {
+            let limit = self.limit.unwrap_or(2000);
+            for _ in 0..limit {
+                self.recursive_calls = 0;
+                if !self.solve_recursive(current, true, 10_000) {
                     break;
-                }
-            }
-
-            let hole_idx = current.len();
-            let mut found = false;
-
-            for id in frame.ids.by_ref() {
-                if self.is_valid_assignment(hole_idx, id, current) {
-                    current.push(id);
-                    found = true;
-                    break;
-                }
-            }
-
-            if found {
-                self.step_count += 1;
-                if current.len() == self.holes.len() {
-                    self.results.push(current.clone());
-                    current.pop();
-                } else {
-                    stack.push(get_ids(self, current));
-                }
-            } else {
-                stack.pop();
-                if !current.is_empty() {
-                    current.pop();
                 }
             }
         }
     }
 
-    pub fn is_ancestor(&self, possible_ancestor: usize, mut node: usize) -> bool {
-        if possible_ancestor == node {
+    fn solve_recursive(
+        &mut self,
+        current: &mut Vec<usize>,
+        break_on_first: bool,
+        recursive_limit: usize,
+    ) -> bool {
+        self.recursive_calls += 1;
+        if self.recursive_calls >= recursive_limit {
+            return false;
+        }
+
+        let hole_idx = current.len();
+        if hole_idx == self.holes.len() {
+            if break_on_first && self.results.contains(current) {
+                return false;
+            }
+            self.results.push(current.clone());
             return true;
         }
 
-        while node != 0 {
-            let parent = self.scope_parents[node];
-            if parent == possible_ancestor {
-                return true;
-            }
-            if parent == node {
-                break;
-            }
-            node = parent;
-        }
-        possible_ancestor == 0
-    }
-
-    pub fn is_valid_assignment(&self, hole_idx: usize, id: usize, current: &[usize]) -> bool {
         let hole = &self.holes[hole_idx];
 
-        let mut is_reused = false;
-        let mut visible_decl_scope = None;
+        let max_id = current
+            .iter()
+            .max()
+            .copied()
+            .map(|m| m as i32)
+            .unwrap_or(-1);
+        let next_id = (max_id + 1) as usize;
 
+        let mut valid_ids = Vec::new();
+
+        if let HoleType::Decl(_) = hole.hole_type {
+            valid_ids.push(next_id);
+        }
+
+        let mut id_visible_decl = std::collections::HashMap::new();
         for (prev_idx, &prev_id) in current.iter().enumerate() {
-            if prev_id == id {
-                is_reused = true;
-                let prev_hole = &self.holes[prev_idx];
-
-                if prev_hole.data_type.dereference() != hole.data_type.dereference() {
-                    return false;
+            let prev_hole = &self.holes[prev_idx];
+            if let HoleType::Decl(_) = &prev_hole.hole_type {
+                if self.is_ancestor_fast(prev_hole.scope_id, hole.scope_id) {
+                    id_visible_decl.insert(prev_id, prev_hole);
                 }
+            }
+        }
 
-                if let HoleType::Decl(prev_decl) = &prev_hole.hole_type {
-                    if self.is_ancestor(prev_hole.scope_id, hole.scope_id) {
-                        if let HoleType::Decl(_) = hole.hole_type {
-                            if prev_hole.scope_id == hole.scope_id {
-                                return false;
-                            }
-                        }
-                        visible_decl_scope = Some(prev_hole.scope_id);
+        for (&id, &prev_hole) in &id_visible_decl {
+            if prev_hole.data_type.dereference() != hole.data_type.dereference() {
+                continue;
+            }
+
+            match &hole.hole_type {
+                HoleType::Decl(_) => {
+                    if prev_hole.scope_id != hole.scope_id {
+                        valid_ids.push(id);
                     }
-
-                    if let HoleType::Usage(usage) = &hole.hole_type {
-                        if !usage.is_satisfied_by(prev_decl) {
-                            return false;
+                }
+                HoleType::Usage(usage) => {
+                    if let HoleType::Decl(prev_decl) = &prev_hole.hole_type {
+                        if usage.is_satisfied_by(prev_decl) {
+                            valid_ids.push(id);
                         }
                     }
                 }
             }
         }
 
-        match &hole.hole_type {
-            HoleType::Decl(_) => {
-                if is_reused && visible_decl_scope.is_none() {
-                    return false;
-                }
+        valid_ids.shuffle(&mut self.rng);
+
+        for id in valid_ids {
+            current.push(id);
+            let found = self.solve_recursive(current, break_on_first, recursive_limit);
+            current.pop();
+
+            if found && break_on_first {
+                return true;
             }
-            HoleType::Usage(_) => {
-                if visible_decl_scope.is_none() {
-                    return false;
-                }
+
+            if self.recursive_calls >= recursive_limit {
+                return false;
             }
         }
 
-        true
+        false
     }
 }

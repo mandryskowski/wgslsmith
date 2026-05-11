@@ -10,46 +10,6 @@ use search::Enumerator;
 use types::{Hole, HoleType};
 use visitor::visit_module;
 
-pub fn estimate_enumerations(module: &Module) -> usize {
-    let mut ctx = Context::new(Some(module));
-    let mut analyze_module = module.clone();
-    visit_module(&mut analyze_module, &mut ctx);
-
-    let mut bound: usize = 1;
-    for (i, hole) in ctx.holes.iter().enumerate() {
-        match &hole.hole_type {
-            HoleType::Decl(_) => {
-                let mut choices = 1;
-                for prev_hole in &ctx.holes[..i] {
-                    if let HoleType::Decl(_) = &prev_hole.hole_type {
-                        if prev_hole.data_type.dereference() == hole.data_type.dereference() {
-                            choices += 1;
-                        }
-                    }
-                }
-                bound = bound.saturating_mul(choices);
-            }
-            HoleType::Usage(usage) => {
-                let mut choices = 0;
-                for prev_hole in &ctx.holes[..i] {
-                    if let HoleType::Decl(decl) = &prev_hole.hole_type {
-                        if prev_hole.data_type.dereference() == hole.data_type.dereference()
-                            && usage.is_satisfied_by(decl)
-                        {
-                            choices += 1;
-                        }
-                    }
-                }
-                if choices == 0 {
-                    return 0; // unsolvable constraint
-                }
-                bound = bound.saturating_mul(choices);
-            }
-        }
-    }
-    bound
-}
-
 fn get_original_assignment(holes: &[Hole], scope_parents: &[usize]) -> Vec<usize> {
     let mut name_to_id: std::collections::HashMap<(usize, String), usize> =
         std::collections::HashMap::new();
