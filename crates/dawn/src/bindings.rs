@@ -19,6 +19,7 @@ pub struct AdapterInfo {
     pub name: String,
     pub backend: WGPUBackendType,
     pub device_id: u32,
+    pub features: Vec<String>,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -40,7 +41,12 @@ impl Instance {
 
     pub fn enumerate_adapters(&self) -> Vec<AdapterInfo> {
         #[allow(non_upper_case_globals)]
-        unsafe extern "C" fn cb(info: *const WGPUAdapterInfo, userdata: *mut c_void) {
+        unsafe extern "C" fn cb(
+            info: *const WGPUAdapterInfo,
+            supports_f16: bool,
+            supports_subgroups: bool,
+            userdata: *mut c_void,
+        ) {
             let info_ref = info.as_ref().unwrap();
             let name_str = if !info_ref.device.data.is_null() {
                 let slice = std::slice::from_raw_parts(
@@ -52,6 +58,14 @@ impl Instance {
                 "Unknown Adapter".to_owned()
             };
 
+            let mut features = Vec::new();
+            if supports_f16 {
+                features.push("f16".to_string());
+            }
+            if supports_subgroups {
+                features.push("subgroups".to_string());
+            }
+
             (userdata as *mut Vec<AdapterInfo>)
                 .as_mut()
                 .unwrap()
@@ -59,6 +73,7 @@ impl Instance {
                     name: name_str,
                     backend: (*info).backendType,
                     device_id: (*info).deviceID,
+                    features,
                 });
         }
 

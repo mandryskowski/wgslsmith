@@ -80,6 +80,14 @@ pub fn get_adapters() -> Vec<types::Adapter> {
         .into_iter()
         .filter_map(|adapter| {
             let info = adapter.get_info();
+            let mut features = Vec::new();
+            if adapter.features().contains(wgpu::Features::SHADER_F16) {
+                features.push("f16".to_string());
+            }
+            if adapter.features().contains(wgpu::Features::SUBGROUP) {
+                features.push("subgroups".to_string());
+            }
+
             Some(types::Adapter {
                 name: info.name,
                 device_id: info.device,
@@ -91,6 +99,7 @@ pub fn get_adapters() -> Vec<types::Adapter> {
                     wgpu::Backend::BrowserWebGpu => return None,
                     _ => return None,
                 },
+                features,
             })
         })
         .collect()

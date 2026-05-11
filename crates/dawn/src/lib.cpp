@@ -50,7 +50,7 @@ extern "C" void delete_instance(dawn::native::Instance* instance) {
 
 extern "C" void enumerate_adapters(
     const dawn::native::Instance* instance,
-    void(*callback)(const WGPUAdapterInfo*, void*),
+    void(*callback)(const WGPUAdapterInfo*, bool, bool, void*),
     void* userdata
 ) {
     if (callback == nullptr) return;
@@ -64,7 +64,10 @@ extern "C" void enumerate_adapters(
 
         wgpuAdapterGetInfo(adapterHandle, &info);
 
-        callback(&info, userdata);
+        bool supports_f16 = wgpuAdapterHasFeature(adapterHandle, WGPUFeatureName_ShaderF16);
+        bool supports_subgroups = wgpuAdapterHasFeature(adapterHandle, WGPUFeatureName_Subgroups);
+
+        callback(&info, supports_f16, supports_subgroups, userdata);
     }
 }
 

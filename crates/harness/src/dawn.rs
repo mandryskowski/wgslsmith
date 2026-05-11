@@ -64,6 +64,7 @@ pub fn get_adapters() -> Vec<types::Adapter> {
                     WGPUBackendType_WGPUBackendType_Vulkan => crate::BackendType::Vulkan,
                     _ => return None,
                 },
+                features: it.features,
             })
         })
         .collect()

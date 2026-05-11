@@ -36,17 +36,23 @@ impl Printer {
             .iter()
             .map(|it| it.id.to_string().len())
             .max()
-            .unwrap_or(0);
+            .unwrap_or(0)
+            .max("ID".len());
 
         let name_width = configs
             .iter()
             .map(|it| it.adapter_name.len())
             .max()
-            .unwrap_or(0);
+            .unwrap_or(0)
+            .max("Adapter Name".len());
 
         stdout.set_color(&dimmed())?;
 
-        writeln!(&mut stdout, "{:<id_width$} | Adapter Name", "ID")?;
+        writeln!(
+            &mut stdout,
+            "{:<id_width$} | {:<name_width$} | Features",
+            "ID", "Adapter Name"
+        )?;
 
         for _ in 0..id_width + 1 {
             write!(&mut stdout, "-")?;
@@ -54,7 +60,13 @@ impl Printer {
 
         write!(&mut stdout, "+")?;
 
-        for _ in 0..name_width + 1 {
+        for _ in 0..name_width + 2 {
+            write!(&mut stdout, "-")?;
+        }
+
+        write!(&mut stdout, "+")?;
+
+        for _ in 0..10 {
             write!(&mut stdout, "-")?;
         }
 
@@ -64,6 +76,7 @@ impl Printer {
         for config in configs {
             let id = config.id;
             let name = config.adapter_name;
+            let features = config.features.join(", ");
 
             stdout.set_color(&cyan())?;
             write!(&mut stdout, "{id:<id_width$}")?;
@@ -72,7 +85,13 @@ impl Printer {
             write!(&mut stdout, " | ")?;
 
             stdout.reset()?;
-            writeln!(&mut stdout, "{name}")?;
+            write!(&mut stdout, "{name:<name_width$}")?;
+
+            stdout.set_color(&dimmed())?;
+            write!(&mut stdout, " | ")?;
+
+            stdout.reset()?;
+            writeln!(&mut stdout, "{features}")?;
         }
 
         Ok(())

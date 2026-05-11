@@ -89,12 +89,14 @@ pub struct Adapter {
     pub name: String,
     pub device_id: u32,
     pub backend: BackendType,
+    pub features: Vec<String>,
 }
 
 #[derive(Debug, Decode, Encode)]
 pub struct Config {
     pub id: ConfigId,
     pub adapter_name: String,
+    pub features: Vec<String>,
 }
 
 impl Config {
@@ -106,6 +108,7 @@ impl Config {
                 device_id: adapter.device_id,
             },
             adapter_name: adapter.name,
+            features: adapter.features,
         }
     }
 }
