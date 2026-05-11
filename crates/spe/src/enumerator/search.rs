@@ -62,20 +62,33 @@ impl Enumerator {
             );
             return;
         }
-        self.solve_recursive(current);
+        if let Some(lim) = self.limit {
+            for _ in 0..lim {
+                if !self.solve_recursive(current, true) {
+                    break;
+                }
+            }
+        } else {
+            self.solve_recursive(current, false);
+        }
     }
 
-    fn solve_recursive(&mut self, current: &mut Vec<usize>) {
-        if let Some(lim) = self.limit {
-            if self.results.len() >= lim {
-                return;
+    fn solve_recursive(&mut self, current: &mut Vec<usize>, break_on_first: bool) -> bool {
+        if !break_on_first {
+            if let Some(lim) = self.limit {
+                if self.results.len() >= lim {
+                    return true;
+                }
             }
         }
 
         let hole_idx = current.len();
         if hole_idx == self.holes.len() {
+            if break_on_first && self.results.contains(current) {
+                return false;
+            }
             self.results.push(current.clone());
-            return;
+            return true;
         }
 
         let hole = &self.holes[hole_idx];
@@ -129,14 +142,22 @@ impl Enumerator {
 
         for id in valid_ids {
             current.push(id);
-            self.solve_recursive(current);
+            let found = self.solve_recursive(current, break_on_first);
             current.pop();
 
-            if let Some(lim) = self.limit {
-                if self.results.len() >= lim {
-                    return;
+            if found && break_on_first {
+                return true;
+            }
+
+            if !break_on_first {
+                if let Some(lim) = self.limit {
+                    if self.results.len() >= lim {
+                        return true;
+                    }
                 }
             }
         }
+
+        false
     }
 }

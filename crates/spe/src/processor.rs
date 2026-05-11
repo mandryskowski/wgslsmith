@@ -128,10 +128,11 @@ impl<'a> ShaderProcessor<'a> {
 
         let (holes, mut enumerations, original_assignment_idx) = {
             let est = enumerator::estimate_enumerations(module);
+            let search_limit = std::cmp::min(2000, self.max_enumerations) - 1;
             let limit = if est > 100_000 {
                 writeln!(
                     self.skipped_log,
-                    "[{}] [{}] Warning: {} (estimated {} bounds, > 100,000). Limiting search to 2000 variants.",
+                    "[{}] [{}] Warning: {} (estimated {} bounds, > 100,000). Limiting search to {search_limit} variants.",
                     stats::current_timestamp(),
                     file_num,
                     path_display,
@@ -139,13 +140,13 @@ impl<'a> ShaderProcessor<'a> {
                 )
                 .unwrap();
                 println!(
-                    "[{}] {}Large enumeration space: {} (estimated {} bounds). Limiting search to 2000 variants.",
+                    "[{}] {}Large enumeration space: {} (estimated {} bounds). Limiting search to {search_limit} variants.",
                     stats::current_timestamp(),
                     progress_prefix,
                     path_display,
                     est
                 );
-                Some(2000)
+                Some(search_limit)
             } else {
                 None
             };
