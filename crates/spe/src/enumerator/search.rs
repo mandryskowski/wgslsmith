@@ -11,6 +11,7 @@ pub struct Enumerator {
     pub rng: rand::rngs::StdRng,
     pub is_ancestor_matrix: Vec<bool>,
     pub num_scopes: usize,
+    pub recursive_calls: usize,
 }
 
 impl Enumerator {
@@ -41,6 +42,7 @@ impl Enumerator {
             rng: rand::rngs::StdRng::seed_from_u64(42),
             is_ancestor_matrix,
             num_scopes,
+            recursive_calls: 0,
         }
     }
 
@@ -62,24 +64,32 @@ impl Enumerator {
             );
             return;
         }
-        if let Some(lim) = self.limit {
-            for _ in 0..lim {
-                if !self.solve_recursive(current, true) {
+
+        self.recursive_calls = 0;
+        self.solve_recursive(current, false, 100_000);
+
+        if self.recursive_calls >= 100_000 {
+            self.results.clear();
+
+            let limit = self.limit.unwrap_or(2000);
+            for _ in 0..limit {
+                self.recursive_calls = 0;
+                if !self.solve_recursive(current, true, 10_000) {
                     break;
                 }
             }
-        } else {
-            self.solve_recursive(current, false);
         }
     }
 
-    fn solve_recursive(&mut self, current: &mut Vec<usize>, break_on_first: bool) -> bool {
-        if !break_on_first {
-            if let Some(lim) = self.limit {
-                if self.results.len() >= lim {
-                    return true;
-                }
-            }
+    fn solve_recursive(
+        &mut self,
+        current: &mut Vec<usize>,
+        break_on_first: bool,
+        recursive_limit: usize,
+    ) -> bool {
+        self.recursive_calls += 1;
+        if self.recursive_calls >= recursive_limit {
+            return false;
         }
 
         let hole_idx = current.len();
@@ -142,19 +152,15 @@ impl Enumerator {
 
         for id in valid_ids {
             current.push(id);
-            let found = self.solve_recursive(current, break_on_first);
+            let found = self.solve_recursive(current, break_on_first, recursive_limit);
             current.pop();
 
             if found && break_on_first {
                 return true;
             }
 
-            if !break_on_first {
-                if let Some(lim) = self.limit {
-                    if self.results.len() >= lim {
-                        return true;
-                    }
-                }
+            if self.recursive_calls >= recursive_limit {
+                return false;
             }
         }
 
