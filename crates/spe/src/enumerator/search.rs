@@ -57,7 +57,6 @@ impl Enumerator {
             return;
         }
         if self.holes.len() > 10_000 {
-            self.results.push(current.clone());
             println!(
                 "Skeleton has too many holes: {}. Skipping enumeration to avoid stack exhaustion.",
                 self.holes.len()
