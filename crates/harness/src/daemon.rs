@@ -18,6 +18,14 @@ pub struct DaemonOptions {
     /// Timeout since the last received request in seconds.
     #[clap(long, action, default_value = "300")]
     pub inactivity_timeout: u64,
+
+    /// Kill the daemon after the specified number of seconds.
+    #[clap(long, action)]
+    pub kill_after: Option<u64>,
+
+    /// Hacky option to override the command used to run the shader.
+    #[clap(long, action)]
+    pub override_cmd: Option<String>,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -41,6 +49,7 @@ pub struct DaemonServer {
     webgpu_state: WebGPUState,
     active_requests: Arc<AtomicUsize>,
     shutting_down: Arc<AtomicBool>,
+    override_cmd: Option<String>,
 }
 
 impl DaemonServer {
@@ -49,10 +58,12 @@ impl DaemonServer {
             webgpu_state: crate::WebGPUState::new(dawn_flags),
             active_requests: Arc::new(AtomicUsize::new(0)),
             shutting_down: Arc::new(AtomicBool::new(false)),
+            override_cmd: None,
         }
     }
 
     pub fn main_loop(&mut self, options: DaemonOptions) -> eyre::Result<()> {
+        self.override_cmd = options.override_cmd.clone();
         let start_time = Instant::now();
         let mut last_log_time = start_time;
 
@@ -96,6 +107,17 @@ impl DaemonServer {
             Duration::from_secs(options.inactivity_timeout),
             last_activity.clone(),
         );
+
+        if let Some(kill_after) = options.kill_after {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(kill_after));
+                println!(
+                    "Daemon uptime limit reached ({}s). Shutting down.",
+                    kill_after
+                );
+                std::process::exit(0);
+            });
+        }
 
         loop {
             if self.shutting_down.load(Ordering::SeqCst) {
@@ -221,12 +243,68 @@ impl DaemonServer {
                     }
                 });
 
-                let result = crate::execute_config(
-                    &req.execution_input.shader,
-                    &req.execution_input.pipeline_desc,
-                    &req.config,
-                    Some(&mut self.webgpu_state),
-                );
+                let result = if let Some(cmd) = &self.override_cmd {
+                    #[cfg(not(target_os = "windows"))]
+                    let mut command = std::process::Command::new("sh");
+                    #[cfg(not(target_os = "windows"))]
+                    command.arg("-c").arg(cmd);
+
+                    #[cfg(target_os = "windows")]
+                    let mut command = std::process::Command::new("cmd");
+                    #[cfg(target_os = "windows")]
+                    command.arg("/C").arg(cmd);
+
+                    let child = command
+                        .stdin(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .spawn();
+
+                    match child {
+                        Ok(mut child) => {
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = stdin.write_all(req.execution_input.shader.as_bytes());
+                            }
+                            match child.wait_with_output() {
+                                Ok(output) => {
+                                    if output.status.success() {
+                                        let dummy_buffers = req
+                                            .execution_input
+                                            .pipeline_desc
+                                            .resources
+                                            .iter()
+                                            .filter(|r| {
+                                                matches!(
+                                                    r.kind,
+                                                    reflection::ResourceKind::StorageBuffer
+                                                )
+                                            })
+                                            .map(|r| vec![0; r.size as usize])
+                                            .collect();
+                                        Ok(dummy_buffers)
+                                    } else {
+                                        Err(color_eyre::eyre::eyre!(
+                                            "Command failed: {}",
+                                            String::from_utf8_lossy(&output.stderr)
+                                        ))
+                                    }
+                                }
+                                Err(e) => Err(color_eyre::eyre::eyre!(
+                                    "Failed to wait for command: {}",
+                                    e
+                                )),
+                            }
+                        }
+                        Err(e) => Err(color_eyre::eyre::eyre!("Failed to spawn command: {}", e)),
+                    }
+                } else {
+                    crate::execute_config(
+                        &req.execution_input.shader,
+                        &req.execution_input.pipeline_desc,
+                        &req.config,
+                        Some(&mut self.webgpu_state),
+                    )
+                };
 
                 if state
                     .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
@@ -284,8 +362,8 @@ pub fn daemon_exec(config: ConfigId, daemon_port: Option<u16>) -> eyre::Result<(
         ) {
             Ok(s) => s,
             Err(_) => {
-                eprintln!("Daemon not running. Spawning...");
-                spawn_daemon(&address)?;
+                //eprintln!("Daemon not running. Spawning...");
+                //spawn_daemon(&address)?;
                 wait_for_connection(&address)?
             }
         };
