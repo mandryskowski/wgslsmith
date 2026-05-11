@@ -8,7 +8,6 @@ pub struct Enumerator {
     pub results: Vec<Vec<usize>>,
     pub scope_parents: Vec<usize>,
     pub limit: Option<usize>,
-    pub step_count: usize,
     pub rng: rand::rngs::StdRng,
     pub is_ancestor_matrix: Vec<bool>,
     pub num_scopes: usize,
@@ -39,7 +38,6 @@ impl Enumerator {
             results: vec![],
             scope_parents: ctx.scope_parents.clone(),
             limit,
-            step_count: 0,
             rng: rand::rngs::StdRng::seed_from_u64(42),
             is_ancestor_matrix,
             num_scopes,
@@ -56,6 +54,14 @@ impl Enumerator {
             self.results.push(current.clone());
             return;
         }
+        if self.holes.len() > 10_000 {
+            self.results.push(current.clone());
+            println!(
+                "Skeleton has too many holes: {}. Skipping enumeration to avoid stack exhaustion.",
+                self.holes.len()
+            );
+            return;
+        }
         self.solve_recursive(current);
     }
 
@@ -65,10 +71,6 @@ impl Enumerator {
                 return;
             }
         }
-        if self.step_count > 100_000 {
-            return;
-        }
-        self.step_count += 1;
 
         let hole_idx = current.len();
         if hole_idx == self.holes.len() {
