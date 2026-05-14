@@ -4,11 +4,15 @@ setlocal EnableDelayedExpansion
 set args=%WGSLREDUCE_KIND% %WGSLREDUCE_SHADER_NAME% %WGSLREDUCE_METADATA_PATH%
 if defined WGSLREDUCE_SERVER ( set args=!args! --server %WGSLREDUCE_SERVER% )
 if defined WGSLREDUCE_TARGETS ( set args=!args! %WGSLREDUCE_TARGETS% )
+if defined WGSLREDUCE_USE_DAEMON (
+    set args=!args! --use-daemon
+    if defined WGSLREDUCE_DAEMON_PORT ( set args=!args! --daemon-port %WGSLREDUCE_DAEMON_PORT% )
+)
 if "%WGSLREDUCE_KIND%"=="crash" (
     set args=!args! --regex "%WGSLREDUCE_REGEX%"
     if defined WGSLREDUCE_INVERSE_REGEX ( set args=!args! --inverse-regex "%WGSLREDUCE_INVERSE_REGEX%" )
-    if defined WGSLREDUCE_CONFIG (
-        set args=!args! --config %WGSLREDUCE_CONFIG%
+    if defined WGSLREDUCE_CONFIGS (
+        for %%C in (%WGSLREDUCE_CONFIGS%) do set args=!args! --config %%C
     ) else (
         set args=!args! --compiler %WGSLREDUCE_COMPILER% --backend %WGSLREDUCE_BACKEND%
     )

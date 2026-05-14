@@ -31,15 +31,21 @@ pub struct Options {
 
     #[clap(short, long, action)]
     quiet: bool,
+
+    #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
+    pub use_daemon: bool,
+
+    #[clap(long, action, requires = "use_daemon_flag")]
+    pub daemon_port: Option<u16>,
 }
 
 #[derive(Parser)]
 pub struct CrashOptions {
-    #[clap(short = 'c', long, action, conflicts_with("compiler"))]
-    config: Option<ConfigId>,
+    #[clap(short = 'c', long = "config", action, conflicts_with("compiler"))]
+    pub configs: Vec<ConfigId>,
 
     #[clap(short = 't', long = "target", action)]
-    targets: Vec<TargetPath>,
+    pub targets: Vec<TargetPath>,
 
     #[clap(long, value_enum, action, requires("backend"))]
     compiler: Option<Compiler>,
@@ -75,9 +81,8 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
 
     let source = std::fs::read_to_string(&options.shader)?;
 
-    let input_path = if let Some(input_path) = options.input_data {
-        input_path
-    } else {
+    let mut input_path = options.input_data;
+    if input_path.is_none() {
         let mut try_path = options
             .shader
             .parent()
@@ -99,22 +104,19 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
                 .join("inputs.json");
         }
 
-        if !try_path.exists() {
-            return Err(eyre!(
-                "couldn't determine path to inputs file, pass one explicitly"
-            ));
+        if try_path.exists() {
+            input_path = Some(try_path);
         }
+    }
 
-        try_path
-    };
-
-    let metadata = std::fs::read_to_string(input_path)?;
-
-    let configs = if let Some(c) = options.crash_options.config.clone() {
-        vec![c]
+    let metadata = if let Some(path) = input_path {
+        std::fs::read_to_string(path)?
     } else {
-        vec![]
+        println!("> no input file found, no input buffers will be passed");
+        "{}".to_owned()
     };
+
+    let configs = options.crash_options.configs.clone();
 
     let targets = harness_runner::get_targets(
         config,
@@ -122,6 +124,18 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
         &configs,
         &options.crash_options.targets,
     )?;
+
+    let use_daemon = options.use_daemon;
+    let daemon_port = options.daemon_port;
+
+    let mut params = vec![];
+    if use_daemon {
+        params.push("--use-daemon".to_string());
+        if let Some(port) = daemon_port {
+            params.push("--daemon-port".to_string());
+            params.push(port.to_string());
+        }
+    }
 
     match options.kind {
         ReductionKind::Crash => reduce_crash(
@@ -131,8 +145,11 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
             metadata,
             &targets,
             options.quiet,
+            &params,
         )?,
-        ReductionKind::Mismatch => reduce_mismatch(source, metadata, &targets, options.quiet)?,
+        ReductionKind::Mismatch => {
+            reduce_mismatch(source, metadata, &targets, options.quiet, &params)?
+        }
     }
 
     println!("interesting :)");
@@ -147,6 +164,7 @@ fn reduce_crash(
     metadata: String,
     targets: &[Target],
     quiet: bool,
+    params: &[String],
 ) -> eyre::Result<()> {
     let regex = options.regex.unwrap();
     let inverse_regex = options.inverse_regex;
@@ -158,7 +176,7 @@ fn reduce_crash(
         source
     };
 
-    let interesting = if options.config.is_some() {
+    let interesting = if !options.configs.is_empty() {
         let mut any_crash_matched = false;
 
         for target in targets {
@@ -173,7 +191,7 @@ fn reduce_crash(
                 };
             }
 
-            let result = harness_runner::exec_shader(target, &source, &metadata, &[], |line| {
+            let result = harness_runner::exec_shader(target, &source, &metadata, params, |line| {
                 if !quiet {
                     println!("{line}");
                 }
@@ -239,6 +257,7 @@ fn reduce_mismatch(
     metadata: String,
     targets: &[Target],
     quiet: bool,
+    params: &[String],
 ) -> eyre::Result<()> {
     let module = parser::parse(&source);
     let reconditioned = recondition(module);
@@ -250,11 +269,12 @@ fn reduce_mismatch(
     let mut mismatch_found = false;
 
     for target in targets {
-        let result = harness_runner::exec_shader(target, &reconditioned, &metadata, &[], |line| {
-            if !quiet {
-                println!("{line}");
-            }
-        })?;
+        let result =
+            harness_runner::exec_shader(target, &reconditioned, &metadata, params, |line| {
+                if !quiet {
+                    println!("{line}");
+                }
+            })?;
 
         match result {
             ExecutionResult::Mismatch(_) => {
