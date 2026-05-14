@@ -108,7 +108,9 @@ fn main() -> eyre::Result<()> {
 
     let config = config::Config::load(&config_file)?;
 
-    let harness_cmd = HarnessCommand::new(std::env::current_exe().unwrap()).arg("harness");
+    let harness_cmd = HarnessCommand::new(std::env::current_exe().unwrap())
+        .arg("harness")
+        .with_errors(config.harness.errors.clone());
 
     match options.cmd {
         #[cfg(feature = "compiler")]

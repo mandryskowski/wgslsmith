@@ -42,6 +42,7 @@ impl WebGPUState {
 pub struct HarnessCommand {
     pub program: PathBuf,
     args: Vec<String>,
+    pub errors: Vec<regex::Regex>,
 }
 
 impl HarnessCommand {
@@ -49,6 +50,7 @@ impl HarnessCommand {
         HarnessCommand {
             program,
             args: vec![],
+            errors: vec![],
         }
     }
     pub fn build(&self) -> Command {
@@ -65,6 +67,16 @@ impl HarnessCommand {
         HarnessCommand {
             program: self.program.clone(),
             args,
+            errors: self.errors.clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_errors(&self, errors: Vec<regex::Regex>) -> HarnessCommand {
+        HarnessCommand {
+            program: self.program.clone(),
+            args: self.args.clone(),
+            errors,
         }
     }
 }
@@ -131,8 +143,10 @@ struct ExecutionInput {
 #[derive(bincode::Decode, bincode::Encode)]
 struct ExecutionOutput {
     pub buffers: Vec<Vec<u8>>,
+    pub stderr: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
     cmd: &HarnessCommand,
     shader: &str,
@@ -219,12 +233,16 @@ pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
                     };
 
                     let mut lock = on_event.lock().expect("event mutex poisoned");
-                    if output.status.success() {
-                        let (output, _): (ExecutionOutput, _) = bincode::decode_from_slice(
+                    let stderr_str = String::from_utf8_lossy(&output.stderr);
+                    let has_error = !output.status.success()
+                        || cmd.errors.iter().any(|re| re.is_match(&stderr_str));
+
+                    if !has_error {
+                        let (decoded, _): (ExecutionOutput, _) = bincode::decode_from_slice(
                             &output.stdout,
                             bincode::config::standard(),
                         )?;
-                        lock(ExecutionEvent::Success(config, output.buffers))?;
+                        lock(ExecutionEvent::Success(config, decoded.buffers))?;
                     } else {
                         lock(ExecutionEvent::Failure(output.stderr))?;
                     }

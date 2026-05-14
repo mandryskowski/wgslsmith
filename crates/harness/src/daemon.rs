@@ -18,6 +18,9 @@ pub struct DaemonOptions {
     /// Timeout since the last received request in seconds.
     #[clap(long, action, default_value = "300")]
     pub inactivity_timeout: u64,
+
+    #[clap(long, action)]
+    pub log_err_path: Option<String>,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -55,6 +58,7 @@ impl DaemonServer {
     pub fn main_loop(&mut self, options: DaemonOptions) -> eyre::Result<()> {
         let start_time = Instant::now();
         let mut last_log_time = start_time;
+        let log_err_path = options.log_err_path.clone();
 
         let listener = loop {
             match TcpListener::bind(&options.address) {
@@ -119,7 +123,9 @@ impl DaemonServer {
                         eprintln!("Warning: failed to set stream to blocking: {}", e);
                     }
 
-                    if let Err(e) = self.process_request(stream, listener_arc.clone()) {
+                    if let Err(e) =
+                        self.process_request(stream, listener_arc.clone(), log_err_path.as_deref())
+                    {
                         eprintln!("Error handling client: {}", e);
                     }
                 }
@@ -163,6 +169,7 @@ impl DaemonServer {
         &mut self,
         stream: TcpStream,
         listener_arc: Arc<Mutex<Option<TcpListener>>>,
+        log_err_path: Option<&str>,
     ) -> eyre::Result<()> {
         let mut reader = BufReader::new(&stream);
         let mut writer = BufWriter::new(&stream);
@@ -221,12 +228,31 @@ impl DaemonServer {
                     }
                 });
 
+                let size_before = log_err_path
+                    .and_then(|p| std::fs::metadata(p).ok())
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+
                 let result = crate::execute_config(
                     &req.execution_input.shader,
                     &req.execution_input.pipeline_desc,
                     &req.config,
                     Some(&mut self.webgpu_state),
                 );
+
+                let stderr = log_err_path
+                    .and_then(|p| std::fs::File::open(p).ok())
+                    .and_then(|mut f| {
+                        use std::io::{Read, Seek};
+                        if f.seek(std::io::SeekFrom::Start(size_before)).is_ok() {
+                            let mut s = String::new();
+                            let _ = f.read_to_string(&mut s);
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
 
                 if state
                     .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
@@ -235,7 +261,7 @@ impl DaemonServer {
                     let remaining = self.active_requests.fetch_sub(1, Ordering::SeqCst) - 1;
 
                     let response_result = match result {
-                        Ok(buffers) => Ok(ExecutionOutput { buffers }),
+                        Ok(buffers) => Ok(ExecutionOutput { buffers, stderr }),
                         Err(e) => Err(format!("{:?}", e)),
                     };
 
@@ -349,11 +375,12 @@ pub fn daemon_exec(config: ConfigId, daemon_port: Option<u16>) -> eyre::Result<(
         panic!("Daemon execution failed: {}", e);
     }
 
-    bincode::encode_into_std_write(
-        response.unwrap(),
-        &mut std::io::stdout(),
-        bincode::config::standard(),
-    )?;
+    let out = response.unwrap();
+    if !out.stderr.is_empty() {
+        eprint!("{}", out.stderr);
+    }
+
+    bincode::encode_into_std_write(out, &mut std::io::stdout(), bincode::config::standard())?;
 
     Ok(())
 }
@@ -378,6 +405,7 @@ fn spawn_daemon(addr: &str) -> std::io::Result<()> {
             .arg("harness")
             .arg("daemon")
             .args(["--address", addr])
+            .args(["--log-err-path", log_file_err_path.to_str().unwrap()])
             .stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_file_err));
@@ -394,9 +422,10 @@ fn spawn_daemon(addr: &str) -> std::io::Result<()> {
         let exe_path = std::env::current_exe()?;
 
         let inner_cmd = format!(
-            "\"{}\" harness daemon --address {} > \"{}\" 2> \"{}\"",
+            "\"{}\" harness daemon --address {} --log-err-path \"{}\" > \"{}\" 2> \"{}\"",
             exe_path.display(),
             addr,
+            log_file_err_path.display(),
             log_file_path.display(),
             log_file_err_path.display()
         );

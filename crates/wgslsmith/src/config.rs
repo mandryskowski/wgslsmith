@@ -51,6 +51,8 @@ impl Default for Dawn {
 pub struct Harness {
     pub path: Option<PathBuf>,
     pub remote: Option<String>,
+    #[serde(default, with = "serde_regex")]
+    pub errors: Vec<Regex>,
 }
 
 #[derive(Default, Deserialize)]
