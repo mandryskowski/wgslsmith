@@ -12,11 +12,20 @@ if [[ -n "${WGSLREDUCE_SERVER-}" ]]; then
     args+=("--server" "$WGSLREDUCE_SERVER")
 fi
 
+if [[ -n "${WGSLREDUCE_USE_DAEMON-}" ]]; then
+    args+=("--use-daemon")
+    if [[ -n "${WGSLREDUCE_DAEMON_PORT-}" ]]; then
+        args+=("--daemon-port" "$WGSLREDUCE_DAEMON_PORT")
+    fi
+fi
+
 if [[ "$WGSLREDUCE_KIND" == "crash" ]]; then
     args+=("--regex" "$WGSLREDUCE_REGEX")
 
-    if [[ -n "${WGSLREDUCE_CONFIG-}" ]]; then
-        args+=("--config" "$WGSLREDUCE_CONFIG")
+    if [[ -n "${WGSLREDUCE_CONFIGS-}" ]]; then
+        for conf in $WGSLREDUCE_CONFIGS; do
+            args+=("--config" "$conf")
+        done
     else
         args+=(
             "--compiler" "$WGSLREDUCE_COMPILER"

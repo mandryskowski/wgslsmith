@@ -43,11 +43,11 @@ pub struct Options {
     #[clap(short, long, action)]
     server: Option<String>,
 
-    /// Config to use for reducing a crash.
+    /// Configs to use for reducing a crash.
     ///
     /// This is only valid if we're reducing a crash.
-    #[clap(long, action, conflicts_with("compiler"))]
-    config: Option<String>,
+    #[clap(short = 'c', long = "config", action, conflicts_with("compiler"))]
+    configs: Vec<String>,
 
     #[clap(short = 't', long = "target", action)]
     targets: Vec<TargetPath>,
@@ -103,6 +103,12 @@ pub struct Options {
     /// This is only valid if we're reducing a crash.
     #[clap(long, action)]
     post_cmd: Option<String>,
+
+    #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
+    pub use_daemon: bool,
+
+    #[clap(long, action, requires = "use_daemon_flag")]
+    pub daemon_port: Option<u16>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -244,9 +250,8 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
 
     let shader_path = shader_path.canonicalize()?;
 
-    let input_path = if let Some(input_path) = options.input_data {
-        input_path
-    } else {
+    let mut input_path = options.input_data;
+    if input_path.is_none() {
         let mut try_path = shader_path
             .parent()
             .unwrap()
@@ -257,20 +262,20 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
             try_path = shader_path.parent().unwrap().join("inputs.json");
         }
 
-        if !try_path.exists() {
-            return Err(eyre!(
-                "couldn't determine path to inputs file, pass one explicitly"
-            ));
+        if try_path.exists() {
+            input_path = Some(try_path);
         }
-
-        try_path
-    };
-
-    if !input_path.exists() {
-        return Err(eyre!("file at {input_path:?} does not exist"));
     }
 
-    let metadata_path = input_path.canonicalize()?;
+    let metadata_path = if let Some(p) = input_path {
+        if !p.exists() {
+            return Err(eyre!("file at {p:?} does not exist"));
+        }
+        Some(p.canonicalize()?)
+    } else {
+        println!("> no input file found, no input buffers will be passed");
+        None
+    };
 
     let out_dir = options.output.unwrap_or_else(|| {
         let out_dir = options.shader.parent().unwrap().join("reduced");
@@ -317,8 +322,18 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
         .cmd(config, parallelism, shader_name, test_name)?
         .tap_mut(|cmd| {
             cmd.current_dir(&out_dir)
-                .env("WGSLREDUCE_SHADER_NAME", shader_path.file_name().unwrap())
-                .env("WGSLREDUCE_METADATA_PATH", metadata_path);
+                .env("WGSLREDUCE_SHADER_NAME", shader_path.file_name().unwrap());
+
+            if let Some(path) = &metadata_path {
+                cmd.env("WGSLREDUCE_METADATA_PATH", path);
+            }
+
+            if options.use_daemon {
+                cmd.env("WGSLREDUCE_USE_DAEMON", "1");
+                if let Some(port) = options.daemon_port {
+                    cmd.env("WGSLREDUCE_DAEMON_PORT", port.to_string());
+                }
+            }
 
             if let Some(server) = harness_server {
                 cmd.env("WGSLREDUCE_SERVER", server);
@@ -349,8 +364,8 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
                 cmd.env("WGSLREDUCE_INVERSE_REGEX", inverse_regex.as_str());
             }
 
-            if let Some(config) = options.config {
-                cmd.env("WGSLREDUCE_CONFIG", config);
+            if !options.configs.is_empty() {
+                cmd.env("WGSLREDUCE_CONFIGS", options.configs.join(" "));
             } else {
                 let compiler = options.compiler.unwrap();
                 let backend = options.backend.unwrap();

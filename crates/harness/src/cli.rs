@@ -93,6 +93,7 @@ fn internal_run(config: ConfigId, dawn_flags: crate::DawnFlags) -> eyre::Result<
             &config,
             Some(&mut state),
         )?,
+        stderr: String::new(),
     };
 
     bincode::encode_into_std_write(output, &mut std::io::stdout(), bincode::config::standard())?;

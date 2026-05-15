@@ -16,14 +16,23 @@ if [[ -n "${WGSLREDUCE_TARGETS-}" ]]; then
     args+=(${WGSLREDUCE_TARGETS-})
 fi
 
+if [[ -n "${WGSLREDUCE_USE_DAEMON-}" ]]; then
+    args+=("--use-daemon")
+    if [[ -n "${WGSLREDUCE_DAEMON_PORT-}" ]]; then
+        args+=("--daemon-port" "$WGSLREDUCE_DAEMON_PORT")
+    fi
+fi
+
 if [[ "$WGSLREDUCE_KIND" == "crash" ]]; then
     args+=("--regex" "$WGSLREDUCE_REGEX")
     if [[ -n "${WGSLREDUCE_INVERSE_REGEX-}" ]]; then
         args+=("--inverse-regex" "$WGSLREDUCE_INVERSE_REGEX")
     fi
 
-    if [[ -n "${WGSLREDUCE_CONFIG-}" ]]; then
-        args+=("--config" "$WGSLREDUCE_CONFIG")
+    if [[ -n "${WGSLREDUCE_CONFIGS-}" ]]; then
+        for conf in $WGSLREDUCE_CONFIGS; do
+            args+=("--config" "$conf")
+        done
     else
         args+=(
             "--compiler" "$WGSLREDUCE_COMPILER"
