@@ -51,6 +51,10 @@ pub fn test_shader_has_outputs(
         }
     }
 
+    if let Some(perf_file) = &opt.perf_file {
+        cmd.arg("--perf-file").arg(perf_file);
+    }
+
     cmd.arg("-");
     if let Some(inputs) = inputs_json {
         cmd.arg(inputs);

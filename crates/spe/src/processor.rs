@@ -381,6 +381,10 @@ impl<'a> ShaderProcessor<'a> {
                 }
             }
 
+            if let Some(perf_file) = &self.opt.perf_file {
+                cmd.arg("--perf-file").arg(perf_file);
+            }
+
             cmd.arg("--print-consensus").arg("-");
 
             if let Some(input_buffers) = &input_buffers {
