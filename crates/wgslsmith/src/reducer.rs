@@ -364,9 +364,7 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
                 cmd.env("WGSLREDUCE_INVERSE_REGEX", inverse_regex.as_str());
             }
 
-            if !options.configs.is_empty() {
-                cmd.env("WGSLREDUCE_CONFIGS", options.configs.join(" "));
-            } else {
+            if options.configs.is_empty() {
                 let compiler = options.compiler.unwrap();
                 let backend = options.backend.unwrap();
                 cmd.env("WGSLREDUCE_COMPILER", compiler.to_string())
@@ -388,6 +386,10 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
         ReductionKind::Mismatch => {
             cmd.env("WGSLREDUCE_KIND", "mismatch");
         }
+    }
+
+    if !options.configs.is_empty() {
+        cmd.env("WGSLREDUCE_CONFIGS", options.configs.join(" "));
     }
 
     let start_time = Instant::now();

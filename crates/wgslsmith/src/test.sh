@@ -23,17 +23,19 @@ if [[ -n "${WGSLREDUCE_USE_DAEMON-}" ]]; then
     fi
 fi
 
+if [[ -n "${WGSLREDUCE_CONFIGS-}" ]]; then
+    for conf in $WGSLREDUCE_CONFIGS; do
+        args+=("--config" "$conf")
+    done
+fi
+
 if [[ "$WGSLREDUCE_KIND" == "crash" ]]; then
     args+=("--regex" "$WGSLREDUCE_REGEX")
     if [[ -n "${WGSLREDUCE_INVERSE_REGEX-}" ]]; then
         args+=("--inverse-regex" "$WGSLREDUCE_INVERSE_REGEX")
     fi
 
-    if [[ -n "${WGSLREDUCE_CONFIGS-}" ]]; then
-        for conf in $WGSLREDUCE_CONFIGS; do
-            args+=("--config" "$conf")
-        done
-    else
+    if [[ -z "${WGSLREDUCE_CONFIGS-}" ]]; then
         args+=(
             "--compiler" "$WGSLREDUCE_COMPILER"
             "--backend" "$WGSLREDUCE_BACKEND"
