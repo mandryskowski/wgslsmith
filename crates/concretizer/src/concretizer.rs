@@ -737,24 +737,24 @@ impl Concretizer {
         vals.iter().any(|v| v.is_none())
     }
 
-    fn zero_value(&self, data_type: &DataType) -> Value {
+    fn zero_value(&self, data_type: &DataType) -> Option<Value> {
         match data_type {
-            DataType::Scalar(ty) => match ty {
+            DataType::Scalar(ty) => Some(match ty {
                 ScalarType::Bool => Value::Lit(Lit::Bool(false)),
                 ScalarType::I32 => Value::Lit(Lit::I32(0)),
                 ScalarType::U32 => Value::Lit(Lit::U32(0)),
                 ScalarType::F32 => Value::Lit(Lit::F32(0.0)),
                 ScalarType::F16 => Value::Lit(Lit::F16(half::f16::from_f32(0.0))),
-            },
-            DataType::Vector(size, ty) => {
+            }),
+            DataType::Vector(size, ty) => Some({
                 let scalar_zero = self.zero_value(&DataType::Scalar(*ty));
-                Value::Vector(vec![scalar_zero; *size as usize])
-            }
-            DataType::Matrix(c, r, ty) => {
+                Value::Vector(vec![scalar_zero?; *size as usize])
+            }),
+            DataType::Matrix(c, r, ty) => Some({
                 let vec_zero = self.zero_value(&DataType::Vector(*r, *ty));
-                Value::Vector(vec![vec_zero; *c as usize])
-            }
-            _ => Value::Lit(Lit::I32(0)), // Fallback
+                Value::Vector(vec![vec_zero?; *c as usize])
+            }),
+            _ => None,
         }
     }
 
@@ -770,7 +770,7 @@ impl Concretizer {
         let new_val = if self.contains_none(&new_val) {
             None
         } else if new_val.is_empty() {
-            Some(self.zero_value(&data_type))
+            self.zero_value(&data_type)
         } else {
             let mut values: Vec<Value> = new_val.into_iter().map(|v| v.unwrap()).collect();
 
