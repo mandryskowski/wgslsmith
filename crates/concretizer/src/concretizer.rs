@@ -737,6 +737,27 @@ impl Concretizer {
         vals.iter().any(|v| v.is_none())
     }
 
+    fn zero_value(&self, data_type: &DataType) -> Value {
+        match data_type {
+            DataType::Scalar(ty) => match ty {
+                ScalarType::Bool => Value::Lit(Lit::Bool(false)),
+                ScalarType::I32 => Value::Lit(Lit::I32(0)),
+                ScalarType::U32 => Value::Lit(Lit::U32(0)),
+                ScalarType::F32 => Value::Lit(Lit::F32(0.0)),
+                ScalarType::F16 => Value::Lit(Lit::F16(half::f16::from_f32(0.0))),
+            },
+            DataType::Vector(size, ty) => {
+                let scalar_zero = self.zero_value(&DataType::Scalar(*ty));
+                Value::Vector(vec![scalar_zero; *size as usize])
+            }
+            DataType::Matrix(c, r, ty) => {
+                let vec_zero = self.zero_value(&DataType::Vector(*r, *ty));
+                Value::Vector(vec![vec_zero; *c as usize])
+            }
+            _ => Value::Lit(Lit::I32(0)), // Fallback
+        }
+    }
+
     fn concretize_typecons(&mut self, data_type: DataType, expr: TypeConsExpr) -> ConNode {
         let concrete_args: Vec<ConNode> = expr
             .args
@@ -748,17 +769,23 @@ impl Concretizer {
 
         let new_val = if self.contains_none(&new_val) {
             None
+        } else if new_val.is_empty() {
+            Some(self.zero_value(&data_type))
         } else {
             let mut values: Vec<Value> = new_val.into_iter().map(|v| v.unwrap()).collect();
 
-            // Handle vector splat constructor: vecN<T>(scalar)
-            if let DataType::Vector(size, _) = data_type {
-                if values.len() == 1 && size > 1 {
-                    values = vec![values[0].clone(); size as usize];
+            if let DataType::Scalar(_) = data_type {
+                Some(values.pop().unwrap())
+            } else {
+                // Handle vector splat constructor: vecN<T>(scalar)
+                if let DataType::Vector(size, _) = data_type {
+                    if values.len() == 1 && size > 1 {
+                        values = vec![values[0].clone(); size as usize];
+                    }
                 }
-            }
 
-            Some(Value::Vector(values))
+                Some(Value::Vector(values))
+            }
         };
 
         ConNode {
