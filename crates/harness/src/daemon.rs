@@ -188,7 +188,7 @@ impl DaemonServer {
                 writer.flush()?;
 
                 // Print out the seed
-                println!("{}", req.execution_input.shader.split_once('\n').unwrap().0);
+                println!("{}", req.execution_input.shader.lines().next().unwrap_or(""));
 
                 let state = Arc::new(AtomicU8::new(0)); // 0: running, 1: finished, 2: timed out
                 let state_clone = state.clone();
