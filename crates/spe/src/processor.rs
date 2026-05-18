@@ -275,9 +275,11 @@ impl<'a> ShaderProcessor<'a> {
 
             let mut current_src = out_str.clone();
 
-            if let Some(reconditioned) =
-                wgslsmith::recondition_shader_src(self.wgslsmith_exe, &current_src)
-            {
+            if let Some(reconditioned) = wgslsmith::recondition_shader_src(
+                self.wgslsmith_exe,
+                &current_src,
+                self.opt.unstable_float,
+            ) {
                 current_src = format!("// {path_display}_{i}\n{reconditioned}");
             } else {
                 writeln!(

@@ -112,6 +112,7 @@ impl Display for Wrapper {
 #[derive(Default)]
 pub struct Options {
     pub only_loops: bool,
+    pub unstable_float: bool,
 }
 
 pub fn recondition(ast: Module) -> Module {
@@ -157,6 +158,7 @@ struct Reconditioner {
     loop_var: u32,
     wrappers: HashSet<Wrapper>,
     only_loops: bool,
+    unstable_float: bool,
 }
 
 impl Reconditioner {
@@ -165,6 +167,7 @@ impl Reconditioner {
             loop_var: 0,
             wrappers: HashSet::new(),
             only_loops: options.only_loops,
+            unstable_float: options.unstable_float,
         }
     }
 
@@ -527,7 +530,7 @@ impl Reconditioner {
                     UnOp::Neg => {
                         let data_type = inner.data_type.dereference().clone();
                         let mut expr = UnOpExpr::new(UnOp::Neg, inner).into();
-                        if !data_type.is_matrix() {
+                        if !self.unstable_float && !data_type.is_matrix() {
                             if let Some(scalar) = data_type.as_scalar() {
                                 if matches!(scalar, ScalarType::F32 | ScalarType::F16) {
                                     expr = FnCallExpr::new(
@@ -546,6 +549,12 @@ impl Reconditioner {
             Expr::BinOp(expr) => {
                 let left = self.recondition_expr(*expr.left);
                 let right = self.recondition_expr(*expr.right);
+                if self.unstable_float {
+                    return ExprNode {
+                        data_type: node.data_type,
+                        expr: Expr::BinOp(BinOpExpr::new(expr.op, left, right)),
+                    };
+                }
                 return self.recondition_bin_op_expr(node.data_type, expr.op, left, right);
             }
             Expr::FnCall(expr) => {
@@ -554,6 +563,15 @@ impl Reconditioner {
                     .into_iter()
                     .map(|e| self.recondition_expr(e))
                     .collect();
+
+                if self.unstable_float {
+                    let mut new_call = FnCallExpr::new(expr.ident, args);
+                    new_call.template_args = expr.template_args;
+                    return ExprNode {
+                        data_type: node.data_type,
+                        expr: Expr::FnCall(new_call),
+                    };
+                }
 
                 let expr = match expr.ident.as_str() {
                     "extractBits" => FnCallExpr::new(

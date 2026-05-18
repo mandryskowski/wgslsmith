@@ -23,6 +23,10 @@ pub struct Options {
         require_value_delimiter(true)
     )]
     pub enable: Vec<Feature>,
+
+    /// Do not apply any reconditioning except clamping array accesses to be within bounds and loop terminators
+    #[clap(long, action)]
+    pub unstable_float: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -46,6 +50,8 @@ pub fn run(options: Options) -> eyre::Result<()> {
         assert!(matches!(options.enable.as_slice(), [Feature::LoopLimiters]));
         rec_opts.only_loops = true;
     }
+
+    rec_opts.unstable_float = options.unstable_float;
 
     let result = crate::recondition_with(ast, rec_opts);
 

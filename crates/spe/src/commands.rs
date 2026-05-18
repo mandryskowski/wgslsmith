@@ -193,7 +193,7 @@ pub mod fuse {
                 }
 
                 if let Some(reconditioned_src) =
-                    wgslsmith::recondition_shader_src(&wgslsmith_exe, &content)
+                    wgslsmith::recondition_shader_src(&wgslsmith_exe, &content, opt.unstable_float)
                 {
                     if wgslsmith::test_shader_has_outputs(
                         &wgslsmith_exe,
