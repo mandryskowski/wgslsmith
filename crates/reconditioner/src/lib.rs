@@ -563,7 +563,12 @@ impl Reconditioner {
                         data_type: node.data_type.clone(),
                         expr: Expr::BinOp(BinOpExpr::new(expr.op, left, right)),
                     };
-                    if !node.data_type.is_matrix() && matches!(node.data_type.as_scalar(), Some(ScalarType::F32 | ScalarType::F16)) {
+                    if !node.data_type.is_matrix()
+                        && matches!(
+                            node.data_type.as_scalar(),
+                            Some(ScalarType::F32 | ScalarType::F16)
+                        )
+                    {
                         return FnCallExpr::new(
                             self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
                             vec![binop],
@@ -614,7 +619,12 @@ impl Reconditioner {
                         data_type: node.data_type.clone(),
                         expr: Expr::FnCall(new_call),
                     };
-                    if !node.data_type.is_matrix() && matches!(node.data_type.as_scalar(), Some(ScalarType::F32 | ScalarType::F16)) {
+                    if !node.data_type.is_matrix()
+                        && matches!(
+                            node.data_type.as_scalar(),
+                            Some(ScalarType::F32 | ScalarType::F16)
+                        )
+                    {
                         return FnCallExpr::new(
                             self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
                             vec![call_node],

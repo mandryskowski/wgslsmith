@@ -1,6 +1,6 @@
 use ast::{
     BinOp, BinOpExpr, DataType, FnCallExpr, FnDecl, FnInput, FnOutput, Lit, ReturnStatement,
-    ScalarType, TypeConsExpr, VarExpr, VarDeclStatement,
+    ScalarType, TypeConsExpr, VarDeclStatement, VarExpr,
 };
 
 pub fn float_noop(name: String, data_type: &DataType) -> FnDecl {
@@ -14,10 +14,9 @@ pub fn float_noop(name: String, data_type: &DataType) -> FnDecl {
                 "tmp",
                 Some(data_type.clone()),
                 Some(VarExpr::new("v").into_node(data_type.clone())),
-            ).into(),
-            ReturnStatement::new(
-                VarExpr::new("tmp").into_node(data_type.clone())
-            ).into(),
+            )
+            .into(),
+            ReturnStatement::new(VarExpr::new("tmp").into_node(data_type.clone())).into(),
         ],
     }
 }
