@@ -345,8 +345,6 @@ jobs:
           
           chmod +x "$WGSLSMITH"
           
-          WGSLSMITH=target/release/wgslsmith
-          
           for args in "--unstable-float"; do
             for stage in compute vertex fragment; do
               echo "Testing stage: $stage $args"
