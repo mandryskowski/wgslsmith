@@ -53,8 +53,28 @@ pub fn accessible_types_of(ty: &DataType) -> Vec<DataType> {
         DataType::Struct(decl) => decl.accessible_types().cloned().collect(),
         DataType::Ptr(view) | DataType::Ref(view) => accessible_types_of(&view.inner),
         DataType::Texture(_) | DataType::Sampler(_) => vec![],
-        DataType::Atomic(_) | DataType::AtomicCompareExchangeResult(_) => vec![],
-        DataType::FrexpResult(_) | DataType::ModfResult(_) => vec![],
+        DataType::Atomic(_) => vec![],
+        DataType::AtomicCompareExchangeResult(t) => {
+            vec![
+                DataType::Scalar(*t),
+                DataType::Scalar(ast::ScalarType::Bool),
+            ]
+        }
+        DataType::FrexpResult(t) => {
+            let mut derived = vec![(**t).clone()];
+            match &**t {
+                DataType::Scalar(_) => derived.push(DataType::Scalar(ast::ScalarType::I32)),
+                DataType::Vector(n, _) => derived.push(DataType::Vector(*n, ast::ScalarType::I32)),
+                _ => {}
+            }
+            derived.extend(accessible_types_of(t));
+            derived
+        }
+        DataType::ModfResult(t) => {
+            let mut derived = vec![(**t).clone()];
+            derived.extend(accessible_types_of(t));
+            derived
+        }
     }
 }
 

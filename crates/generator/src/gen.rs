@@ -223,12 +223,15 @@ impl<'a> Generator<'a> {
             }
 
             if self.options.collectives() {
-                let wg_vars = [
+                let mut wg_vars = vec![
                     ("wg_u32", DataType::Scalar(ScalarType::U32)),
                     ("wg_i32", DataType::Scalar(ScalarType::I32)),
                     ("wg_f32", DataType::Scalar(ScalarType::F32)),
                     ("wg_bool", DataType::Scalar(ScalarType::Bool)),
                 ];
+                if self.options.enable_f16() {
+                    wg_vars.push(("wg_f16", DataType::Scalar(ScalarType::F16)));
+                }
                 for (name, ty) in wg_vars {
                     global_vars.push(GlobalVarDecl {
                         attrs: vec![],

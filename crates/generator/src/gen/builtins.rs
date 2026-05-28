@@ -166,12 +166,16 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
             map.add(Step, [ty.clone(), ty.clone()], ty.clone());
 
             if options.unstable_float {
-                map.add(Pow, [ty.clone(), ty.clone()], ty.clone());
+                for builtin in [Pow, Atan2] {
+                    map.add(builtin, [ty.clone(), ty.clone()], ty.clone());
+                }
 
                 for builtin in [Fma, Mix, Smoothstep] {
                     map.add(builtin, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
                 }
 
+                // map.add(Frexp, [ty.clone()], DataType::FrexpResult(Box::new(ty.clone())));
+                // map.add(Modf, [ty.clone()], DataType::ModfResult(Box::new(ty.clone())));
                 map.add(Distance, [ty.clone(), ty.clone()], s_ty);
                 map.add(Ldexp, [ty.clone(), ty.map(I32)], ty.clone());
                 map.add(Length, [ty.clone()], s_ty);
@@ -182,6 +186,8 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
             map.add(Cross, [Vector(3, s_ty), Vector(3, s_ty)], Vector(3, s_ty));
 
             for ty in vectors_of(s_ty) {
+                map.add(Normalize, [ty.clone()], ty.clone());
+
                 map.add(
                     FaceForward,
                     [ty.clone(), ty.clone(), ty.clone()],
@@ -191,6 +197,19 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
                 map.add(Reflect, [ty.clone(), ty.clone()], ty.clone());
 
                 map.add(Refract, [ty.clone(), ty.clone(), s_ty.into()], ty.clone());
+            }
+
+            for c in 2..=4 {
+                let mat_ty = DataType::Matrix(c, c, s_ty);
+                map.add(Determinant, [mat_ty], s_ty);
+            }
+        }
+
+        for c in 2..=4 {
+            for r in 2..=4 {
+                let mat_ty = DataType::Matrix(c, r, s_ty);
+                let ret_ty = DataType::Matrix(r, c, s_ty);
+                map.add(Transpose, [mat_ty], ret_ty);
             }
         }
     }
