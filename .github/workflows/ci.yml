@@ -325,9 +325,17 @@ jobs:
           
           ./harness-staging/wgslsmith-harness run crates/harness/test.wgsl crates/harness/test.json
 
-      - name: Test shader validity
-        env:
-          ASAN_OPTIONS: "detect_odr_violation=0:detect_leaks=0:suppressions=tools/asan_suppressions.txt"
+test_generator_output_validity:
+    runs-on: ubuntu-latest
+    needs: build_binaries
+    steps:
+      - name: Download wgslsmith
+        uses: actions/download-artifact@v4
+        with:
+          name: wgslsmith-linux64
+          path: wgslsmith-staging
+
+      - name: Test generator output validity
         shell: bash
         run: |
           WGSLSMITH="./harness-staging/wgslsmith"
