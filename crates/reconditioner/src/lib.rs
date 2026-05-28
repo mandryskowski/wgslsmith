@@ -575,11 +575,37 @@ impl Reconditioner {
                 return self.recondition_bin_op_expr(node.data_type, expr.op, left, right);
             }
             Expr::FnCall(expr) => {
-                let args: Vec<ExprNode> = expr
+                let mut args: Vec<ExprNode> = expr
                     .args
                     .into_iter()
                     .map(|e| self.recondition_expr(e))
                     .collect();
+
+                match expr.ident.as_str() {
+                    "subgroupBroadcast"
+                    | "subgroupShuffle"
+                    | "subgroupShuffleDown"
+                    | "subgroupShuffleUp"
+                    | "subgroupShuffleXor" => {
+                        let limit = 127;
+                        let limit_lit = match args[1].data_type.as_scalar().unwrap() {
+                            ScalarType::I32 => Lit::I32(limit),
+                            ScalarType::U32 => Lit::U32(limit as u32),
+                            _ => unreachable!(),
+                        };
+                        args[1] = BinOpExpr::new(BinOp::BitAnd, args[1].clone(), limit_lit).into();
+                    }
+                    "quadBroadcast" => {
+                        let limit = 3;
+                        let limit_lit = match args[1].data_type.as_scalar().unwrap() {
+                            ScalarType::I32 => Lit::I32(limit),
+                            ScalarType::U32 => Lit::U32(limit as u32),
+                            _ => unreachable!(),
+                        };
+                        args[1] = BinOpExpr::new(BinOp::BitAnd, args[1].clone(), limit_lit).into();
+                    }
+                    _ => {}
+                }
 
                 if self.unstable_float {
                     let mut new_call = FnCallExpr::new(expr.ident, args);
@@ -649,38 +675,6 @@ impl Reconditioner {
                         self.safe_wrapper(Wrapper::Atanh(args[0].data_type.dereference().clone())),
                         args,
                     ),
-                    "subgroupBroadcast"
-                    | "subgroupShuffle"
-                    | "subgroupShuffleDown"
-                    | "subgroupShuffleUp"
-                    | "subgroupShuffleXor" => {
-                        let mut safe_args = args.clone();
-                        let limit = 127;
-                        let limit_lit = match safe_args[1].data_type.as_scalar().unwrap() {
-                            ScalarType::I32 => Lit::I32(limit),
-                            ScalarType::U32 => Lit::U32(limit as u32),
-                            _ => unreachable!(),
-                        };
-                        safe_args[1] =
-                            BinOpExpr::new(BinOp::BitAnd, safe_args[1].clone(), limit_lit).into();
-                        let mut new_call = FnCallExpr::new(expr.ident.clone(), safe_args);
-                        new_call.template_args = expr.template_args;
-                        new_call
-                    }
-                    "quadBroadcast" => {
-                        let mut safe_args = args.clone();
-                        let limit = 3;
-                        let limit_lit = match safe_args[1].data_type.as_scalar().unwrap() {
-                            ScalarType::I32 => Lit::I32(limit),
-                            ScalarType::U32 => Lit::U32(limit as u32),
-                            _ => unreachable!(),
-                        };
-                        safe_args[1] =
-                            BinOpExpr::new(BinOp::BitAnd, safe_args[1].clone(), limit_lit).into();
-                        let mut new_call = FnCallExpr::new(expr.ident.clone(), safe_args);
-                        new_call.template_args = expr.template_args;
-                        new_call
-                    }
                     _ => {
                         let mut new_call = FnCallExpr::new(expr.ident, args);
                         new_call.template_args = expr.template_args;
