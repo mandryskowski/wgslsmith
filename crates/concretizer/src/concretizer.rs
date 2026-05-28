@@ -678,7 +678,7 @@ impl Concretizer {
             }
 
             if ident == "smoothstep" {
-                if let (Some(Some(low)), Some(Some(high))) = (vals.get(0), vals.get(1)) {
+                if let (Some(Some(low)), Some(Some(high))) = (vals.first(), vals.get(1)) {
                     if helper::is_invalid_smoothstep_bounds(low, high) {
                         return self.default_node(data_type);
                     }
