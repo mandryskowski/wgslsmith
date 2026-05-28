@@ -1,30 +1,24 @@
-mod extract_bits;
 mod float;
 mod float_divide;
 mod index;
-mod insert_bits;
 mod math_bounds;
 mod modulo;
 mod normalize;
 mod pack2x16float;
-mod select;
 mod smoothstep;
 
 use ast::{
     BinOp, BinOpExpr, DataType, ExprNode, FnCallExpr, Lit, Postfix, PostfixExpr, ScalarType,
 };
 
-pub use extract_bits::extract_bits;
-pub use extract_bits::extract_bits_unsigned;
 pub use float::float;
+pub use float::float_noop;
 pub use float_divide::float_divide;
 pub use index::index;
-pub use insert_bits::insert_bits;
 pub use math_bounds::math_bounds;
 pub use modulo::modulo;
 pub use normalize::normalize;
 pub use pack2x16float::pack2x16float;
-pub use select::select;
 pub use smoothstep::smoothstep;
 
 /// Wraps the given expression in a call to `any()` if it is a vector.

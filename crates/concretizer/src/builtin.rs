@@ -10,6 +10,7 @@ pub enum Builtin {
     Acosh,
     Asin,
     Atanh,
+    Atan2,
     Clamp,
     All,
     Any,
@@ -71,6 +72,8 @@ pub enum Builtin {
     Step,
     Pow,
     Ldexp,
+    Normalize,
+    Transpose,
     Fma,
     Mix,
     Length,
@@ -151,6 +154,9 @@ impl Builtin {
             "acosh" => Some(Builtin::Acosh),
             "asin" => Some(Builtin::Asin),
             "atanh" => Some(Builtin::Atanh),
+            "atan2" => Some(Builtin::Atan2),
+            "normalize" => Some(Builtin::Normalize),
+            "transpose" => Some(Builtin::Transpose),
             "countLeadingZeros" => Some(Builtin::CountLeadingZeros),
             "countTrailingZeros" => Some(Builtin::CountTrailingZeros),
             "countOneBits" => Some(Builtin::CountOneBits),
@@ -249,6 +255,22 @@ pub fn evaluate_builtin(ident: &Builtin, args: Vec<Option<Value>>) -> Option<Val
             let arg2 = args[1].clone().unwrap();
 
             evaluate_two_arg_builtin(ident, arg1, arg2)
+        }
+
+        Builtin::Atan2 => {
+            let arg1 = args[0].clone().unwrap();
+            let arg2 = args[1].clone().unwrap();
+            evaluate_two_arg_builtin(ident, arg1, arg2)
+        }
+
+        Builtin::Normalize => {
+            let arg = args[0].clone().unwrap();
+            evaluate_normalize(arg)
+        }
+
+        Builtin::Transpose => {
+            let arg = args[0].clone().unwrap();
+            evaluate_transpose(arg)
         }
 
         Builtin::Length => {
@@ -528,6 +550,7 @@ fn evaluate_two_args(ident: &Builtin, val1: Lit, val2: Lit) -> Option<Value> {
     match ident {
         Builtin::Min => min(val1, val2),
         Builtin::Max => max(val1, val2),
+        Builtin::Atan2 => atan2(val1, val2),
         Builtin::Pow => pow(val1, val2),
         Builtin::Step => step(val1, val2),
         Builtin::Ldexp => ldexp(val1, val2),
@@ -847,8 +870,83 @@ fn evaluate_unpack(ident: &Builtin, arg: Value) -> Option<Value> {
     }
 }
 
-fn evaluate_determinant(_arg: Value) -> Option<Value> {
-    None
+fn evaluate_determinant(arg: Value) -> Option<Value> {
+    let cols = match arg {
+        Value::Vector(v) => v,
+        _ => return None,
+    };
+    let n = cols.len();
+    if !(2..=4).contains(&n) {
+        return None;
+    }
+    let is_f16 = match &cols[0] {
+        Value::Vector(col) => match &col[0] {
+            Value::Lit(Lit::F32(_)) => false,
+            Value::Lit(Lit::F16(_)) => true,
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    let mut m = [[0.0f32; 4]; 4];
+    for (c, col) in cols.iter().enumerate() {
+        if let Value::Vector(col_vec) = col {
+            if col_vec.len() != n {
+                return None;
+            }
+            for (r, val) in col_vec.iter().enumerate() {
+                match val {
+                    Value::Lit(Lit::F32(f)) => m[c][r] = *f,
+                    Value::Lit(Lit::F16(f)) => m[c][r] = f.to_f32(),
+                    _ => return None,
+                }
+            }
+        } else {
+            return None;
+        }
+    }
+
+    let check = |f: f32| -> Option<f32> {
+        if is_f16 {
+            in_float16_range(half::f16::from_f32(f)).map(|x| x.to_f32())
+        } else {
+            in_float_range(f)
+        }
+    };
+
+    let mul = |a: f32, b: f32| check(a * b);
+    let add = |a: f32, b: f32| check(a + b);
+    let sub = |a: f32, b: f32| check(a - b);
+
+    let det2 = |c0: usize, c1: usize, r0: usize, r1: usize| -> Option<f32> {
+        sub(mul(m[c0][r0], m[c1][r1])?, mul(m[c1][r0], m[c0][r1])?)
+    };
+
+    let det3 = |c0: usize, c1: usize, c2: usize, r0: usize, r1: usize, r2: usize| -> Option<f32> {
+        let a = mul(m[c0][r0], det2(c1, c2, r1, r2)?)?;
+        let b = mul(m[c1][r0], det2(c0, c2, r1, r2)?)?;
+        let c = mul(m[c2][r0], det2(c0, c1, r1, r2)?)?;
+        add(sub(a, b)?, c)
+    };
+
+    let det = match n {
+        2 => det2(0, 1, 0, 1)?,
+        3 => det3(0, 1, 2, 0, 1, 2)?,
+        4 => {
+            let a = mul(m[0][0], det3(1, 2, 3, 1, 2, 3)?)?;
+            let b = mul(m[1][0], det3(0, 2, 3, 1, 2, 3)?)?;
+            let c = mul(m[2][0], det3(0, 1, 3, 1, 2, 3)?)?;
+            let d = mul(m[3][0], det3(0, 1, 2, 1, 2, 3)?)?;
+            sub(add(sub(a, b)?, c)?, d)?
+        }
+        _ => return None,
+    };
+
+    if is_f16 {
+        Some(Value::Lit(Lit::F16(half::f16::from_f32(det))))
+    } else {
+        Some(Value::Lit(Lit::F32(det)))
+    }
 }
 
 fn count_one_bits(val: Lit) -> Option<Value> {
@@ -962,13 +1060,14 @@ fn smoothstep(low: Lit, high: Lit, x: Lit) -> Option<Value> {
             if low_val == high_val {
                 return None;
             }
-            let diff = high_val - low_val;
-            let mut t = (x_val - low_val) / diff;
-            if t.is_nan() {
-                return None;
-            }
+            let diff = in_float_range(high_val - low_val)?;
+            let diff_x = in_float_range(x_val - low_val)?;
+            let mut t = in_float_range(diff_x / diff)?;
             t = t.clamp(0.0, 1.0);
-            let result = t * t * (3.0 - 2.0 * t);
+            let t_sq = in_float_range(t * t)?;
+            let two_t = in_float_range(2.0 * t)?;
+            let three_minus = in_float_range(3.0 - two_t)?;
+            let result = in_float_range(t_sq * three_minus)?;
             Some(result.into())
         }
         (Lit::F16(low_val), Lit::F16(high_val), Lit::F16(x_val)) => {
@@ -978,13 +1077,14 @@ fn smoothstep(low: Lit, high: Lit, x: Lit) -> Option<Value> {
             let l = low_val.to_f32();
             let h = high_val.to_f32();
             let x_f = x_val.to_f32();
-            let diff = h - l;
-            let mut t = (x_f - l) / diff;
-            if t.is_nan() {
-                return None;
-            }
+            let diff = in_float16_range(half::f16::from_f32(h - l))?.to_f32();
+            let diff_x = in_float16_range(half::f16::from_f32(x_f - l))?.to_f32();
+            let mut t = in_float16_range(half::f16::from_f32(diff_x / diff))?.to_f32();
             t = t.clamp(0.0, 1.0);
-            let result = t * t * (3.0 - 2.0 * t);
+            let t_sq = in_float16_range(half::f16::from_f32(t * t))?.to_f32();
+            let two_t = in_float16_range(half::f16::from_f32(2.0 * t))?.to_f32();
+            let three_minus = in_float16_range(half::f16::from_f32(3.0 - two_t))?.to_f32();
+            let result = in_float16_range(half::f16::from_f32(t_sq * three_minus))?.to_f32();
             Some(half::f16::from_f32(result).into())
         }
         _ => None,
@@ -1515,10 +1615,15 @@ fn tanh(val: Lit) -> Option<Value> {
 
 fn fract(val: Lit) -> Option<Value> {
     match val {
-        Lit::F32(v) => Value::from_f32(in_float_range(v - v.floor())),
-        Lit::F16(v) => Value::from_f16(in_float16_range(half::f16::from_f32(
-            v.to_f32() - v.to_f32().floor(),
-        ))),
+        Lit::F32(v) => {
+            let fl = in_float_range(v.floor())?;
+            Value::from_f32(in_float_range(v - fl))
+        }
+        Lit::F16(v) => {
+            let f = v.to_f32();
+            let fl = in_float16_range(half::f16::from_f32(f.floor()))?.to_f32();
+            Value::from_f16(in_float16_range(half::f16::from_f32(f - fl)))
+        }
         _ => None,
     }
 }
@@ -1661,10 +1766,14 @@ fn ldexp(e1: Lit, e2: Lit) -> Option<Value> {
 
 fn fma(e1: Lit, e2: Lit, e3: Lit) -> Option<Value> {
     match (e1, e2, e3) {
-        (Lit::F32(a), Lit::F32(b), Lit::F32(c)) => Value::from_f32(in_float_range(a * b + c)),
-        (Lit::F16(a), Lit::F16(b), Lit::F16(c)) => Value::from_f16(in_float16_range(
-            half::f16::from_f32(a.to_f32() * b.to_f32() + c.to_f32()),
-        )),
+        (Lit::F32(a), Lit::F32(b), Lit::F32(c)) => {
+            let p = in_float_range(a * b)?;
+            Value::from_f32(in_float_range(p + c))
+        }
+        (Lit::F16(a), Lit::F16(b), Lit::F16(c)) => {
+            let p = in_float16_range(half::f16::from_f32(a.to_f32() * b.to_f32()))?.to_f32();
+            Value::from_f16(in_float16_range(half::f16::from_f32(p + c.to_f32())))
+        }
         _ => None,
     }
 }
@@ -1672,11 +1781,21 @@ fn fma(e1: Lit, e2: Lit, e3: Lit) -> Option<Value> {
 fn mix(e1: Lit, e2: Lit, e3: Lit) -> Option<Value> {
     match (e1, e2, e3) {
         (Lit::F32(a), Lit::F32(b), Lit::F32(c)) => {
-            Value::from_f32(in_float_range(a * (1.0 - c) + b * c))
+            let one_minus_c = in_float_range(1.0 - c)?;
+            let p1 = in_float_range(a * one_minus_c)?;
+            let p2 = in_float_range(b * c)?;
+            Value::from_f32(in_float_range(p1 + p2))
         }
-        (Lit::F16(a), Lit::F16(b), Lit::F16(c)) => Value::from_f16(in_float16_range(
-            half::f16::from_f32(a.to_f32() * (1.0 - c.to_f32()) + b.to_f32() * c.to_f32()),
-        )),
+        (Lit::F16(a), Lit::F16(b), Lit::F16(c)) => {
+            let a = a.to_f32();
+            let b = b.to_f32();
+            let c = c.to_f32();
+
+            let one_minus_c = in_float16_range(half::f16::from_f32(1.0 - c))?.to_f32();
+            let p1 = in_float16_range(half::f16::from_f32(a * one_minus_c))?.to_f32();
+            let p2 = in_float16_range(half::f16::from_f32(b * c))?.to_f32();
+            Value::from_f16(in_float16_range(half::f16::from_f32(p1 + p2)))
+        }
         _ => None,
     }
 }
@@ -1782,37 +1901,28 @@ fn evaluate_cross(arg1: Value, arg2: Value) -> Option<Value> {
                 _ => return None,
             };
 
+            let check = |f: f32| -> Option<f32> {
+                if is_f16 {
+                    in_float16_range(half::f16::from_f32(f)).map(|x| x.to_f32())
+                } else {
+                    in_float_range(f)
+                }
+            };
+
+            let mul = |a: f32, b: f32| check(a * b);
+            let sub = |a: f32, b: f32| check(a - b);
+
+            let rx = sub(mul(y1, z2)?, mul(z1, y2)?)?;
+            let ry = sub(mul(z1, x2)?, mul(x1, z2)?)?;
+            let rz = sub(mul(x1, y2)?, mul(y1, x2)?)?;
+
             if is_f16 {
-                let p1 = in_float16_range(half::f16::from_f32(y1 * z2))?.to_f32();
-                let p2 = in_float16_range(half::f16::from_f32(z1 * y2))?.to_f32();
-                let rx = in_float16_range(half::f16::from_f32(p1 - p2))?;
-
-                let p3 = in_float16_range(half::f16::from_f32(z1 * x2))?.to_f32();
-                let p4 = in_float16_range(half::f16::from_f32(x1 * z2))?.to_f32();
-                let ry = in_float16_range(half::f16::from_f32(p3 - p4))?;
-
-                let p5 = in_float16_range(half::f16::from_f32(x1 * y2))?.to_f32();
-                let p6 = in_float16_range(half::f16::from_f32(y1 * x2))?.to_f32();
-                let rz = in_float16_range(half::f16::from_f32(p5 - p6))?;
-
                 Some(Value::Vector(vec![
-                    Value::Lit(Lit::F16(rx)),
-                    Value::Lit(Lit::F16(ry)),
-                    Value::Lit(Lit::F16(rz)),
+                    Value::Lit(Lit::F16(half::f16::from_f32(rx))),
+                    Value::Lit(Lit::F16(half::f16::from_f32(ry))),
+                    Value::Lit(Lit::F16(half::f16::from_f32(rz))),
                 ]))
             } else {
-                let p1 = in_float_range(y1 * z2)?;
-                let p2 = in_float_range(z1 * y2)?;
-                let rx = in_float_range(p1 - p2)?;
-
-                let p3 = in_float_range(z1 * x2)?;
-                let p4 = in_float_range(x1 * z2)?;
-                let ry = in_float_range(p3 - p4)?;
-
-                let p5 = in_float_range(x1 * y2)?;
-                let p6 = in_float_range(y1 * x2)?;
-                let rz = in_float_range(p5 - p6)?;
-
                 Some(Value::Vector(vec![
                     Value::Lit(Lit::F32(rx)),
                     Value::Lit(Lit::F32(ry)),
@@ -1860,9 +1970,10 @@ fn evaluate_reflect(arg1: Value, arg2: Value) -> Option<Value> {
     match (arg1, arg2, dot) {
         (Value::Vector(v1), Value::Vector(v2), Value::Lit(Lit::F32(d))) => {
             let mut res = Vec::new();
+            let two_d = in_float_range(2.0 * d)?;
             for (e1, e2) in v1.into_iter().zip(v2) {
                 if let (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) = (e1, e2) {
-                    let p = in_float_range(2.0 * d * f2)?;
+                    let p = in_float_range(two_d * f2)?;
                     let r = in_float_range(f1 - p)?;
                     res.push(Value::Lit(Lit::F32(r)));
                 } else {
@@ -1874,10 +1985,10 @@ fn evaluate_reflect(arg1: Value, arg2: Value) -> Option<Value> {
         (Value::Vector(v1), Value::Vector(v2), Value::Lit(Lit::F16(d))) => {
             let mut res = Vec::new();
             let d32 = d.to_f32();
+            let two_d = in_float16_range(half::f16::from_f32(2.0 * d32))?.to_f32();
             for (e1, e2) in v1.into_iter().zip(v2) {
                 if let (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) = (e1, e2) {
-                    let p =
-                        in_float16_range(half::f16::from_f32(2.0 * d32 * f2.to_f32()))?.to_f32();
+                    let p = in_float16_range(half::f16::from_f32(two_d * f2.to_f32()))?.to_f32();
                     let r = in_float16_range(half::f16::from_f32(f1.to_f32() - p))?;
                     res.push(Value::Lit(Lit::F16(r)));
                 } else {
@@ -1887,11 +1998,14 @@ fn evaluate_reflect(arg1: Value, arg2: Value) -> Option<Value> {
             Some(Value::Vector(res))
         }
         (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2)), Value::Lit(Lit::F32(d))) => {
-            let p = in_float_range(2.0 * d * f2)?;
+            let two_d = in_float_range(2.0 * d)?;
+            let p = in_float_range(two_d * f2)?;
             Some(Value::Lit(Lit::F32(in_float_range(f1 - p)?)))
         }
         (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2)), Value::Lit(Lit::F16(d))) => {
-            let p = in_float16_range(half::f16::from_f32(2.0 * d.to_f32() * f2.to_f32()))?.to_f32();
+            let d32 = d.to_f32();
+            let two_d = in_float16_range(half::f16::from_f32(2.0 * d32))?.to_f32();
+            let p = in_float16_range(half::f16::from_f32(two_d * f2.to_f32()))?.to_f32();
             Some(Value::Lit(Lit::F16(in_float16_range(
                 half::f16::from_f32(f1.to_f32() - p),
             )?)))
@@ -1913,9 +2027,22 @@ fn evaluate_refract(arg1: Value, arg2: Value, arg3: Value) -> Option<Value> {
         _ => return None,
     };
 
-    let k_p1 = e3 * e3;
-    let k_p2 = 1.0 - d * d;
-    let k = 1.0 - k_p1 * k_p2;
+    let check = |f: f32| -> Option<f32> {
+        if is_f16 {
+            in_float16_range(half::f16::from_f32(f)).map(|x| x.to_f32())
+        } else {
+            in_float_range(f)
+        }
+    };
+
+    let mul = |a: f32, b: f32| check(a * b);
+    let add = |a: f32, b: f32| check(a + b);
+    let sub = |a: f32, b: f32| check(a - b);
+
+    let k_p1 = mul(e3, e3)?;
+    let k_p2 = sub(1.0, mul(d, d)?)?;
+    let k = sub(1.0, mul(k_p1, k_p2)?)?;
+
     if k < 0.0 {
         match arg1 {
             Value::Vector(v) => {
@@ -1937,59 +2064,129 @@ fn evaluate_refract(arg1: Value, arg2: Value, arg3: Value) -> Option<Value> {
                 }
             }
         }
-    } else if is_f16 {
-        let sqrt_k = in_float16_range(half::f16::from_f32(k.sqrt()))?.to_f32();
-        match (arg1, arg2) {
-            (Value::Vector(v1), Value::Vector(v2)) => {
-                let mut res = Vec::new();
-                for (e1, e2) in v1.into_iter().zip(v2) {
-                    if let (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) = (e1, e2) {
-                        let p1 = in_float16_range(half::f16::from_f32(e3 * f1.to_f32()))?.to_f32();
-                        let p2 = in_float16_range(half::f16::from_f32(e3 * d + sqrt_k))?.to_f32();
-                        let p3 = in_float16_range(half::f16::from_f32(p2 * f2.to_f32()))?.to_f32();
-                        let r = in_float16_range(half::f16::from_f32(p1 - p3))?;
-                        res.push(Value::Lit(Lit::F16(r)));
-                    } else {
-                        return None;
-                    }
-                }
-                Some(Value::Vector(res))
-            }
-            (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) => {
-                let p1 = in_float16_range(half::f16::from_f32(e3 * f1.to_f32()))?.to_f32();
-                let p2 = in_float16_range(half::f16::from_f32(e3 * d + sqrt_k))?.to_f32();
-                let p3 = in_float16_range(half::f16::from_f32(p2 * f2.to_f32()))?.to_f32();
-                Some(Value::Lit(Lit::F16(in_float16_range(
-                    half::f16::from_f32(p1 - p3),
-                )?)))
-            }
-            _ => None,
-        }
     } else {
-        let sqrt_k = in_float_range(k.sqrt())?;
+        let sqrt_k = check(k.sqrt())?;
         match (arg1, arg2) {
             (Value::Vector(v1), Value::Vector(v2)) => {
                 let mut res = Vec::new();
                 for (e1, e2) in v1.into_iter().zip(v2) {
-                    if let (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) = (e1, e2) {
-                        let p1 = in_float_range(e3 * f1)?;
-                        let p2 = in_float_range(e3 * d + sqrt_k)?;
-                        let p3 = in_float_range(p2 * f2)?;
-                        let r = in_float_range(p1 - p3)?;
-                        res.push(Value::Lit(Lit::F32(r)));
+                    let f1 = match e1 {
+                        Value::Lit(Lit::F32(f)) => f,
+                        Value::Lit(Lit::F16(f)) => f.to_f32(),
+                        _ => return None,
+                    };
+                    let f2 = match e2 {
+                        Value::Lit(Lit::F32(f)) => f,
+                        Value::Lit(Lit::F16(f)) => f.to_f32(),
+                        _ => return None,
+                    };
+
+                    let p1 = mul(e3, f1)?;
+                    let p2 = add(mul(e3, d)?, sqrt_k)?;
+                    let p3 = mul(p2, f2)?;
+                    let r = sub(p1, p3)?;
+
+                    if is_f16 {
+                        res.push(Value::Lit(Lit::F16(half::f16::from_f32(r))));
                     } else {
-                        return None;
+                        res.push(Value::Lit(Lit::F32(r)));
                     }
                 }
                 Some(Value::Vector(res))
             }
             (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) => {
-                let p1 = in_float_range(e3 * f1)?;
-                let p2 = in_float_range(e3 * d + sqrt_k)?;
-                let p3 = in_float_range(p2 * f2)?;
-                Some(Value::Lit(Lit::F32(in_float_range(p1 - p3)?)))
+                let p1 = mul(e3, f1)?;
+                let p2 = add(mul(e3, d)?, sqrt_k)?;
+                let p3 = mul(p2, f2)?;
+                Some(Value::Lit(Lit::F32(sub(p1, p3)?)))
+            }
+            (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) => {
+                let f1 = f1.to_f32();
+                let f2 = f2.to_f32();
+                let p1 = mul(e3, f1)?;
+                let p2 = add(mul(e3, d)?, sqrt_k)?;
+                let p3 = mul(p2, f2)?;
+                Some(Value::Lit(Lit::F16(half::f16::from_f32(sub(p1, p3)?))))
             }
             _ => None,
         }
     }
+}
+
+fn atan2(val1: Lit, val2: Lit) -> Option<Value> {
+    match (val1, val2) {
+        (Lit::F32(y), Lit::F32(x)) => Value::from_f32(in_float_range(y.atan2(x))),
+        (Lit::F16(y), Lit::F16(x)) => Value::from_f16(in_float16_range(half::f16::from_f32(
+            y.to_f32().atan2(x.to_f32()),
+        ))),
+        _ => None,
+    }
+}
+
+fn evaluate_normalize(arg: Value) -> Option<Value> {
+    let len_val = evaluate_length(arg.clone())?;
+
+    let len = match len_val {
+        Value::Lit(Lit::F32(f)) => f,
+        Value::Lit(Lit::F16(f)) => f.to_f32(),
+        _ => return None,
+    };
+
+    if len == 0.0 {
+        return None;
+    }
+
+    match arg {
+        Value::Vector(v) => {
+            let mut res = Vec::new();
+            for e in v {
+                match e {
+                    Value::Lit(Lit::F32(f)) => {
+                        let r = in_float_range(f / len)?;
+                        res.push(Value::Lit(Lit::F32(r)));
+                    }
+                    Value::Lit(Lit::F16(f)) => {
+                        let r = in_float16_range(half::f16::from_f32(f.to_f32() / len))?;
+                        res.push(Value::Lit(Lit::F16(r)));
+                    }
+                    _ => return None,
+                }
+            }
+            Some(Value::Vector(res))
+        }
+        _ => None,
+    }
+}
+
+fn evaluate_transpose(arg: Value) -> Option<Value> {
+    let cols = match arg {
+        Value::Vector(v) => v,
+        _ => return None,
+    };
+    let c = cols.len();
+    if c == 0 {
+        return None;
+    }
+    let r = match &cols[0] {
+        Value::Vector(v) => v.len(),
+        _ => return None,
+    };
+
+    let mut res_cols = vec![Vec::with_capacity(c); r];
+    for col in cols {
+        if let Value::Vector(col_vec) = col {
+            if col_vec.len() != r {
+                return None;
+            }
+            for (i, val) in col_vec.into_iter().enumerate() {
+                res_cols[i].push(val);
+            }
+        } else {
+            return None;
+        }
+    }
+
+    Some(Value::Vector(
+        res_cols.into_iter().map(Value::Vector).collect(),
+    ))
 }

@@ -294,7 +294,7 @@ impl BuiltinFn {
                     return None;
                 }
             }
-            Distance => F32.into(),
+            Distance => first_param()?.as_scalar()?.into(),
             Dot => first_param()?.as_scalar()?.into(),
             Dot4I8Packed => I32.into(),
             Dot4U8Packed => U32.into(),
@@ -313,7 +313,7 @@ impl BuiltinFn {
             InsertBits => first_param()?,
             InverseSqrt => first_param()?,
             Ldexp => first_param()?,
-            Length => F32.into(),
+            Length => first_param()?.as_scalar()?.into(),
             Log => first_param()?,
             Log2 => first_param()?,
             Max => first_param()?,

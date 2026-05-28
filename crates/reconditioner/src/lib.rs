@@ -16,13 +16,10 @@ pub struct ReconditionResult {
 
 #[derive(Hash, PartialEq, Eq)]
 enum Wrapper {
-    ExtractBits(DataType),
-    InsertBits(DataType),
     FloatOp(DataType),
     FloatDivide(DataType),
     Smoothstep(DataType),
     Normalize(DataType),
-    Select(DataType, DataType),
     Mod(DataType),
     Index(DataType),
     Pack2x16float,
@@ -33,22 +30,19 @@ enum Wrapper {
 }
 
 impl Wrapper {
-    fn gen_fn_decl(&self) -> FnDecl {
+    fn gen_fn_decl(&self, unstable_float: bool) -> FnDecl {
         let name = self.to_string();
         match self {
-            Wrapper::ExtractBits(ty) => {
-                if ty.is_signed_int() {
-                    safe_wrappers::extract_bits(name, ty)
+            Wrapper::FloatOp(ty) => {
+                if unstable_float {
+                    safe_wrappers::float_noop(name, ty)
                 } else {
-                    safe_wrappers::extract_bits_unsigned(name, ty)
+                    safe_wrappers::float(name, ty)
                 }
             }
-            Wrapper::InsertBits(ty) => safe_wrappers::insert_bits(name, ty),
-            Wrapper::FloatOp(ty) => safe_wrappers::float(name, ty),
             Wrapper::FloatDivide(ty) => safe_wrappers::float_divide(name, ty),
             Wrapper::Smoothstep(ty) => safe_wrappers::smoothstep(name, ty),
             Wrapper::Normalize(ty) => safe_wrappers::normalize(name, ty),
-            Wrapper::Select(ty, cond_ty) => safe_wrappers::select(name, ty, cond_ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
             Wrapper::Pack2x16float => safe_wrappers::pack2x16float(name),
@@ -78,17 +72,9 @@ impl Display for Wrapper {
         write!(f, "_wgslsmith_")?;
 
         match self {
-            Wrapper::Select(ty, cond_ty) => {
-                write!(f, "select_")?;
-                write_type(f, ty)?;
-                write!(f, "_")?;
-                write_type(f, cond_ty)
-            }
             Wrapper::Pack2x16float => write!(f, "pack2x16float"),
             other => {
                 let (name, ty) = match other {
-                    Wrapper::ExtractBits(ty) => ("extract_bits", ty),
-                    Wrapper::InsertBits(ty) => ("insert_bits", ty),
                     Wrapper::FloatOp(ty) => ("f_op", ty),
                     Wrapper::FloatDivide(ty) => ("div", ty),
                     Wrapper::Smoothstep(ty) => ("smoothstep", ty),
@@ -99,7 +85,7 @@ impl Display for Wrapper {
                     Wrapper::Acosh(ty) => ("acosh", ty),
                     Wrapper::Asin(ty) => ("asin", ty),
                     Wrapper::Atanh(ty) => ("atanh", ty),
-                    Wrapper::Select(..) | Wrapper::Pack2x16float => unreachable!(),
+                    Wrapper::Pack2x16float => unreachable!(),
                 };
 
                 write!(f, "{name}_")?;
@@ -112,6 +98,7 @@ impl Display for Wrapper {
 #[derive(Default)]
 pub struct Options {
     pub only_loops: bool,
+    pub unstable_float: bool,
 }
 
 pub fn recondition(ast: Module) -> Module {
@@ -133,7 +120,7 @@ pub fn recondition_with(mut ast: Module, options: Options) -> Module {
     ast.functions = reconditioner
         .wrappers
         .iter()
-        .map(Wrapper::gen_fn_decl)
+        .map(|w| w.gen_fn_decl(reconditioner.unstable_float))
         .chain(functions)
         .collect();
 
@@ -157,6 +144,7 @@ struct Reconditioner {
     loop_var: u32,
     wrappers: HashSet<Wrapper>,
     only_loops: bool,
+    unstable_float: bool,
 }
 
 impl Reconditioner {
@@ -165,6 +153,7 @@ impl Reconditioner {
             loop_var: 0,
             wrappers: HashSet::new(),
             only_loops: options.only_loops,
+            unstable_float: options.unstable_float,
         }
     }
 
@@ -546,35 +535,86 @@ impl Reconditioner {
             Expr::BinOp(expr) => {
                 let left = self.recondition_expr(*expr.left);
                 let right = self.recondition_expr(*expr.right);
+                if self.unstable_float {
+                    if let BinOp::LShift | BinOp::RShift = expr.op {
+                        return self.recondition_shift_expr(node.data_type, expr.op, left, right);
+                    }
+                    let binop = ExprNode {
+                        data_type: node.data_type.clone(),
+                        expr: Expr::BinOp(BinOpExpr::new(expr.op, left, right)),
+                    };
+                    if !node.data_type.is_matrix()
+                        && matches!(
+                            node.data_type.as_scalar(),
+                            Some(ScalarType::F32 | ScalarType::F16)
+                        )
+                    {
+                        return FnCallExpr::new(
+                            self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
+                            vec![binop],
+                        )
+                        .into_node(node.data_type);
+                    }
+                    return binop;
+                }
                 return self.recondition_bin_op_expr(node.data_type, expr.op, left, right);
             }
             Expr::FnCall(expr) => {
-                let args: Vec<ExprNode> = expr
+                let mut args: Vec<ExprNode> = expr
                     .args
                     .into_iter()
                     .map(|e| self.recondition_expr(e))
                     .collect();
 
+                match expr.ident.as_str() {
+                    "subgroupBroadcast"
+                    | "subgroupShuffle"
+                    | "subgroupShuffleDown"
+                    | "subgroupShuffleUp"
+                    | "subgroupShuffleXor" => {
+                        let limit = 127;
+                        let limit_lit = match args[1].data_type.as_scalar().unwrap() {
+                            ScalarType::I32 => Lit::I32(limit),
+                            ScalarType::U32 => Lit::U32(limit as u32),
+                            _ => unreachable!(),
+                        };
+                        args[1] = BinOpExpr::new(BinOp::BitAnd, args[1].clone(), limit_lit).into();
+                    }
+                    "quadBroadcast" => {
+                        let limit = 3;
+                        let limit_lit = match args[1].data_type.as_scalar().unwrap() {
+                            ScalarType::I32 => Lit::I32(limit),
+                            ScalarType::U32 => Lit::U32(limit as u32),
+                            _ => unreachable!(),
+                        };
+                        args[1] = BinOpExpr::new(BinOp::BitAnd, args[1].clone(), limit_lit).into();
+                    }
+                    _ => {}
+                }
+
+                if self.unstable_float {
+                    let mut new_call = FnCallExpr::new(expr.ident, args);
+                    new_call.template_args = expr.template_args;
+                    let call_node = ExprNode {
+                        data_type: node.data_type.clone(),
+                        expr: Expr::FnCall(new_call),
+                    };
+                    if !node.data_type.is_matrix()
+                        && matches!(
+                            node.data_type.as_scalar(),
+                            Some(ScalarType::F32 | ScalarType::F16)
+                        )
+                    {
+                        return FnCallExpr::new(
+                            self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
+                            vec![call_node],
+                        )
+                        .into_node(node.data_type);
+                    }
+                    return call_node;
+                }
+
                 let expr = match expr.ident.as_str() {
-                    "extractBits" => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::ExtractBits(
-                            args[0].data_type.dereference().clone(),
-                        )),
-                        args,
-                    ),
-                    "insertBits" if args[0].data_type.is_integer() => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::InsertBits(
-                            args[0].data_type.dereference().clone(),
-                        )),
-                        args,
-                    ),
-                    "select" => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::Select(
-                            args[0].data_type.dereference().clone(),
-                            args[2].data_type.dereference().clone(),
-                        )),
-                        args,
-                    ),
                     "pack2x16float" => {
                         FnCallExpr::new(self.safe_wrapper(Wrapper::Pack2x16float), args)
                     }
@@ -606,38 +646,6 @@ impl Reconditioner {
                         self.safe_wrapper(Wrapper::Atanh(args[0].data_type.dereference().clone())),
                         args,
                     ),
-                    "subgroupBroadcast"
-                    | "subgroupShuffle"
-                    | "subgroupShuffleDown"
-                    | "subgroupShuffleUp"
-                    | "subgroupShuffleXor" => {
-                        let mut safe_args = args.clone();
-                        let limit = 127;
-                        let limit_lit = match safe_args[1].data_type.as_scalar().unwrap() {
-                            ScalarType::I32 => Lit::I32(limit),
-                            ScalarType::U32 => Lit::U32(limit as u32),
-                            _ => unreachable!(),
-                        };
-                        safe_args[1] =
-                            BinOpExpr::new(BinOp::BitAnd, safe_args[1].clone(), limit_lit).into();
-                        let mut new_call = FnCallExpr::new(expr.ident.clone(), safe_args);
-                        new_call.template_args = expr.template_args;
-                        new_call
-                    }
-                    "quadBroadcast" => {
-                        let mut safe_args = args.clone();
-                        let limit = 3;
-                        let limit_lit = match safe_args[1].data_type.as_scalar().unwrap() {
-                            ScalarType::I32 => Lit::I32(limit),
-                            ScalarType::U32 => Lit::U32(limit as u32),
-                            _ => unreachable!(),
-                        };
-                        safe_args[1] =
-                            BinOpExpr::new(BinOp::BitAnd, safe_args[1].clone(), limit_lit).into();
-                        let mut new_call = FnCallExpr::new(expr.ident.clone(), safe_args);
-                        new_call.template_args = expr.template_args;
-                        new_call
-                    }
                     _ => {
                         let mut new_call = FnCallExpr::new(expr.ident, args);
                         new_call.template_args = expr.template_args;

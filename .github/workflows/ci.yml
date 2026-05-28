@@ -345,24 +345,26 @@ jobs:
           
           chmod +x "$WGSLSMITH"
           
-          for stage in compute vertex fragment; do
-            echo "Testing stage: $stage"
-            tint_failures=0
-            naga_failures=0
-            
-            for i in {1..100}; do
-              if ! "$WGSLSMITH" gen --stage "$stage" --unstable-float --gen-ext f16 --gen-ext subgroups | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler tint --backend hlsl > /dev/null; then
-                tint_failures=$((tint_failures + 1))
-              fi
-              if ! "$WGSLSMITH" gen --stage "$stage" --unstable-float --gen-ext f16 | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler naga --backend hlsl > /dev/null; then
-                naga_failures=$((naga_failures + 1))
+          for args in "" "--unstable-float"; do
+            for stage in compute vertex fragment; do
+              echo "Testing stage: $stage $args"
+              tint_failures=0
+              naga_failures=0
+              
+              for i in {1..100}; do
+                if ! "$WGSLSMITH" gen --stage "$stage" --unstable-float --gen-ext f16 --gen-ext subgroups | "$WGSLSMITH" recondition $args | "$WGSLSMITH" compile --compiler tint --backend hlsl > /dev/null; then
+                  tint_failures=$((tint_failures + 1))
+                fi
+                if ! "$WGSLSMITH" gen --stage "$stage" --unstable-float --gen-ext f16 | "$WGSLSMITH" recondition $args | "$WGSLSMITH" compile --compiler naga --backend hlsl > /dev/null; then
+                  naga_failures=$((naga_failures + 1))
+                fi
+              done
+              
+              echo "Stage $stage: Tint failures: $tint_failures, Naga failures: $naga_failures"
+              
+              if [ "$tint_failures" -ge 25 ] || [ "$naga_failures" -ge 25 ]; then
+                echo "Too many compilation failures for stage $stage $args!"
+                exit 1
               fi
             done
-            
-            echo "Stage $stage: Tint failures: $tint_failures, Naga failures: $naga_failures"
-            
-            if [ "$tint_failures" -ge 25 ] || [ "$naga_failures" -ge 25 ]; then
-              echo "Too many compilation failures for stage $stage!"
-              exit 1
-            fi
           done

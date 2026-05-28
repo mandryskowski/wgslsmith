@@ -28,10 +28,31 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
 
     let mut map = HashMap::<DataType, Vec<Rc<Func>>>::new();
 
-    for s_ty in [I32, U32, F32] {
+    let mut numeric_scalars = vec![I32, U32, F32];
+    let mut all_scalars = vec![Bool, I32, U32, F32];
+    let mut float_scalars = vec![F32];
+
+    if options.enable_f16() {
+        numeric_scalars.push(F16);
+        all_scalars.push(F16);
+        float_scalars.push(F16);
+    }
+
+    for s_ty in numeric_scalars.clone() {
         for ty in scalar_and_vectors_of(s_ty) {
-            map.add(Abs, [ty.clone()], ty);
+            map.add(Abs, [ty.clone()], ty.clone());
+            map.add(Clamp, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
+            map.add(Max, [ty.clone(), ty.clone()], ty.clone());
+            map.add(Min, [ty.clone(), ty.clone()], ty.clone());
         }
+
+        for ty in vectors_of(s_ty) {
+            map.add(Dot, [ty.clone(), ty.clone()], s_ty);
+        }
+    }
+
+    for ty in scalar_and_vectors_of(I32) {
+        map.add(Sign, [ty.clone()], ty.clone());
     }
 
     for ty in vectors_of(Bool) {
@@ -39,9 +60,9 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
         map.add(Any, [ty.clone()], Bool);
     }
 
-    for s_ty in [Bool, I32, U32, F32] {
+    for s_ty in all_scalars.clone() {
         for ty in scalar_and_vectors_of(s_ty) {
-            map.add(Select, [ty.clone(), ty.clone(), Bool.into()], ty);
+            map.add(Select, [ty.clone(), ty.clone(), Bool.into()], ty.clone());
         }
 
         for n in 2..=4 {
@@ -82,10 +103,7 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
         }
 
         for ty in scalar_and_vectors_of(s_ty) {
-            map.add(Clamp, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
-
             for builtin in [
-                Abs,
                 CountOneBits,
                 CountLeadingZeros,
                 CountTrailingZeros,
@@ -94,10 +112,6 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
                 FirstTrailingBit,
             ] {
                 map.add(builtin, [ty.clone()], ty.clone());
-            }
-
-            for builtin in [Max, Min] {
-                map.add(builtin, [ty.clone(), ty.clone()], ty.clone());
             }
 
             map.add(
@@ -112,74 +126,90 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
                 ty.clone(),
             );
         }
-
-        for ty in vectors_of(s_ty) {
-            map.add(Dot, [ty.clone(), ty.clone()], s_ty);
-        }
     }
 
-    for ty in scalar_and_vectors_of(F32) {
-        for builtin in [Ceil, Exp, Exp2, Floor, Fract, Round, Saturate, Sign, Trunc] {
-            map.add(builtin, [ty.clone()], ty.clone());
-        }
-
-        if options.unstable_float {
-            for builtin in [
-                Acos,
-                Acosh,
-                Asin,
-                Asinh,
-                Atan,
-                Atanh,
-                Cos,
-                Cosh,
-                Degrees,
-                InverseSqrt,
-                Log,
-                Log2,
-                QuantizeToF16,
-                Radians,
-                Sin,
-                Sinh,
-                Sqrt,
-                Tan,
-                Tanh,
-            ] {
+    for s_ty in float_scalars.clone() {
+        for ty in scalar_and_vectors_of(s_ty) {
+            for builtin in [Ceil, Exp, Exp2, Floor, Fract, Round, Saturate, Sign, Trunc] {
                 map.add(builtin, [ty.clone()], ty.clone());
             }
-        }
 
-        for builtin in [Max, Min, Step] {
-            map.add(builtin, [ty.clone(), ty.clone()], ty.clone());
+            if options.unstable_float {
+                for builtin in [
+                    Acos,
+                    Acosh,
+                    Asin,
+                    Asinh,
+                    Atan,
+                    Atanh,
+                    Cos,
+                    Cosh,
+                    Degrees,
+                    InverseSqrt,
+                    Log,
+                    Log2,
+                    Radians,
+                    Sin,
+                    Sinh,
+                    Sqrt,
+                    Tan,
+                    Tanh,
+                ] {
+                    map.add(builtin, [ty.clone()], ty.clone());
+                }
+
+                if s_ty == F32 {
+                    map.add(QuantizeToF16, [ty.clone()], ty.clone());
+                }
+            }
+
+            map.add(Step, [ty.clone(), ty.clone()], ty.clone());
+
+            if options.unstable_float {
+                for builtin in [Pow, Atan2] {
+                    map.add(builtin, [ty.clone(), ty.clone()], ty.clone());
+                }
+
+                for builtin in [Fma, Mix, Smoothstep] {
+                    map.add(builtin, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
+                }
+
+                // map.add(Frexp, [ty.clone()], DataType::FrexpResult(Box::new(ty.clone())));
+                // map.add(Modf, [ty.clone()], DataType::ModfResult(Box::new(ty.clone())));
+                map.add(Distance, [ty.clone(), ty.clone()], s_ty);
+                map.add(Ldexp, [ty.clone(), ty.map(I32)], ty.clone());
+                map.add(Length, [ty.clone()], s_ty);
+            }
         }
 
         if options.unstable_float {
-            map.add(Pow, [ty.clone(), ty.clone()], ty.clone());
+            map.add(Cross, [Vector(3, s_ty), Vector(3, s_ty)], Vector(3, s_ty));
 
-            for builtin in [Fma, Mix, Smoothstep] {
-                map.add(builtin, [ty.clone(), ty.clone(), ty.clone()], ty.clone());
+            for ty in vectors_of(s_ty) {
+                map.add(Normalize, [ty.clone()], ty.clone());
+
+                map.add(
+                    FaceForward,
+                    [ty.clone(), ty.clone(), ty.clone()],
+                    ty.clone(),
+                );
+
+                map.add(Reflect, [ty.clone(), ty.clone()], ty.clone());
+
+                map.add(Refract, [ty.clone(), ty.clone(), s_ty.into()], ty.clone());
             }
 
-            map.add(Distance, [ty.clone(), ty.clone()], F32);
-            map.add(Ldexp, [ty.clone(), ty.map(I32)], ty.clone());
-            map.add(Length, [ty.clone()], F32);
+            for c in 2..=4 {
+                let mat_ty = DataType::Matrix(c, c, s_ty);
+                map.add(Determinant, [mat_ty], s_ty);
+            }
         }
-    }
 
-    if options.unstable_float {
-        map.add(Cross, [Vector(3, F32), Vector(3, F32)], Vector(3, F32));
-
-        for ty in vectors_of(F32) {
-            map.add(
-                FaceForward,
-                [ty.clone(), ty.clone(), ty.clone()],
-                ty.clone(),
-            );
-
-            map.add(Reflect, [ty.clone(), ty.clone()], ty.clone());
-
-            if options.enabled_fns.contains(&Refract) {
-                map.add(Refract, [ty.clone(), ty.clone(), F32.into()], ty.clone());
+        for c in 2..=4 {
+            for r in 2..=4 {
+                let mat_ty = DataType::Matrix(c, r, s_ty);
+                let ret_ty = DataType::Matrix(r, c, s_ty);
+                map.add(Transpose, [mat_ty], ret_ty);
             }
         }
     }
@@ -206,7 +236,7 @@ pub fn gen_builtins(options: &Options) -> HashMap<DataType, Vec<Rc<Func>>> {
     map.add(Dot4U8Packed, [U32.into(), U32.into()], U32);
 
     if options.collectives() && options.stage != crate::ShaderStage::Vertex {
-        for s_ty in [I32, U32, F32] {
+        for s_ty in numeric_scalars.clone() {
             for ty in scalar_and_vectors_of(s_ty) {
                 map.add(SubgroupAdd, [ty.clone()], ty.clone());
                 map.add(SubgroupExclusiveAdd, [ty.clone()], ty.clone());

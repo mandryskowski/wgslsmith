@@ -233,6 +233,7 @@ pub fn run(mut options: Options) -> eyre::Result<()> {
             shader,
             reconditioner::Options {
                 only_loops: options.preset == Some(Preset::Tint),
+                unstable_float: options.unstable_float,
             },
         );
     }

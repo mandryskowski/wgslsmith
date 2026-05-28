@@ -1,7 +1,25 @@
 use ast::{
     BinOp, BinOpExpr, DataType, FnCallExpr, FnDecl, FnInput, FnOutput, Lit, ReturnStatement,
-    ScalarType, TypeConsExpr, VarExpr,
+    ScalarType, TypeConsExpr, VarDeclStatement, VarExpr,
 };
+
+pub fn float_noop(name: String, data_type: &DataType) -> FnDecl {
+    FnDecl {
+        attrs: vec![],
+        name,
+        inputs: vec![FnInput::new("v", data_type.clone())],
+        output: Some(FnOutput::new(data_type.clone())),
+        body: vec![
+            VarDeclStatement::new(
+                "tmp",
+                Some(data_type.clone()),
+                Some(VarExpr::new("v").into_node(data_type.clone())),
+            )
+            .into(),
+            ReturnStatement::new(VarExpr::new("tmp").into_node(data_type.clone())).into(),
+        ],
+    }
+}
 
 pub fn float(name: String, data_type: &DataType) -> FnDecl {
     let (default, small, large) = match data_type.as_scalar() {

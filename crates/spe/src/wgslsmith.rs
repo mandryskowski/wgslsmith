@@ -5,9 +5,16 @@ use std::io::Write;
 use std::path::Path;
 use std::process;
 
-pub fn recondition_shader_src(wgslsmith_exe: &Path, src: &str) -> Option<String> {
+pub fn recondition_shader_src(
+    wgslsmith_exe: &Path,
+    src: &str,
+    unstable_float: bool,
+) -> Option<String> {
     let mut recond_cmd = process::Command::new(wgslsmith_exe);
     recond_cmd.arg("recondition").arg("-");
+    if unstable_float {
+        recond_cmd.arg("--unstable-float");
+    }
 
     recond_cmd
         .stdin(process::Stdio::piped())

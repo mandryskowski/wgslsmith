@@ -201,12 +201,13 @@ fn gen_shader(options: &Options) -> eyre::Result<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
-fn recondition_shader(shader: &str) -> eyre::Result<String> {
-    let mut reconditioner = Command::new(std::env::current_exe().unwrap())
-        .arg("recondition")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
+fn recondition_shader(shader: &str, unstable_float: bool) -> eyre::Result<String> {
+    let mut cmd = Command::new(std::env::current_exe().unwrap());
+    cmd.arg("recondition");
+    if unstable_float {
+        cmd.arg("--unstable-float");
+    }
+    let mut reconditioner = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
 
     {
         let stdin = reconditioner.stdin.take().unwrap();
@@ -494,7 +495,7 @@ fn worker_iteration(
 
     let metadata = metadata.trim_start_matches("//").trim();
 
-    let reconditioned = match recondition_shader(shader) {
+    let reconditioned = match recondition_shader(shader, options.unstable_float) {
         Ok(reconditioned) => format!(
             "{}\n{reconditioned}",
             shader
