@@ -287,6 +287,12 @@ jobs:
           name: harness-${{ matrix.artifact }}${{ env.ARTIFACT_SUFFIX }}
           path: harness-staging
 
+      - name: Download wgslsmith
+        uses: actions/download-artifact@v4
+        with:
+          name: wgslsmith-${{ matrix.artifact }}${{ env.ARTIFACT_SUFFIX }}
+          path: harness-staging
+
       - name: Copy dependencies (Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
@@ -315,3 +321,35 @@ jobs:
           touch tools/asan_suppressions.txt
           
           ./harness-staging/wgslsmith-harness run crates/harness/test.wgsl crates/harness/test.json
+
+      - name: Test shader validity
+        env:
+          ASAN_OPTIONS: "detect_odr_violation=0:detect_leaks=0:suppressions=tools/asan_suppressions.txt"
+        shell: bash
+        run: |
+          WGSLSMITH="./harness-staging/wgslsmith"
+          if [ -f "${WGSLSMITH}.exe" ]; then
+            WGSLSMITH="${WGSLSMITH}.exe"
+          fi
+          
+          chmod +x "$WGSLSMITH"
+          
+          tint_failures=0
+          naga_failures=0
+          
+          for i in {1..100}; do
+            if ! "$WGSLSMITH" gen | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler tint --backend hlsl > /dev/null; then
+              tint_failures=$((tint_failures + 1))
+            fi
+            if ! "$WGSLSMITH" gen | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler naga --backend hlsl > /dev/null; then
+              naga_failures=$((naga_failures + 1))
+            fi
+          done
+          
+          echo "Tint failures: $tint_failures"
+          echo "Naga failures: $naga_failures"
+          
+          if [ "$tint_failures" -ge 25 ] || [ "$naga_failures" -ge 25 ]; then
+            echo "Too many compilation failures!"
+            exit 1
+          fi
