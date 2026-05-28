@@ -16,13 +16,10 @@ pub struct ReconditionResult {
 
 #[derive(Hash, PartialEq, Eq)]
 enum Wrapper {
-    ExtractBits(DataType),
-    InsertBits(DataType),
     FloatOp(DataType),
     FloatDivide(DataType),
     Smoothstep(DataType),
     Normalize(DataType),
-    Select(DataType, DataType),
     Mod(DataType),
     Index(DataType),
     Pack2x16float,
@@ -36,14 +33,6 @@ impl Wrapper {
     fn gen_fn_decl(&self, unstable_float: bool) -> FnDecl {
         let name = self.to_string();
         match self {
-            Wrapper::ExtractBits(ty) => {
-                if ty.is_signed_int() {
-                    safe_wrappers::extract_bits(name, ty)
-                } else {
-                    safe_wrappers::extract_bits_unsigned(name, ty)
-                }
-            }
-            Wrapper::InsertBits(ty) => safe_wrappers::insert_bits(name, ty),
             Wrapper::FloatOp(ty) => {
                 if unstable_float {
                     safe_wrappers::float_noop(name, ty)
@@ -54,7 +43,6 @@ impl Wrapper {
             Wrapper::FloatDivide(ty) => safe_wrappers::float_divide(name, ty),
             Wrapper::Smoothstep(ty) => safe_wrappers::smoothstep(name, ty),
             Wrapper::Normalize(ty) => safe_wrappers::normalize(name, ty),
-            Wrapper::Select(ty, cond_ty) => safe_wrappers::select(name, ty, cond_ty),
             Wrapper::Mod(ty) => safe_wrappers::modulo(name, ty),
             Wrapper::Index(ty) => safe_wrappers::index(name, ty),
             Wrapper::Pack2x16float => safe_wrappers::pack2x16float(name),
@@ -84,17 +72,9 @@ impl Display for Wrapper {
         write!(f, "_wgslsmith_")?;
 
         match self {
-            Wrapper::Select(ty, cond_ty) => {
-                write!(f, "select_")?;
-                write_type(f, ty)?;
-                write!(f, "_")?;
-                write_type(f, cond_ty)
-            }
             Wrapper::Pack2x16float => write!(f, "pack2x16float"),
             other => {
                 let (name, ty) = match other {
-                    Wrapper::ExtractBits(ty) => ("extract_bits", ty),
-                    Wrapper::InsertBits(ty) => ("insert_bits", ty),
                     Wrapper::FloatOp(ty) => ("f_op", ty),
                     Wrapper::FloatDivide(ty) => ("div", ty),
                     Wrapper::Smoothstep(ty) => ("smoothstep", ty),
@@ -105,7 +85,7 @@ impl Display for Wrapper {
                     Wrapper::Acosh(ty) => ("acosh", ty),
                     Wrapper::Asin(ty) => ("asin", ty),
                     Wrapper::Atanh(ty) => ("atanh", ty),
-                    Wrapper::Select(..) | Wrapper::Pack2x16float => unreachable!(),
+                    Wrapper::Pack2x16float => unreachable!(),
                 };
 
                 write!(f, "{name}_")?;
@@ -635,25 +615,6 @@ impl Reconditioner {
                 }
 
                 let expr = match expr.ident.as_str() {
-                    "extractBits" => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::ExtractBits(
-                            args[0].data_type.dereference().clone(),
-                        )),
-                        args,
-                    ),
-                    "insertBits" if args[0].data_type.is_integer() => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::InsertBits(
-                            args[0].data_type.dereference().clone(),
-                        )),
-                        args,
-                    ),
-                    "select" => FnCallExpr::new(
-                        self.safe_wrapper(Wrapper::Select(
-                            args[0].data_type.dereference().clone(),
-                            args[2].data_type.dereference().clone(),
-                        )),
-                        args,
-                    ),
                     "pack2x16float" => {
                         FnCallExpr::new(self.safe_wrapper(Wrapper::Pack2x16float), args)
                     }
