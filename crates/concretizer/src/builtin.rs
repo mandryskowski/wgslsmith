@@ -388,7 +388,7 @@ fn evaluate_two_arg_builtin(ident: &Builtin, arg1: Value, arg2: Value) -> Option
         (Value::Vector(val1), Value::Vector(val2)) => {
             let mut result = Vec::new();
 
-            for (x, y) in val1.into_iter().zip(val2.into_iter()) {
+            for (x, y) in val1.into_iter().zip(val2) {
                 let elem = evaluate_two_arg_builtin(ident, x, y);
 
                 match elem {
@@ -418,7 +418,7 @@ fn evaluate_three_arg_builtin(
         (Value::Vector(val1), Value::Vector(val2), Value::Vector(val3)) => {
             let mut result = Vec::new();
 
-            for ((x, y), z) in val1.into_iter().zip(val2.into_iter()).zip(val3.into_iter()) {
+            for ((x, y), z) in val1.into_iter().zip(val2).zip(val3) {
                 let elem = evaluate_three_arg_builtin(ident, x, y, z);
 
                 match elem {
@@ -434,7 +434,7 @@ fn evaluate_three_arg_builtin(
         (Value::Vector(val1), Value::Vector(val2), Value::Lit(val3)) => {
             let mut result = Vec::new();
 
-            for (x, y) in val1.into_iter().zip(val2.into_iter()) {
+            for (x, y) in val1.into_iter().zip(val2) {
                 let elem = evaluate_three_arg_builtin(ident, x, y, Value::Lit(val3));
 
                 match elem {
@@ -1729,7 +1729,7 @@ fn evaluate_distance(arg1: Value, arg2: Value) -> Option<Value> {
             }
             let mut sum = 0.0;
             let mut is_f16 = false;
-            for (a, b) in v1.into_iter().zip(v2.into_iter()) {
+            for (a, b) in v1.into_iter().zip(v2) {
                 match (a, b) {
                     (Value::Lit(Lit::F32(fa)), Value::Lit(Lit::F32(fb))) => {
                         let diff = in_float_range(fa - fb)?;
@@ -1860,7 +1860,7 @@ fn evaluate_reflect(arg1: Value, arg2: Value) -> Option<Value> {
     match (arg1, arg2, dot) {
         (Value::Vector(v1), Value::Vector(v2), Value::Lit(Lit::F32(d))) => {
             let mut res = Vec::new();
-            for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+            for (e1, e2) in v1.into_iter().zip(v2) {
                 if let (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) = (e1, e2) {
                     let p = in_float_range(2.0 * d * f2)?;
                     let r = in_float_range(f1 - p)?;
@@ -1874,7 +1874,7 @@ fn evaluate_reflect(arg1: Value, arg2: Value) -> Option<Value> {
         (Value::Vector(v1), Value::Vector(v2), Value::Lit(Lit::F16(d))) => {
             let mut res = Vec::new();
             let d32 = d.to_f32();
-            for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+            for (e1, e2) in v1.into_iter().zip(v2) {
                 if let (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) = (e1, e2) {
                     let p =
                         in_float16_range(half::f16::from_f32(2.0 * d32 * f2.to_f32()))?.to_f32();
@@ -1942,7 +1942,7 @@ fn evaluate_refract(arg1: Value, arg2: Value, arg3: Value) -> Option<Value> {
         match (arg1, arg2) {
             (Value::Vector(v1), Value::Vector(v2)) => {
                 let mut res = Vec::new();
-                for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+                for (e1, e2) in v1.into_iter().zip(v2) {
                     if let (Value::Lit(Lit::F16(f1)), Value::Lit(Lit::F16(f2))) = (e1, e2) {
                         let p1 = in_float16_range(half::f16::from_f32(e3 * f1.to_f32()))?.to_f32();
                         let p2 = in_float16_range(half::f16::from_f32(e3 * d + sqrt_k))?.to_f32();
@@ -1970,7 +1970,7 @@ fn evaluate_refract(arg1: Value, arg2: Value, arg3: Value) -> Option<Value> {
         match (arg1, arg2) {
             (Value::Vector(v1), Value::Vector(v2)) => {
                 let mut res = Vec::new();
-                for (e1, e2) in v1.into_iter().zip(v2.into_iter()) {
+                for (e1, e2) in v1.into_iter().zip(v2) {
                     if let (Value::Lit(Lit::F32(f1)), Value::Lit(Lit::F32(f2))) = (e1, e2) {
                         let p1 = in_float_range(e3 * f1)?;
                         let p2 = in_float_range(e3 * d + sqrt_k)?;
