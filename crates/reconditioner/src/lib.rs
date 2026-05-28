@@ -33,7 +33,7 @@ enum Wrapper {
 }
 
 impl Wrapper {
-    fn gen_fn_decl(&self) -> FnDecl {
+    fn gen_fn_decl(&self, unstable_float: bool) -> FnDecl {
         let name = self.to_string();
         match self {
             Wrapper::ExtractBits(ty) => {
@@ -44,7 +44,13 @@ impl Wrapper {
                 }
             }
             Wrapper::InsertBits(ty) => safe_wrappers::insert_bits(name, ty),
-            Wrapper::FloatOp(ty) => safe_wrappers::float(name, ty),
+            Wrapper::FloatOp(ty) => {
+                if unstable_float {
+                    safe_wrappers::float_noop(name, ty)
+                } else {
+                    safe_wrappers::float(name, ty)
+                }
+            }
             Wrapper::FloatDivide(ty) => safe_wrappers::float_divide(name, ty),
             Wrapper::Smoothstep(ty) => safe_wrappers::smoothstep(name, ty),
             Wrapper::Normalize(ty) => safe_wrappers::normalize(name, ty),
@@ -134,7 +140,7 @@ pub fn recondition_with(mut ast: Module, options: Options) -> Module {
     ast.functions = reconditioner
         .wrappers
         .iter()
-        .map(Wrapper::gen_fn_decl)
+        .map(|w| w.gen_fn_decl(reconditioner.unstable_float))
         .chain(functions)
         .collect();
 
@@ -530,7 +536,7 @@ impl Reconditioner {
                     UnOp::Neg => {
                         let data_type = inner.data_type.dereference().clone();
                         let mut expr = UnOpExpr::new(UnOp::Neg, inner).into();
-                        if !self.unstable_float && !data_type.is_matrix() {
+                        if !data_type.is_matrix() {
                             if let Some(scalar) = data_type.as_scalar() {
                                 if matches!(scalar, ScalarType::F32 | ScalarType::F16) {
                                     expr = FnCallExpr::new(
@@ -550,10 +556,21 @@ impl Reconditioner {
                 let left = self.recondition_expr(*expr.left);
                 let right = self.recondition_expr(*expr.right);
                 if self.unstable_float {
-                    return ExprNode {
-                        data_type: node.data_type,
+                    if let BinOp::LShift | BinOp::RShift = expr.op {
+                        return self.recondition_shift_expr(node.data_type, expr.op, left, right);
+                    }
+                    let binop = ExprNode {
+                        data_type: node.data_type.clone(),
                         expr: Expr::BinOp(BinOpExpr::new(expr.op, left, right)),
                     };
+                    if !node.data_type.is_matrix() && matches!(node.data_type.as_scalar(), Some(ScalarType::F32 | ScalarType::F16)) {
+                        return FnCallExpr::new(
+                            self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
+                            vec![binop],
+                        )
+                        .into_node(node.data_type);
+                    }
+                    return binop;
                 }
                 return self.recondition_bin_op_expr(node.data_type, expr.op, left, right);
             }
@@ -567,10 +584,18 @@ impl Reconditioner {
                 if self.unstable_float {
                     let mut new_call = FnCallExpr::new(expr.ident, args);
                     new_call.template_args = expr.template_args;
-                    return ExprNode {
-                        data_type: node.data_type,
+                    let call_node = ExprNode {
+                        data_type: node.data_type.clone(),
                         expr: Expr::FnCall(new_call),
                     };
+                    if !node.data_type.is_matrix() && matches!(node.data_type.as_scalar(), Some(ScalarType::F32 | ScalarType::F16)) {
+                        return FnCallExpr::new(
+                            self.safe_wrapper(Wrapper::FloatOp(node.data_type.clone())),
+                            vec![call_node],
+                        )
+                        .into_node(node.data_type);
+                    }
+                    return call_node;
                 }
 
                 let expr = match expr.ident.as_str() {

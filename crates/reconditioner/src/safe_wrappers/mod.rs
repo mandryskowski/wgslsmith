@@ -17,6 +17,7 @@ use ast::{
 pub use extract_bits::extract_bits;
 pub use extract_bits::extract_bits_unsigned;
 pub use float::float;
+pub use float::float_noop;
 pub use float_divide::float_divide;
 pub use index::index;
 pub use insert_bits::insert_bits;
