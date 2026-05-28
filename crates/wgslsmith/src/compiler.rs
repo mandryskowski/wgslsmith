@@ -164,21 +164,24 @@ fn compile_naga(source: &str, backend: Backend, validate_output: bool) -> eyre::
 fn compile_tint(source: &str, backend: Backend, validate_output: bool) -> eyre::Result<String> {
     let out = match backend {
         Backend::Hlsl => {
-            let hlsl = tint::compile_shader_to_hlsl(source);
+            let hlsl = tint::compile_shader_to_hlsl(source)
+                .ok_or_else(|| eyre!("tint failed to compile to hlsl"))?;
             if validate_output {
                 validate_hlsl(&hlsl)?;
             }
             hlsl
         }
         Backend::Msl => {
-            let msl = tint::compile_shader_to_msl(source);
+            let msl = tint::compile_shader_to_msl(source)
+                .ok_or_else(|| eyre!("tint failed to compile to msl"))?;
             if validate_output {
                 validate_msl(&msl)?;
             }
             msl
         }
         Backend::Spirv => {
-            let binary = tint::compile_shader_to_spirv(source);
+            let binary = tint::compile_shader_to_spirv(source)
+                .ok_or_else(|| eyre!("tint failed to compile to spirv"))?;
             if validate_output {
                 validate_spirv(&binary)?;
             }
