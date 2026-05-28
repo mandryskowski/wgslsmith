@@ -16,23 +16,23 @@ pub fn validate_shader(source: &str) -> bool {
     unsafe { ffi::validate_shader(source.as_ptr()) }
 }
 
-pub fn compile_shader_to_hlsl(source: &str) -> String {
+pub fn compile_shader_to_hlsl(source: &str) -> Option<String> {
     let source = CString::new(source).unwrap();
-    unsafe { ffi::compile_shader_to_hlsl(source.as_ptr()) }.to_string()
+    unsafe { ffi::compile_shader_to_hlsl(source.as_ptr()) }
+        .as_ref()
+        .map(ToString::to_string)
 }
 
-pub fn compile_shader_to_msl(source: &str) -> String {
+pub fn compile_shader_to_msl(source: &str) -> Option<String> {
     let source = CString::new(source).unwrap();
-    unsafe { ffi::compile_shader_to_msl(source.as_ptr()) }.to_string()
+    unsafe { ffi::compile_shader_to_msl(source.as_ptr()) }
+        .as_ref()
+        .map(ToString::to_string)
 }
 
-pub fn compile_shader_to_spirv(source: &str) -> Vec<u32> {
+pub fn compile_shader_to_spirv(source: &str) -> Option<Vec<u32>> {
     let source = CString::new(source).unwrap();
-    let result = unsafe { ffi::compile_shader_to_spirv(source.as_ptr()) };
-
-    if result.is_null() {
-        Vec::new()
-    } else {
-        result.as_slice().to_vec()
-    }
+    unsafe { ffi::compile_shader_to_spirv(source.as_ptr()) }
+        .as_ref()
+        .map(|v| v.as_slice().to_vec())
 }

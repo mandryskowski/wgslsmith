@@ -19,7 +19,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        # We use this hack because somehow ignoring directories in fmt is an unstable feature...
+        # https://github.com/rust-lang/rustfmt/issues/3395
+        # and wgpu formatting sometimes does not match ours.
+        run: find crates -name "*.rs" -exec rustfmt --edition 2021 --check {} + # cargo fmt --all -- --check
 
       - uses: pietrobolcato/action-read-yaml@1.1.0
         id: read_versions
@@ -287,6 +290,12 @@ jobs:
           name: harness-${{ matrix.artifact }}${{ env.ARTIFACT_SUFFIX }}
           path: harness-staging
 
+      - name: Download wgslsmith
+        uses: actions/download-artifact@v4
+        with:
+          name: wgslsmith-${{ matrix.artifact }}${{ env.ARTIFACT_SUFFIX }}
+          path: harness-staging
+
       - name: Copy dependencies (Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
@@ -315,3 +324,45 @@ jobs:
           touch tools/asan_suppressions.txt
           
           ./harness-staging/wgslsmith-harness run crates/harness/test.wgsl crates/harness/test.json
+
+  test_generator_output_validity:
+    runs-on: ubuntu-latest
+    needs: build_binaries
+    steps:
+      - name: Download wgslsmith
+        uses: actions/download-artifact@v4
+        with:
+          name: wgslsmith-linux64
+          path: wgslsmith-staging
+
+      - name: Test generator output validity
+        shell: bash
+        run: |
+          WGSLSMITH="./wgslsmith-staging/wgslsmith"
+          if [ -f "${WGSLSMITH}.exe" ]; then
+            WGSLSMITH="${WGSLSMITH}.exe"
+          fi
+          
+          chmod +x "$WGSLSMITH"
+          
+          for stage in compute vertex fragment; do
+            echo "Testing stage: $stage"
+            tint_failures=0
+            naga_failures=0
+            
+            for i in {1..100}; do
+              if ! "$WGSLSMITH" gen --stage "$stage" --unstable-float --gen-ext f16 --gen-ext subgroups | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler tint --backend hlsl > /dev/null; then
+                tint_failures=$((tint_failures + 1))
+              fi
+              if ! "$WGSLSMITH" gen --stage "$stage" --unstable-float --gen-ext f16 | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler naga --backend hlsl > /dev/null; then
+                naga_failures=$((naga_failures + 1))
+              fi
+            done
+            
+            echo "Stage $stage: Tint failures: $tint_failures, Naga failures: $naga_failures"
+            
+            if [ "$tint_failures" -ge 25 ] || [ "$naga_failures" -ge 25 ]; then
+              echo "Too many compilation failures for stage $stage!"
+              exit 1
+            fi
+          done

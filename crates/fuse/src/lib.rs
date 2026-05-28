@@ -401,18 +401,17 @@ fn rename_type(ty: &mut DataType, suffix: &str, globals: &HashSet<String>) {
             rename_type(&mut new_inner, suffix, globals);
             *inner = Rc::new(new_inner);
         }
-        DataType::Struct(decl) => {
-            if globals.contains(&decl.name) {
-                let new_name = format!("{}{}", decl.name, suffix);
-                let mut new_members = vec![];
-                for m in &decl.members {
-                    let mut new_dt = m.data_type.clone();
-                    rename_type(&mut new_dt, suffix, globals);
-                    new_members.push(StructMember::new(m.attrs.clone(), m.name.clone(), new_dt));
-                }
-                *decl = StructDecl::new(new_name, new_members);
+        DataType::Struct(decl) if globals.contains(&decl.name) => {
+            let new_name = format!("{}{}", decl.name, suffix);
+            let mut new_members = vec![];
+            for m in &decl.members {
+                let mut new_dt = m.data_type.clone();
+                rename_type(&mut new_dt, suffix, globals);
+                new_members.push(StructMember::new(m.attrs.clone(), m.name.clone(), new_dt));
             }
+            *decl = StructDecl::new(new_name, new_members);
         }
+
         DataType::Ptr(view) | DataType::Ref(view) => {
             let mut new_inner = (*view.inner).clone();
             rename_type(&mut new_inner, suffix, globals);
