@@ -345,7 +345,7 @@ jobs:
           
           chmod +x "$WGSLSMITH"
           
-          for args in "--unstable-float"; do
+          for args in "" "--unstable-float"; do
             for stage in compute vertex fragment; do
               echo "Testing stage: $stage $args"
               tint_failures=0
