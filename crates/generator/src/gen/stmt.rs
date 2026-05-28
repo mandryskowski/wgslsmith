@@ -3,10 +3,11 @@ use std::mem;
 
 use ast::types::{DataType, MemoryViewType, ScalarType};
 use ast::{
-    AssignmentLhs, AssignmentOp, AssignmentStatement, BinOp, BinOpExpr, ContinuingBlock, Expr,
-    ExprNode, ForLoopHeader, ForLoopInit, ForLoopStatement, ForLoopUpdate, IfStatement,
-    LetDeclStatement, LhsExprNode, Lit, LoopStatement, ReturnStatement, Statement, StorageClass,
-    SwitchCase, SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr, WhileStatement,
+    AssignmentLhs, AssignmentOp, AssignmentStatement, BinOp, BinOpExpr, ConstDeclStatement,
+    ContinuingBlock, Expr, ExprNode, ForLoopHeader, ForLoopInit, ForLoopStatement, ForLoopUpdate,
+    IfStatement, LetDeclStatement, LhsExprNode, Lit, LoopStatement, ReturnStatement, Statement,
+    StorageClass, SwitchCase, SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr,
+    WhileStatement,
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -18,6 +19,7 @@ use super::utils::is_terminal_stmt;
 enum StatementType {
     LetDecl,
     VarDecl,
+    ConstDecl,
     Assignment,
     // Compound,
     If,
@@ -33,7 +35,11 @@ enum StatementType {
 
 impl super::Generator<'_> {
     pub fn gen_stmt(&mut self) -> Statement {
-        let mut allowed = vec![StatementType::LetDecl, StatementType::VarDecl];
+        let mut allowed = vec![
+            StatementType::LetDecl,
+            StatementType::VarDecl,
+            StatementType::ConstDecl,
+        ];
 
         if !self.fn_state.is_continuing && !self.fn_state.is_entrypoint {
             allowed.push(StatementType::Return);
@@ -68,8 +74,9 @@ impl super::Generator<'_> {
         }
 
         let weights = |t: &StatementType| match t {
-            StatementType::LetDecl => 10,
+            StatementType::LetDecl => 5,
             StatementType::VarDecl => 10,
+            StatementType::ConstDecl => 5,
             StatementType::Assignment => 20,
             // StatementType::Compound => 1,
             StatementType::If => 5,
@@ -86,6 +93,7 @@ impl super::Generator<'_> {
         match allowed.choose_weighted(self.rng, weights).unwrap() {
             StatementType::LetDecl => self.gen_let_stmt(),
             StatementType::VarDecl => self.gen_var_stmt(),
+            StatementType::ConstDecl => self.gen_const_stmt(),
             StatementType::Assignment => self.gen_assignment_stmt().into(),
             // StatementType::Compound => self.gen_compound_stmt(),
             StatementType::If => self.gen_if_stmt(),
@@ -121,6 +129,11 @@ impl super::Generator<'_> {
     fn gen_var_stmt(&mut self) -> Statement {
         let ty = self.cx.types.select(self.rng);
         VarDeclStatement::new(self.scope.next_name(), None, Some(self.gen_expr(&ty))).into()
+    }
+
+    fn gen_const_stmt(&mut self) -> Statement {
+        let ty = self.cx.types.select(self.rng);
+        ConstDeclStatement::new(self.scope.next_name(), None, self.gen_const_expr(&ty)).into()
     }
 
     fn gen_assignment_stmt(&mut self) -> AssignmentStatement {
@@ -435,6 +448,9 @@ impl super::Generator<'_> {
 
                 // If we generated a variable declaration, track it in the environment
                 if let Statement::LetDecl(stmt) = &stmt {
+                    this.scope
+                        .insert_readonly(stmt.ident.clone(), stmt.initializer.data_type.clone());
+                } else if let Statement::ConstDecl(stmt) = &stmt {
                     this.scope
                         .insert_readonly(stmt.ident.clone(), stmt.initializer.data_type.clone());
                 } else if let Statement::VarDecl(stmt) = &stmt {

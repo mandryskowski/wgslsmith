@@ -100,9 +100,25 @@ fn compile_naga(source: &str, backend: Backend, validate_output: bool) -> eyre::
     use naga::front::wgsl;
     use naga::valid::{Capabilities, ValidationFlags, Validator};
 
-    let module = wgsl::parse_str(&source.replace("@stage(compute)", "@compute"))?;
-    let validation =
-        Validator::new(ValidationFlags::default(), Capabilities::all()).validate(&module)?;
+    let parsed_module = wgsl::parse_str(&source.replace("@stage(compute)", "@compute"))?;
+
+    let initial_validation =
+        Validator::new(ValidationFlags::default(), Capabilities::all()).validate(&parsed_module)?;
+
+    let ep = parsed_module
+        .entry_points
+        .first()
+        .ok_or_else(|| eyre!("no entry point found"))?;
+    let ep_stage = ep.stage;
+    let ep_name = ep.name.clone();
+
+    let (module, validation) = naga::back::pipeline_constants::process_overrides(
+        &parsed_module,
+        &initial_validation,
+        Some((ep_stage, ep_name.as_str())),
+        &Default::default(),
+    )
+    .map_err(|e| eyre!("Failed to process overrides: {:?}", e))?;
 
     let mut out = String::new();
 
@@ -114,13 +130,8 @@ fn compile_naga(source: &str, backend: Backend, validate_output: bool) -> eyre::
                 ..Default::default()
             };
 
-            let ep = module
-                .entry_points
-                .first()
-                .ok_or_else(|| eyre!("no entry point found"))?;
-
             let pipeline_options = hlsl::PipelineOptions {
-                entry_point: Some((ep.stage, ep.name.clone())),
+                entry_point: Some((ep_stage, ep_name)),
             };
 
             hlsl::Writer::new(&mut out, &options, &pipeline_options).write(

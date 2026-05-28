@@ -13,10 +13,10 @@ use std::rc::Rc;
 
 use ast::types::{DataType, MemoryViewType};
 use ast::{
-    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, Expr, ExprNode,
-    FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement,
-    Lit, Module, Postfix, PostfixExpr, ReturnStatement, ScalarType, Statement, StorageClass,
-    VarExpr, VarQualifier,
+    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, ConstDeclStatement,
+    Expr, ExprNode, FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl,
+    LetDeclStatement, Lit, Module, OverrideDecl, Postfix, PostfixExpr, ReturnStatement, ScalarType,
+    Statement, StorageClass, VarExpr, VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
@@ -200,6 +200,42 @@ impl<'a> Generator<'a> {
             global_vars.push(self.gen_global_var(name, &mut workgroup_size));
         }
 
+        let mut consts = vec![];
+        for i in 0..self.rng.gen_range(0..=5) {
+            let ty = self.cx.types.select(self.rng);
+            let name = format!("global_const_{i}");
+            let initializer = self.gen_const_expr(&ty);
+            consts.push(ConstDeclStatement::new(
+                name.clone(),
+                Some(ty.clone()),
+                initializer,
+            ));
+            self.global_scope.insert_readonly(name, ty);
+        }
+
+        let mut overrides = vec![];
+        let mut allowed_override_scalars = vec![
+            ScalarType::I32,
+            ScalarType::U32,
+            ScalarType::F32,
+            ScalarType::Bool,
+        ];
+        if self.options.enable_f16() {
+            allowed_override_scalars.push(ScalarType::F16);
+        }
+        for i in 0..self.rng.gen_range(0..=0) {
+            let ty = DataType::Scalar(*allowed_override_scalars.choose(self.rng).unwrap());
+            let name = format!("override_{i}");
+            let initializer = Some(self.gen_const_expr(&ty));
+            overrides.push(OverrideDecl {
+                attrs: vec![],
+                name: name.clone(),
+                data_type: Some(ty.clone()),
+                initializer,
+            });
+            self.global_scope.insert_readonly(name, ty);
+        }
+
         if self.options.stage == crate::ShaderStage::Compute {
             let atomic_vars = [
                 ("wg_atomic_u32", DataType::Atomic(ScalarType::U32)),
@@ -282,9 +318,9 @@ impl<'a> Generator<'a> {
                 structs.extend(extra_sb_decls);
                 structs
             },
-            consts: vec![],
+            consts,
             const_asserts: vec![],
-            overrides: vec![],
+            overrides,
             vars: global_vars,
             functions,
         }

@@ -257,9 +257,6 @@ impl Concretizer {
                 initializer,
             }) => {
                 let con_init = self.concretize_expr(initializer);
-                if let Some(val) = &con_init.value {
-                    self.insert_const(ident.clone(), val.clone());
-                }
                 LetDeclStatement::new(ident, data_type, con_init).into()
             }
             Statement::ConstDecl(ConstDeclStatement {
@@ -428,9 +425,6 @@ impl Concretizer {
                 initializer,
             }) => {
                 let con_init = self.concretize_expr(initializer);
-                if let Some(val) = &con_init.value {
-                    self.insert_const(ident.clone(), val.clone());
-                }
                 ForLoopInit::LetDecl(LetDeclStatement::new(ident, data_type, con_init))
             }
             ForLoopInit::ConstDecl(ConstDeclStatement {
@@ -581,28 +575,39 @@ impl Concretizer {
                 let concrete_postfix = match expr.postfix {
                     Postfix::Index(index) => {
                         let con_index = self.concretize_expr(*index);
-                        if let (Some(Value::Vector(vec)), Some(idx_val)) =
+                        if let (Some(val), Some(idx_val)) =
                             (&concrete_inner.value, &con_index.value)
                         {
-                            let idx = match idx_val {
-                                Value::Lit(Lit::I32(i)) => {
-                                    if *i >= 0 {
-                                        *i as usize
-                                    } else {
-                                        usize::MAX
-                                    }
-                                }
-                                Value::Lit(Lit::U32(u)) => *u as usize,
-                                _ => usize::MAX,
+                            let vec = match val {
+                                Value::Vector(v) => Some(v),
+                                Value::Array(v) => Some(v),
+                                _ => None,
                             };
-                            if idx < vec.len() {
-                                postfix_value = Some(vec[idx].clone());
+                            if let Some(vec) = vec {
+                                let idx = match idx_val {
+                                    Value::Lit(Lit::I32(i)) => {
+                                        if *i >= 0 {
+                                            *i as usize
+                                        } else {
+                                            usize::MAX
+                                        }
+                                    }
+                                    Value::Lit(Lit::U32(u)) => *u as usize,
+                                    _ => usize::MAX,
+                                };
+                                if idx < vec.len() {
+                                    postfix_value = Some(vec[idx].clone());
+                                }
                             }
                         }
                         Postfix::Index(Box::new(con_index.into()))
                     }
                     Postfix::Member(string) => {
-                        if let Some(Value::Vector(vec)) = &concrete_inner.value {
+                        if let Some(Value::Struct(map)) = &concrete_inner.value {
+                            if let Some(val) = map.get(&string) {
+                                postfix_value = Some(val.clone());
+                            }
+                        } else if let Some(Value::Vector(vec)) = &concrete_inner.value {
                             let mut res = Vec::new();
                             let mut valid = true;
                             for c in string.chars() {
@@ -636,7 +641,7 @@ impl Concretizer {
                 };
 
                 ConNode {
-                    node: PostfixExpr::new(concrete_inner, concrete_postfix).into(),
+                    node: PostfixExpr::new(concrete_inner.node, concrete_postfix).into(),
                     value: postfix_value,
                 }
             }
@@ -721,15 +726,43 @@ impl Concretizer {
             }
             // If the function ident is not implemented in eval_builtin, then
             // simply return the same node with a None value
-            None => ConNode {
-                node: FnCallExpr {
-                    ident,
-                    args: nodes,
-                    template_args,
+            None => {
+                if let DataType::Struct(decl) = &data_type {
+                    if decl.name == ident {
+                        let new_val = if self.contains_none(&vals) {
+                            None
+                        } else if vals.is_empty() {
+                            self.zero_value(&data_type)
+                        } else {
+                            let values: Vec<Value> = vals.into_iter().map(|v| v.unwrap()).collect();
+                            let mut map = std::collections::HashMap::new();
+                            for (member, val) in decl.members.iter().zip(values) {
+                                map.insert(member.name.clone(), val);
+                            }
+                            Some(Value::Struct(map))
+                        };
+                        return ConNode {
+                            node: FnCallExpr {
+                                ident,
+                                args: nodes,
+                                template_args,
+                            }
+                            .into_node(data_type),
+                            value: new_val,
+                        };
+                    }
                 }
-                .into_node(data_type),
-                value: None,
-            },
+
+                ConNode {
+                    node: FnCallExpr {
+                        ident,
+                        args: nodes,
+                        template_args,
+                    }
+                    .into_node(data_type),
+                    value: None,
+                }
+            }
         }
     }
 
@@ -754,6 +787,18 @@ impl Concretizer {
                 let vec_zero = self.zero_value(&DataType::Vector(*r, *ty));
                 Value::Vector(vec![vec_zero?; *c as usize])
             }),
+            DataType::Array(inner, Some(size)) => Some({
+                let inner_zero = self.zero_value(inner)?;
+                Value::Array(vec![inner_zero; *size as usize])
+            }),
+            DataType::Struct(decl) => {
+                let mut map = std::collections::HashMap::new();
+                for member in &decl.members {
+                    let inner_zero = self.zero_value(&member.data_type)?;
+                    map.insert(member.name.clone(), inner_zero);
+                }
+                Some(Value::Struct(map))
+            }
             _ => None,
         }
     }
@@ -774,17 +819,24 @@ impl Concretizer {
         } else {
             let mut values: Vec<Value> = new_val.into_iter().map(|v| v.unwrap()).collect();
 
-            if let DataType::Scalar(_) = data_type {
-                Some(values.pop().unwrap())
-            } else {
-                // Handle vector splat constructor: vecN<T>(scalar)
-                if let DataType::Vector(size, _) = data_type {
-                    if values.len() == 1 && size > 1 {
-                        values = vec![values[0].clone(); size as usize];
+            match &data_type {
+                DataType::Scalar(_) => Some(values.pop().unwrap()),
+                DataType::Vector(size, _) => {
+                    if values.len() == 1 && *size > 1 {
+                        values = vec![values[0].clone(); *size as usize];
                     }
+                    Some(Value::Vector(values))
                 }
-
-                Some(Value::Vector(values))
+                DataType::Matrix(_, _, _) => Some(Value::Vector(values)),
+                DataType::Array(_, _) => Some(Value::Array(values)),
+                DataType::Struct(decl) => {
+                    let mut map = std::collections::HashMap::new();
+                    for (member, val) in decl.members.iter().zip(values) {
+                        map.insert(member.name.clone(), val);
+                    }
+                    Some(Value::Struct(map))
+                }
+                _ => None,
             }
         };
 
@@ -966,6 +1018,26 @@ impl Concretizer {
                     value: Some(Value::Vector(vec![col_node.value.unwrap(); c as usize])),
                 }
             }
+            DataType::Array(ref inner, Some(size)) => {
+                let inner_node = self.default_node(inner.as_ref().clone());
+                ConNode {
+                    node: TypeConsExpr::new(data_type, vec![inner_node.node; size as usize]).into(),
+                    value: Some(Value::Array(vec![inner_node.value.unwrap(); size as usize])),
+                }
+            }
+            DataType::Struct(ref decl) => {
+                let mut args = Vec::new();
+                let mut map = std::collections::HashMap::new();
+                for member in &decl.members {
+                    let member_node = self.default_node(member.data_type.clone());
+                    args.push(member_node.node);
+                    map.insert(member.name.clone(), member_node.value.unwrap());
+                }
+                ConNode {
+                    node: TypeConsExpr::new(data_type, args).into(),
+                    value: Some(Value::Struct(map)),
+                }
+            }
             _ => {
                 println!("data type: {data_type}");
                 todo!();
@@ -990,6 +1062,7 @@ impl Concretizer {
 
                 self.eval_bin_op_vector(op, lv.to_vec(), rv_vec)
             }
+            _ => unreachable!(),
         }
     }
 
@@ -1188,6 +1261,7 @@ impl Concretizer {
 
                     self.eval_bin_op_vector(op, lv_vec, rv.to_vec())
                 }
+                _ => unreachable!(),
             };
 
             match elem {
@@ -1224,6 +1298,7 @@ impl Concretizer {
         match inner.value.unwrap() {
             Value::Vector(v) => self.eval_unop_vector(op, v),
             Value::Lit(v) => self.eval_unop_scalar(op, v),
+            _ => unreachable!(),
         }
     }
 
@@ -1282,6 +1357,7 @@ impl Concretizer {
                         }
                     }
                 }
+                Value::Array(_) | Value::Struct(_) => unreachable!(),
             }
         }
 
