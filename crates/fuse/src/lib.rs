@@ -12,7 +12,38 @@ pub fn fuse(module_a: Module, mut module_b: Module) -> Module {
 
     rename_module(&mut module_b, &suffix);
     adjust_groups(&module_a, &mut module_b);
+    adjust_overrides(&module_a, &mut module_b);
     fuse_modules(module_a, module_b)
+}
+
+fn adjust_overrides(module_a: &Module, module_b: &mut Module) {
+    let mut max_id: i32 = -1;
+    for o in &module_a.overrides {
+        for attr in &o.attrs {
+            let OverrideAttr::Id(id) = attr;
+            let id_i32: i32 = (*id).try_into().unwrap_or(0);
+            max_id = max_id.max(id_i32);
+        }
+    }
+
+    let mut current_id = max_id + 1;
+
+    for o in &mut module_b.overrides {
+        let has_id = o
+            .attrs
+            .iter()
+            .any(|attr| matches!(attr, OverrideAttr::Id(_)));
+
+        if has_id {
+            for attr in &mut o.attrs {
+                let OverrideAttr::Id(id) = attr;
+                if let Ok(c) = current_id.try_into() {
+                    *id = c;
+                }
+            }
+            current_id += 1;
+        }
+    }
 }
 
 fn adjust_groups(module_a: &Module, module_b: &mut Module) {
