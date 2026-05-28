@@ -352,7 +352,7 @@ jobs:
               naga_failures=0
               
               for i in {1..100}; do
-                if ! timeout 5s bash -c "\"$WGSLSMITH\" gen --stage \"$stage\" --unstable-float --gen-ext f16 --gen-ext subgroups | \"$WGSLSMITH\" recondition $args | \"$WGSLSMITH\" compile --compiler tint --backend hlsl > /dev/null"; then
+                if ! timeout 5s bash -c "\"$WGSLSMITH\" gen --stage \"$stage\" --unstable-float --gen-ext f16 --gen-ext subgroups --preset tint | \"$WGSLSMITH\" recondition $args | \"$WGSLSMITH\" compile --compiler tint --backend hlsl > /dev/null"; then
                   tint_failures=$((tint_failures + 1))
                 fi
                 
