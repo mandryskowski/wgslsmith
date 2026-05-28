@@ -4,6 +4,8 @@ use ast::*;
 pub enum Value {
     Lit(Lit),
     Vector(Vec<Value>),
+    Array(Vec<Value>),
+    Struct(std::collections::HashMap<String, Value>),
 }
 impl From<i32> for Value {
     fn from(val: i32) -> Self {

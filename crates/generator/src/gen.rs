@@ -13,10 +13,10 @@ use std::rc::Rc;
 
 use ast::types::{DataType, MemoryViewType};
 use ast::{
-    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, ConstDeclStatement, Expr, ExprNode,
-    FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl, LetDeclStatement,
-    Lit, Module, OverrideDecl, Postfix, PostfixExpr, ReturnStatement, ScalarType, Statement, StorageClass,
-    VarExpr, VarQualifier,
+    AccessMode, AssignmentLhs, AssignmentOp, AssignmentStatement, BuiltinValue, ConstDeclStatement,
+    Expr, ExprNode, FnAttr, FnDecl, FnInput, FnParamReturnAttr, GlobalVarAttr, GlobalVarDecl,
+    LetDeclStatement, Lit, Module, OverrideDecl, Postfix, PostfixExpr, ReturnStatement, ScalarType,
+    Statement, StorageClass, VarExpr, VarQualifier,
 };
 use rand::prelude::{SliceRandom, StdRng};
 use rand::Rng;
@@ -205,7 +205,11 @@ impl<'a> Generator<'a> {
             let ty = self.cx.types.select(self.rng);
             let name = format!("global_const_{i}");
             let initializer = self.gen_const_expr(&ty);
-            consts.push(ConstDeclStatement::new(name.clone(), Some(ty.clone()), initializer));
+            consts.push(ConstDeclStatement::new(
+                name.clone(),
+                Some(ty.clone()),
+                initializer,
+            ));
             self.global_scope.insert_readonly(name, ty);
         }
 

@@ -401,6 +401,7 @@ fn evaluate_single_arg_builtin(ident: &Builtin, arg: Value) -> Option<Value> {
 
             Some(Value::Vector(result))
         }
+        _ => unreachable!(),
     }
 }
 
@@ -423,7 +424,7 @@ fn evaluate_two_arg_builtin(ident: &Builtin, arg1: Value, arg2: Value) -> Option
 
             Some(Value::Vector(result))
         }
-        _ => todo!(), // cannot have mixed types in implemented builtin fn evaluation
+        _ => unreachable!(), // cannot have mixed types in implemented builtin fn evaluation
     }
 }
 
@@ -2063,6 +2064,7 @@ fn evaluate_refract(arg1: Value, arg2: Value, arg3: Value) -> Option<Value> {
                     Some(Value::Lit(Lit::F32(0.0)))
                 }
             }
+            _ => unreachable!(),
         }
     } else {
         let sqrt_k = check(k.sqrt())?;

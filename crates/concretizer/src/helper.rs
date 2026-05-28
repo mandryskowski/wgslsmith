@@ -9,6 +9,8 @@ pub(crate) fn is_zero(val: &Value) -> bool {
         Value::Lit(Lit::F32(v)) => *v == 0.0,
         Value::Lit(Lit::F16(v)) => *v == half::f16::ZERO,
         Value::Vector(vec) => vec.iter().any(is_zero),
+        Value::Array(vec) => vec.iter().any(is_zero),
+        Value::Struct(map) => map.values().any(is_zero),
         _ => false,
     }
 }
@@ -68,6 +70,7 @@ pub fn is_invalid_clamp_bounds(low: &Value, high: &Value) -> bool {
         (Value::Vector(l_vec), Value::Lit(_)) => {
             l_vec.iter().any(|l| is_invalid_clamp_bounds(l, high))
         }
+        _ => unreachable!(),
     }
 }
 
@@ -95,6 +98,7 @@ pub fn is_invalid_smoothstep_bounds(low: &Value, high: &Value) -> bool {
         (Value::Vector(l_vec), Value::Lit(_)) => {
             l_vec.iter().any(|l| is_invalid_smoothstep_bounds(l, high))
         }
+        _ => unreachable!(),
     }
 }
 

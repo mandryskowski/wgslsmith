@@ -3,10 +3,11 @@ use std::mem;
 
 use ast::types::{DataType, MemoryViewType, ScalarType};
 use ast::{
-    AssignmentLhs, AssignmentOp, AssignmentStatement, BinOp, BinOpExpr, ConstDeclStatement, ContinuingBlock, Expr,
-    ExprNode, ForLoopHeader, ForLoopInit, ForLoopStatement, ForLoopUpdate, IfStatement,
-    LetDeclStatement, LhsExprNode, Lit, LoopStatement, ReturnStatement, Statement, StorageClass,
-    SwitchCase, SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr, WhileStatement,
+    AssignmentLhs, AssignmentOp, AssignmentStatement, BinOp, BinOpExpr, ConstDeclStatement,
+    ContinuingBlock, Expr, ExprNode, ForLoopHeader, ForLoopInit, ForLoopStatement, ForLoopUpdate,
+    IfStatement, LetDeclStatement, LhsExprNode, Lit, LoopStatement, ReturnStatement, Statement,
+    StorageClass, SwitchCase, SwitchStatement, UnOp, UnOpExpr, VarDeclStatement, VarExpr,
+    WhileStatement,
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -34,7 +35,11 @@ enum StatementType {
 
 impl super::Generator<'_> {
     pub fn gen_stmt(&mut self) -> Statement {
-        let mut allowed = vec![StatementType::LetDecl, StatementType::VarDecl, StatementType::ConstDecl];
+        let mut allowed = vec![
+            StatementType::LetDecl,
+            StatementType::VarDecl,
+            StatementType::ConstDecl,
+        ];
 
         if !self.fn_state.is_continuing && !self.fn_state.is_entrypoint {
             allowed.push(StatementType::Return);
