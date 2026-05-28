@@ -223,7 +223,7 @@ impl<'a> Generator<'a> {
         if self.options.enable_f16() {
             allowed_override_scalars.push(ScalarType::F16);
         }
-        for i in 0..self.rng.gen_range(0..=0) {
+        for i in 0..self.rng.gen_range(0..=self.options.max_overrides) {
             let ty = DataType::Scalar(*allowed_override_scalars.choose(self.rng).unwrap());
             let name = format!("override_{i}");
             let initializer = Some(self.gen_const_expr(&ty));

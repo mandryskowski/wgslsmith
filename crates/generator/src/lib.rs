@@ -148,6 +148,10 @@ pub struct Options {
     #[clap(long, action, default_value = "16384")]
     pub max_compute_workgroup_storage_size: u32,
 
+    /// Maximum number of overrides to generate
+    #[clap(long, action, default_value = "0")]
+    pub max_overrides: u32,
+
     /// Shader stage to generate
     #[clap(long, action, value_enum, default_value = "compute")]
     pub stage: ShaderStage,
@@ -183,15 +187,7 @@ pub fn run(mut options: Options) -> eyre::Result<()> {
     if let Some(preset) = &options.preset {
         match preset {
             Preset::Tint => {
-                for builtin in builtins::TINT_EXTRAS {
-                    if !options.enabled_fns.iter().any(|it| it == builtin) {
-                        options.enabled_fns.push(builtin.to_owned());
-                    }
-                }
-
-                options.enable_pointers = true;
-                options.skip_pointer_checks = true;
-                options.recondition = true;
+                options.max_overrides = 3;
             }
         }
     }
@@ -232,7 +228,7 @@ pub fn run(mut options: Options) -> eyre::Result<()> {
         shader = reconditioner::recondition_with(
             shader,
             reconditioner::Options {
-                only_loops: options.preset == Some(Preset::Tint),
+                only_loops: false,
                 unstable_float: options.unstable_float,
             },
         );

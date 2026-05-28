@@ -311,7 +311,13 @@ pub mod fuse {
                         max_struct_members: 3,
                         max_if_chain_depth: 1,
                         max_compute_workgroup_storage_size: 16384,
-                        preset: None,
+                        max_overrides: 0,
+                        preset: (!opt.configs.is_empty()
+                            && opt
+                                .configs
+                                .iter()
+                                .all(|c| c.implementation == harness_types::Implementation::Dawn))
+                        .then_some(generator::Preset::Tint),
                         recondition: false,
                         output: "-".to_owned(),
                         unstable_float: opt.unstable_float,
