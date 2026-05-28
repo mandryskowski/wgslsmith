@@ -338,10 +338,10 @@ jobs:
           naga_failures=0
           
           for i in {1..100}; do
-            if ! "$WGSLSMITH" gen --unstable-float --gen-ext f16 --gen-ext subgroups | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler tint --backend hlsl; then
+            if ! "$WGSLSMITH" gen --unstable-float --gen-ext f16 --gen-ext subgroups | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler tint --backend hlsl > /dev/null; then
               tint_failures=$((tint_failures + 1))
             fi
-            if ! "$WGSLSMITH" gen --unstable-float --gen-ext f16 | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler naga --backend hlsl; then
+            if ! "$WGSLSMITH" gen --unstable-float --gen-ext f16 | "$WGSLSMITH" recondition | "$WGSLSMITH" compile --compiler naga --backend hlsl > /dev/null; then
               naga_failures=$((naga_failures + 1))
             fi
           done
