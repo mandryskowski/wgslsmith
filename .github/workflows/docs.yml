@@ -17,8 +17,8 @@ jobs:
       - name: Checkout docs repo
         uses: actions/checkout@v2
         with:
-          repository: wgslsmith/wgslsmith.github.io
-          path: wgslsmith.github.io
+          repository: wgslsmith-spe/wgslsmith-spe.github.io
+          path: wgslsmith-spe.github.io
           token: ${{ secrets.GH_TOKEN }}
 
       - name: Install mdbook
@@ -41,7 +41,7 @@ jobs:
         run: mdbook build
 
       - name: Copy build output
-        working-directory: wgslsmith.github.io
+        working-directory: wgslsmith-spe.github.io
         run: |
           find . ! \( -name 'README.md' -o -wholename './.git/*' \) -type f -exec rm -f {} +
           cp -r ../docs/book/. .
@@ -52,16 +52,16 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Commit changes
-        working-directory: wgslsmith.github.io
+        working-directory: wgslsmith-spe.github.io
         continue-on-error: true
         run: |
           git add .
-          git commit -m "Publish wgslsmith/wgslsmith@${{ github.sha }}"
+          git commit -m "Publish ${{ github.repository }}@${{ github.sha }}"
 
       - name: Publish docs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        working-directory: wgslsmith.github.io
+        working-directory: wgslsmith-spe.github.io
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          git push https://github-actions[bot]:${{ secrets.GH_TOKEN }}@github.com/wgslsmith/wgslsmith.github.io
+          git push https://github-actions[bot]:${{ secrets.GH_TOKEN }}@github.com/wgslsmith-spe/wgslsmith-spe.github.io
