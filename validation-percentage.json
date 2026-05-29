@@ -1,6 +1,6 @@
 {
-	 "schemaVersion": 1,
-         "label": "Valid Shaders",
-         "message": "0%",
-         "color": "red"
- }
+  "schemaVersion": 1,
+  "label": "Valid Shaders",
+  "message": "99%",
+  "color": "brightgreen"
+}
