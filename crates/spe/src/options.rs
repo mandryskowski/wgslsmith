@@ -29,6 +29,10 @@ pub struct EnumerateOptions {
     /// Run/print a specific enumeration of a shader
     #[clap(short = 'i', long)]
     pub index: Option<usize>,
+
+    /// Command to execute for each enumeration. The shader will be passed via stdin.
+    #[clap(short = 'e', long)]
+    pub exec: Option<String>,
 }
 
 #[derive(Parser, Debug)]
