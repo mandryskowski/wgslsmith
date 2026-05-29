@@ -100,7 +100,7 @@ pub mod fuse {
         };
 
         let mut effective_start_index = opt.start_index;
-        let log_to_file = opt.log_to_file || opt.append_dir.is_some();
+        let log_to_file = !opt.do_not_log;
 
         let (out_dir_opt, append) = util::create_out_dir(log_to_file, opt.append_dir.as_ref());
 
@@ -396,7 +396,7 @@ pub mod process_dir {
         };
 
         let mut effective_start_index = opt.start_index;
-        let log_to_file = opt.log_to_file || opt.append_dir.is_some();
+        let log_to_file = !opt.do_not_log;
 
         let (out_dir_opt, append) = util::create_out_dir(log_to_file, opt.append_dir.as_ref());
 
