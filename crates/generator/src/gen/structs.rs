@@ -170,6 +170,151 @@ impl super::Generator<'_> {
             }
         }
 
+        if kind == StructKind::Default {
+            use rand::prelude::SliceRandom;
+            let mut next_location = 0;
+
+            for member in &mut members {
+                if !self.rng.gen_bool(0.25) {
+                    continue;
+                }
+
+                let mut valid_builtins = match &member.data_type {
+                    DataType::Scalar(ScalarType::U32) => vec![
+                        ast::BuiltinValue::VertexIndex,
+                        ast::BuiltinValue::InstanceIndex,
+                        ast::BuiltinValue::LocalInvocationIndex,
+                        ast::BuiltinValue::SampleIndex,
+                        ast::BuiltinValue::SampleMask,
+                    ],
+                    DataType::Scalar(ScalarType::Bool) => vec![ast::BuiltinValue::FrontFacing],
+                    DataType::Scalar(ScalarType::F32) => vec![ast::BuiltinValue::FragDepth],
+                    DataType::Vector(4, ScalarType::F32) => vec![ast::BuiltinValue::Position],
+                    DataType::Vector(3, ScalarType::U32) => vec![
+                        ast::BuiltinValue::LocalInvocationId,
+                        ast::BuiltinValue::GlobalInvocationId,
+                        ast::BuiltinValue::WorkgroupId,
+                        ast::BuiltinValue::NumWorkgroups,
+                    ],
+                    _ => vec![],
+                };
+
+                if self.options.collectives() {
+                    if let DataType::Scalar(ScalarType::U32) = &member.data_type {
+                        valid_builtins.push(ast::BuiltinValue::SubgroupInvocationId);
+                        valid_builtins.push(ast::BuiltinValue::SubgroupSize);
+                    }
+                }
+
+                if !valid_builtins.is_empty() && self.rng.gen_bool(0.5) {
+                    let builtin = valid_builtins.choose(self.rng).unwrap();
+                    Rc::get_mut(member)
+                        .unwrap()
+                        .attrs
+                        .push(StructMemberAttr::Builtin(*builtin));
+
+                    if *builtin == ast::BuiltinValue::Position && self.rng.gen_bool(0.5) {
+                        Rc::get_mut(member)
+                            .unwrap()
+                            .attrs
+                            .push(StructMemberAttr::Invariant);
+                    }
+                } else {
+                    let valid_for_location = match &member.data_type {
+                        DataType::Scalar(s) | DataType::Vector(_, s) => {
+                            matches!(
+                                s,
+                                ScalarType::F32
+                                    | ScalarType::I32
+                                    | ScalarType::U32
+                                    | ScalarType::F16
+                            )
+                        }
+                        _ => false,
+                    };
+
+                    if valid_for_location {
+                        let location = next_location;
+                        next_location += 1;
+                        Rc::get_mut(member)
+                            .unwrap()
+                            .attrs
+                            .push(StructMemberAttr::Location(location));
+
+                        let valid_for_interpolate = match &member.data_type {
+                            DataType::Scalar(s) | DataType::Vector(_, s) => {
+                                matches!(s, ScalarType::F32 | ScalarType::F16)
+                            }
+                            _ => false,
+                        };
+
+                        if valid_for_interpolate && self.rng.gen_bool(0.5) {
+                            let interp_type = [
+                                ast::InterpolationType::Perspective,
+                                ast::InterpolationType::Linear,
+                                ast::InterpolationType::Flat,
+                            ]
+                            .choose(self.rng)
+                            .unwrap();
+
+                            let interp_sampling = if *interp_type == ast::InterpolationType::Flat {
+                                if self.rng.gen_bool(0.5) {
+                                    Some(
+                                        *[
+                                            ast::InterpolationSampling::First,
+                                            ast::InterpolationSampling::Either,
+                                        ]
+                                        .choose(self.rng)
+                                        .unwrap(),
+                                    )
+                                } else {
+                                    None
+                                }
+                            } else if self.rng.gen_bool(0.5) {
+                                Some(
+                                    *[
+                                        ast::InterpolationSampling::Center,
+                                        ast::InterpolationSampling::Centroid,
+                                        ast::InterpolationSampling::Sample,
+                                    ]
+                                    .choose(self.rng)
+                                    .unwrap(),
+                                )
+                            } else {
+                                None
+                            };
+
+                            Rc::get_mut(member)
+                                .unwrap()
+                                .attrs
+                                .push(StructMemberAttr::Interpolate(*interp_type, interp_sampling));
+                        } else if !valid_for_interpolate {
+                            let interp_sampling = if self.rng.gen_bool(0.5) {
+                                Some(
+                                    *[
+                                        ast::InterpolationSampling::First,
+                                        ast::InterpolationSampling::Either,
+                                    ]
+                                    .choose(self.rng)
+                                    .unwrap(),
+                                )
+                            } else {
+                                None
+                            };
+
+                            Rc::get_mut(member)
+                                .unwrap()
+                                .attrs
+                                .push(StructMemberAttr::Interpolate(
+                                    ast::InterpolationType::Flat,
+                                    interp_sampling,
+                                ));
+                        }
+                    }
+                }
+            }
+        }
+
         StructDecl::new(name, members)
     }
 }
