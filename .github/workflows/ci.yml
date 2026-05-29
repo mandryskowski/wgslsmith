@@ -400,6 +400,12 @@ jobs:
       - name: Update Badge Branch
         # if: github.ref == 'refs/heads/main'
         run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin badges
+          git checkout badges
+
           cat <<EOF > validation-percentage.json
           {
             "schemaVersion": 1,
@@ -408,12 +414,6 @@ jobs:
             "color": "${{ env.BADGE_COLOR }}"
           }
           EOF
-
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          git fetch origin badges
-          git checkout badges
 
           mv validation-percentage.json ./validation-percentage.json
           
