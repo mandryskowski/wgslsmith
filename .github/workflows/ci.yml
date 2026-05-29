@@ -415,8 +415,6 @@ jobs:
           }
           EOF
 
-          mv validation-percentage.json ./validation-percentage.json
-          
           git add validation-percentage.json
           git commit -m "Update validation badge: ${{ env.PASS_PERCENTAGE }}" || echo "No changes to commit"
           git push origin badges
