@@ -321,6 +321,7 @@ pub mod fuse {
                         recondition: false,
                         output: "-".to_owned(),
                         unstable_float: opt.unstable_float,
+                        context: None,
                     });
 
                     let next_module = generator::Generator::new(&mut gen_rng, gen_opts)

@@ -171,6 +171,10 @@ pub struct Options {
     /// Path to output file (use `-` for stdout)
     #[clap(short, long, action, default_value = "-")]
     pub output: String,
+
+    /// Context shader to use for generation
+    #[clap(long, action)]
+    pub context: Option<String>,
 }
 
 impl Options {
@@ -215,7 +219,15 @@ pub fn run(mut options: Options) -> eyre::Result<()> {
     tracing::info!("generating shader from seed: {}", seed);
 
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut shader = Generator::new(&mut rng, options.clone()).gen_module();
+    let mut generator = Generator::new(&mut rng, options.clone());
+
+    if let Some(context_path) = &options.context {
+        let context_shader = std::fs::read_to_string(context_path)?;
+        let context_module = parser::parse(&context_shader);
+        generator = generator.with_context(&context_module);
+    }
+
+    let mut shader = generator.gen_module();
 
     if options.recondition {
         if options.enable_pointers
