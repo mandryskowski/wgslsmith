@@ -5,7 +5,17 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
+    paths-ignore:
+        - 'README.md'
+        - 'docs/**'
+        - '.github/workflows/docs.yml'
   pull_request:
+    paths-ignore:
+        - 'README.md'
+        - 'docs/**'
+        - '.github/workflows/docs.yml'
 
 jobs:
   check:
@@ -328,7 +338,12 @@ jobs:
   test_generator_output_validity:
     runs-on: ubuntu-latest
     needs: build_binaries
+    permissions:
+      contents: write 
     steps:
+      - name: Checkout git repo
+        uses: actions/checkout@v4
+
       - name: Download wgslsmith
         uses: actions/download-artifact@v4
         with:
@@ -363,9 +378,85 @@ jobs:
               
               echo "Stage $stage: Tint failures: $tint_failures, Naga failures: $naga_failures"
               
+              total_tests=$((total_tests + 200))
+              total_failures=$((total_failures + tint_failures + naga_failures))
+              
               if [ "$tint_failures" -ge 25 ] || [ "$naga_failures" -ge 25 ]; then
                 echo "Too many compilation failures for stage $stage $args!"
                 exit 1
               fi
             done
           done
+          
+          passed_tests=$((total_tests - total_failures))
+          percentage=$((passed_tests * 100 / total_tests))
+          echo "PASS_PERCENTAGE=${percentage}%" >> $GITHUB_ENV
+          
+          if [ "$percentage" -ge 95 ]; then
+            echo "BADGE_COLOR=brightgreen" >> $GITHUB_ENV
+          elif [ "$percentage" -ge 85 ]; then
+            echo "BADGE_COLOR=yellow" >> $GITHUB_ENV
+          else
+            echo "BADGE_COLOR=red" >> $GITHUB_ENV
+          fi
+      - name: Update Badge Branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin badges
+          git checkout badges
+
+          cat <<EOF > validation-percentage.json
+          {
+            "schemaVersion": 1,
+            "label": "Valid Shaders",
+            "message": "${{ env.PASS_PERCENTAGE }}",
+            "color": "${{ env.BADGE_COLOR }}"
+          }
+          EOF
+
+          git add validation-percentage.json
+          git commit -m "Update validation badge: ${{ env.PASS_PERCENTAGE }}" || echo "No changes to commit"
+          git push origin badges
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [test_harness, test_generator_output_validity]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Archive artifacts
+        run: |
+          mkdir release_assets
+          cd artifacts
+          for dir in */; do
+            if [ -d "$dir" ]; then
+              dir_name=${dir%/}
+              zip -r "../release_assets/${dir_name}.zip" "$dir_name"
+            fi
+          done
+
+      - name: Update Nightly Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "Nightly Build"
+          prerelease: true
+          files: release_assets/*
+
+      - name: Create Tagged Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release_assets/*

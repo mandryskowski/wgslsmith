@@ -1,15 +1,12 @@
 [book]
-authors = ["Hasan Ali"]
+authors = ["Hasan Ali", "Michal Andryskowski"]
 language = "en"
-multilingual = false
 src = "src"
-title = "wgslsmith"
-
-[preprocessor]
+title = "wgslsmith-spe"
 
 [preprocessor.admonish]
 command = "mdbook-admonish"
-assets_version = "2.0.0" # do not edit: managed by `mdbook-admonish install`
+assets_version = "3.1.0" # do not edit: managed by `mdbook-admonish install`
 
 [preprocessor.toc]
 command = "mdbook-toc"
@@ -18,6 +15,6 @@ renderer = ["html"]
 [output]
 
 [output.html]
-additional-css = ["././mdbook-admonish.css"]
-git-repository-url = "https://github.com/wgslsmith/wgslsmith"
-edit-url-template = "https://github.com/wgslsmith/wgslsmith/edit/main/docs/{path}"
+additional-css = ["./mdbook-admonish.css"]
+git-repository-url = "https://github.com/mandryskowski/wgslsmith"
+edit-url-template = "https://github.com/mandryskowski/wgslsmith/edit/main/docs/{path}"
