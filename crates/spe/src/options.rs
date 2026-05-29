@@ -40,11 +40,11 @@ pub struct DirOptions {
     pub start_index: Option<usize>,
 
     /// Append to an existing directory's logs and resume its stats
-    #[clap(long)]
+    #[clap(long, name = "append_dir")]
     pub append_dir: Option<PathBuf>,
 
-    #[clap(long, action, default_value = "false")]
-    pub log_to_file: bool,
+    #[clap(long, conflicts_with = "append_dir")]
+    pub do_not_log: bool,
 
     /// Control parallelism passed to run
     #[clap(short = 'j', long)]

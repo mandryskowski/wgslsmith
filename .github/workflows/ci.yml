@@ -438,7 +438,7 @@ jobs:
         run: |
           mkdir release_assets
           cd artifacts
-          for dir in */; do
+          for dir in wgslsmith-*/; do
             if [ -d "$dir" ]; then
               dir_name=${dir%/}
               zip -r "../release_assets/${dir_name}.zip" "$dir_name"
