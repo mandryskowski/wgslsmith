@@ -22,6 +22,7 @@ use std::time::Duration;
 use clap::Parser;
 use color_eyre::Help;
 use eyre::{eyre, Context};
+#[cfg(feature = "harness")]
 use harness::HarnessCommand;
 use harness_frontend::{read_shader_from_path, ExecutionError, ExecutionEvent};
 use harness_types::ConfigId;
@@ -108,6 +109,7 @@ fn main() -> eyre::Result<()> {
 
     let config = config::Config::load(&config_file)?;
 
+    #[cfg(feature = "harness")]
     let harness_cmd = HarnessCommand::new(std::env::current_exe().unwrap())
         .arg("harness")
         .with_errors(config.harness.errors.clone());
