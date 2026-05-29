@@ -173,8 +173,12 @@ pub struct Options {
     pub output: String,
 
     /// Context shader to use for generation
-    #[clap(long, action)]
+    #[clap(long, action, name = "context")]
     pub context: Option<String>,
+
+    /// Omit context types and functions from the generated AST
+    #[clap(long, action, requires = "context")]
+    pub omit_context: bool,
 }
 
 impl Options {

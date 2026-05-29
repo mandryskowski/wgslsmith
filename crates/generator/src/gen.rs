@@ -50,6 +50,7 @@ pub struct Generator<'a> {
     f32_dist: StandardNormal,
     i32_dist: Binomial,
     u32_dist: Binomial,
+    context_module: Option<Module>,
 }
 
 impl<'a> Generator<'a> {
@@ -73,6 +74,7 @@ impl<'a> Generator<'a> {
                 self.cx.fns.mark_imported(&f.name);
             }
         }
+        self.context_module = Some(module.clone());
         self
     }
 
@@ -91,6 +93,7 @@ impl<'a> Generator<'a> {
                 .expect("failed to create binomial distribution"),
             u32_dist: Binomial::new(u32::MAX as u64 * 2, 0.5)
                 .expect("failed to create binomial distribution"),
+            context_module: None,
         }
     }
 
@@ -307,23 +310,78 @@ impl<'a> Generator<'a> {
             }
         }
 
-        Module {
+        let mut structs = types.into_structs();
+        structs.push(ub_type_decl);
+        structs.push(sb_type_decl);
+        structs.extend(extra_sb_decls);
+
+        let module = Module {
             enables,
             requires: vec![],
             aliases: vec![],
-            structs: {
-                let mut structs = types.into_structs();
-                structs.push(ub_type_decl);
-                structs.push(sb_type_decl);
-                structs.extend(extra_sb_decls);
-                structs
-            },
+            structs,
             consts,
             const_asserts: vec![],
             overrides,
             vars: global_vars,
             functions,
+        };
+
+        self.merge_context(module)
+    }
+
+    fn merge_context(&self, mut module: Module) -> Module {
+        if self.options.omit_context {
+            return module;
         }
+
+        if let Some(ctx) = &self.context_module {
+            for ext in &ctx.enables {
+                if !module.enables.contains(ext) {
+                    module.enables.push(*ext);
+                }
+            }
+            for req in &ctx.requires {
+                if !module.requires.contains(req) {
+                    module.requires.push(*req);
+                }
+            }
+
+            let mut aliases = ctx.aliases.clone();
+            aliases.extend(module.aliases);
+            module.aliases = aliases;
+
+            let mut const_asserts = ctx.const_asserts.clone();
+            const_asserts.extend(module.const_asserts);
+            module.const_asserts = const_asserts;
+
+            let mut structs = ctx.structs.clone();
+            structs.extend(module.structs);
+            module.structs = structs;
+
+            let mut consts = ctx.consts.clone();
+            consts.extend(module.consts);
+            module.consts = consts;
+
+            let mut overrides = ctx.overrides.clone();
+            overrides.extend(module.overrides);
+            module.overrides = overrides;
+
+            let mut vars = ctx.vars.clone();
+            vars.extend(module.vars);
+            module.vars = vars;
+
+            let mut fns: Vec<_> = ctx
+                .functions
+                .iter()
+                .filter(|f| !f.attrs.iter().any(|a| matches!(a, ast::FnAttr::Stage(_))))
+                .cloned()
+                .collect();
+            fns.extend(module.functions);
+            module.functions = fns;
+        }
+
+        module
     }
 
     fn gen_global_var(&mut self, name: String, workgroup_size: &mut u32) -> GlobalVarDecl {
