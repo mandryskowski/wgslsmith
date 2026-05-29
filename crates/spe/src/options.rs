@@ -44,7 +44,7 @@ pub struct DirOptions {
     pub append_dir: Option<PathBuf>,
 
     #[clap(long, conflicts_with = "append_dir")]
-    pub do_not_log: bool,
+    pub no_file_log: bool,
 
     /// Control parallelism passed to run
     #[clap(short = 'j', long)]
