@@ -213,12 +213,31 @@ impl Reconditioner {
             )
             .into(),
             Statement::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                AssignmentStatement::new(
-                    self.recondition_assignment_lhs(lhs),
-                    op,
-                    self.recondition_expr(rhs),
-                )
-                .into()
+                let new_op = match op {
+                    AssignmentOp::Divide => Some(BinOp::Divide),
+                    AssignmentOp::Mod => Some(BinOp::Mod),
+                    AssignmentOp::LShift => Some(BinOp::LShift),
+                    AssignmentOp::RShift => Some(BinOp::RShift),
+                    _ => None,
+                };
+
+                if let (Some(bin_op), AssignmentLhs::Expr(lhs_node)) = (new_op, &lhs) {
+                    let lhs_expr = Self::lhs_to_expr(lhs_node);
+                    let bin_op_expr = ExprNode::from(BinOpExpr::new(bin_op, lhs_expr, rhs));
+                    AssignmentStatement::new(
+                        self.recondition_assignment_lhs(lhs),
+                        AssignmentOp::Simple,
+                        self.recondition_expr(bin_op_expr),
+                    )
+                    .into()
+                } else {
+                    AssignmentStatement::new(
+                        self.recondition_assignment_lhs(lhs),
+                        op,
+                        self.recondition_expr(rhs),
+                    )
+                    .into()
+                }
             }
             Statement::Compound(s) => {
                 Statement::Compound(s.into_iter().map(|s| self.recondition_stmt(s)).collect())
@@ -369,11 +388,29 @@ impl Reconditioner {
                 self.recondition_expr(initializer),
             )),
             ForLoopInit::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                ForLoopInit::Assignment(AssignmentStatement::new(
-                    self.recondition_assignment_lhs(lhs),
-                    op,
-                    self.recondition_expr(rhs),
-                ))
+                let new_op = match op {
+                    AssignmentOp::Divide => Some(BinOp::Divide),
+                    AssignmentOp::Mod => Some(BinOp::Mod),
+                    AssignmentOp::LShift => Some(BinOp::LShift),
+                    AssignmentOp::RShift => Some(BinOp::RShift),
+                    _ => None,
+                };
+
+                if let (Some(bin_op), AssignmentLhs::Expr(lhs_node)) = (new_op, &lhs) {
+                    let lhs_expr = Self::lhs_to_expr(lhs_node);
+                    let bin_op_expr = ExprNode::from(BinOpExpr::new(bin_op, lhs_expr, rhs));
+                    ForLoopInit::Assignment(AssignmentStatement::new(
+                        self.recondition_assignment_lhs(lhs),
+                        AssignmentOp::Simple,
+                        self.recondition_expr(bin_op_expr),
+                    ))
+                } else {
+                    ForLoopInit::Assignment(AssignmentStatement::new(
+                        self.recondition_assignment_lhs(lhs),
+                        op,
+                        self.recondition_expr(rhs),
+                    ))
+                }
             }
             ForLoopInit::Increment(IncrementStatement { lhs }) => ForLoopInit::Increment(
                 IncrementStatement::new(self.recondition_assignment_lhs(lhs)),
@@ -395,11 +432,29 @@ impl Reconditioner {
     fn recondition_for_update(&mut self, update: ForLoopUpdate) -> ForLoopUpdate {
         match update {
             ForLoopUpdate::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                ForLoopUpdate::Assignment(AssignmentStatement::new(
-                    self.recondition_assignment_lhs(lhs),
-                    op,
-                    self.recondition_expr(rhs),
-                ))
+                let new_op = match op {
+                    AssignmentOp::Divide => Some(BinOp::Divide),
+                    AssignmentOp::Mod => Some(BinOp::Mod),
+                    AssignmentOp::LShift => Some(BinOp::LShift),
+                    AssignmentOp::RShift => Some(BinOp::RShift),
+                    _ => None,
+                };
+
+                if let (Some(bin_op), AssignmentLhs::Expr(lhs_node)) = (new_op, &lhs) {
+                    let lhs_expr = Self::lhs_to_expr(lhs_node);
+                    let bin_op_expr = ExprNode::from(BinOpExpr::new(bin_op, lhs_expr, rhs));
+                    ForLoopUpdate::Assignment(AssignmentStatement::new(
+                        self.recondition_assignment_lhs(lhs),
+                        AssignmentOp::Simple,
+                        self.recondition_expr(bin_op_expr),
+                    ))
+                } else {
+                    ForLoopUpdate::Assignment(AssignmentStatement::new(
+                        self.recondition_assignment_lhs(lhs),
+                        op,
+                        self.recondition_expr(rhs),
+                    ))
+                }
             }
             ForLoopUpdate::Increment(IncrementStatement { lhs }) => ForLoopUpdate::Increment(
                 IncrementStatement::new(self.recondition_assignment_lhs(lhs)),

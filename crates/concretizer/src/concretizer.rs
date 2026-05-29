@@ -281,12 +281,31 @@ impl Concretizer {
             )
             .into(),
             Statement::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                AssignmentStatement::new(
-                    self.concretize_assignment_lhs(lhs),
-                    op,
-                    self.concretize_expr(rhs),
-                )
-                .into()
+                let new_op = match op {
+                    AssignmentOp::Divide => Some(BinOp::Divide),
+                    AssignmentOp::Mod => Some(BinOp::Mod),
+                    AssignmentOp::LShift => Some(BinOp::LShift),
+                    AssignmentOp::RShift => Some(BinOp::RShift),
+                    _ => None,
+                };
+
+                if let (Some(bin_op), AssignmentLhs::Expr(lhs_node)) = (new_op, &lhs) {
+                    let lhs_expr = Self::lhs_to_expr(lhs_node);
+                    let bin_op_expr = ExprNode::from(BinOpExpr::new(bin_op, lhs_expr, rhs));
+                    AssignmentStatement::new(
+                        self.concretize_assignment_lhs(lhs),
+                        AssignmentOp::Simple,
+                        self.concretize_expr(bin_op_expr),
+                    )
+                    .into()
+                } else {
+                    AssignmentStatement::new(
+                        self.concretize_assignment_lhs(lhs),
+                        op,
+                        self.concretize_expr(rhs),
+                    )
+                    .into()
+                }
             }
             Statement::Compound(s) => {
                 self.enter_scope();
@@ -439,11 +458,29 @@ impl Concretizer {
                 ForLoopInit::ConstDecl(ConstDeclStatement::new(ident, data_type, con_init))
             }
             ForLoopInit::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                ForLoopInit::Assignment(AssignmentStatement::new(
-                    self.concretize_assignment_lhs(lhs),
-                    op,
-                    self.concretize_expr(rhs),
-                ))
+                let new_op = match op {
+                    AssignmentOp::Divide => Some(BinOp::Divide),
+                    AssignmentOp::Mod => Some(BinOp::Mod),
+                    AssignmentOp::LShift => Some(BinOp::LShift),
+                    AssignmentOp::RShift => Some(BinOp::RShift),
+                    _ => None,
+                };
+
+                if let (Some(bin_op), AssignmentLhs::Expr(lhs_node)) = (new_op, &lhs) {
+                    let lhs_expr = Self::lhs_to_expr(lhs_node);
+                    let bin_op_expr = ExprNode::from(BinOpExpr::new(bin_op, lhs_expr, rhs));
+                    ForLoopInit::Assignment(AssignmentStatement::new(
+                        self.concretize_assignment_lhs(lhs),
+                        AssignmentOp::Simple,
+                        self.concretize_expr(bin_op_expr),
+                    ))
+                } else {
+                    ForLoopInit::Assignment(AssignmentStatement::new(
+                        self.concretize_assignment_lhs(lhs),
+                        op,
+                        self.concretize_expr(rhs),
+                    ))
+                }
             }
             ForLoopInit::Increment(IncrementStatement { lhs }) => {
                 ForLoopInit::Increment(IncrementStatement::new(self.concretize_assignment_lhs(lhs)))
@@ -465,11 +502,29 @@ impl Concretizer {
     fn concretize_for_update(&mut self, update: ForLoopUpdate) -> ForLoopUpdate {
         match update {
             ForLoopUpdate::Assignment(AssignmentStatement { lhs, op, rhs }) => {
-                ForLoopUpdate::Assignment(AssignmentStatement::new(
-                    self.concretize_assignment_lhs(lhs),
-                    op,
-                    self.concretize_expr(rhs),
-                ))
+                let new_op = match op {
+                    AssignmentOp::Divide => Some(BinOp::Divide),
+                    AssignmentOp::Mod => Some(BinOp::Mod),
+                    AssignmentOp::LShift => Some(BinOp::LShift),
+                    AssignmentOp::RShift => Some(BinOp::RShift),
+                    _ => None,
+                };
+
+                if let (Some(bin_op), AssignmentLhs::Expr(lhs_node)) = (new_op, &lhs) {
+                    let lhs_expr = Self::lhs_to_expr(lhs_node);
+                    let bin_op_expr = ExprNode::from(BinOpExpr::new(bin_op, lhs_expr, rhs));
+                    ForLoopUpdate::Assignment(AssignmentStatement::new(
+                        self.concretize_assignment_lhs(lhs),
+                        AssignmentOp::Simple,
+                        self.concretize_expr(bin_op_expr),
+                    ))
+                } else {
+                    ForLoopUpdate::Assignment(AssignmentStatement::new(
+                        self.concretize_assignment_lhs(lhs),
+                        op,
+                        self.concretize_expr(rhs),
+                    ))
+                }
             }
             ForLoopUpdate::Increment(IncrementStatement { lhs }) => ForLoopUpdate::Increment(
                 IncrementStatement::new(self.concretize_assignment_lhs(lhs)),
@@ -515,6 +570,26 @@ impl Concretizer {
 
         LhsExprNode {
             data_type: node.data_type,
+            expr,
+        }
+    }
+
+    fn lhs_to_expr(node: &LhsExprNode) -> ExprNode {
+        let expr = match &node.expr {
+            LhsExpr::Ident(ident) => Expr::Var(VarExpr::new(ident.clone())),
+            LhsExpr::Postfix(inner, postfix) => {
+                Expr::Postfix(PostfixExpr::new(Self::lhs_to_expr(inner), postfix.clone()))
+            }
+            LhsExpr::Deref(inner) => {
+                Expr::UnOp(UnOpExpr::new(UnOp::Deref, Self::lhs_to_expr(inner)))
+            }
+            LhsExpr::AddressOf(inner) => {
+                Expr::UnOp(UnOpExpr::new(UnOp::AddressOf, Self::lhs_to_expr(inner)))
+            }
+        };
+
+        ExprNode {
+            data_type: node.data_type.clone(),
             expr,
         }
     }
