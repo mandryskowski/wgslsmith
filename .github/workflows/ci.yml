@@ -5,7 +5,15 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+        - 'README.md'
+        - 'docs/**'
+        - '.github/workflows/docs.yml'
   pull_request:
+    paths-ignore:
+        - 'README.md'
+        - 'docs/**'
+        - '.github/workflows/docs.yml'
 
 jobs:
   check:
