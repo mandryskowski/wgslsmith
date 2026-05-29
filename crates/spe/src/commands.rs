@@ -50,6 +50,45 @@ pub mod enumerate {
             }
             let out_str = enumerator::apply_assignment(&module, &enumerations[enum_idx]);
             println!("{}", out_str);
+        } else if let Some(exec_cmd) = opt.exec {
+            println!(
+                "// Found {} holes, {} valid enumerations.",
+                holes,
+                enumerations.len()
+            );
+            if let Some(orig) = original_assignment_idx {
+                println!("// Original assignment is at index {}.", orig);
+            }
+
+            for (i, assigns) in enumerations.iter().enumerate() {
+                let out_str = enumerator::apply_assignment(&module, assigns);
+                println!("// === Running Enumeration {} ===", i);
+
+                let mut cmd = if cfg!(windows) {
+                    std::process::Command::new("cmd")
+                } else {
+                    std::process::Command::new("sh")
+                };
+
+                cmd.arg(if cfg!(windows) { "/C" } else { "-c" })
+                    .arg(&exec_cmd)
+                    .stdin(std::process::Stdio::piped());
+
+                match cmd.spawn() {
+                    Ok(mut child) => {
+                        if let Some(mut stdin) = child.stdin.take() {
+                            use std::io::Write;
+                            if let Err(e) = stdin.write_all(out_str.as_bytes()) {
+                                eprintln!("Error writing to command stdin: {}", e);
+                            }
+                        }
+                        let _ = child.wait();
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to spawn command: {}", e);
+                    }
+                }
+            }
         } else {
             println!(
                 "// Found {} holes, {} valid enumerations.",
@@ -100,7 +139,7 @@ pub mod fuse {
         };
 
         let mut effective_start_index = opt.start_index;
-        let log_to_file = !opt.do_not_log;
+        let log_to_file = !opt.no_file_log;
 
         let (out_dir_opt, append) = util::create_out_dir(log_to_file, opt.append_dir.as_ref());
 
@@ -396,7 +435,7 @@ pub mod process_dir {
         };
 
         let mut effective_start_index = opt.start_index;
-        let log_to_file = !opt.do_not_log;
+        let log_to_file = !opt.no_file_log;
 
         let (out_dir_opt, append) = util::create_out_dir(log_to_file, opt.append_dir.as_ref());
 

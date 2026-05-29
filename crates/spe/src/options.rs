@@ -29,6 +29,10 @@ pub struct EnumerateOptions {
     /// Run/print a specific enumeration of a shader
     #[clap(short = 'i', long)]
     pub index: Option<usize>,
+
+    /// Command to execute for each enumeration. The shader will be passed via stdin.
+    #[clap(short = 'e', long)]
+    pub exec: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -44,7 +48,7 @@ pub struct DirOptions {
     pub append_dir: Option<PathBuf>,
 
     #[clap(long, conflicts_with = "append_dir")]
-    pub do_not_log: bool,
+    pub no_file_log: bool,
 
     /// Control parallelism passed to run
     #[clap(short = 'j', long)]

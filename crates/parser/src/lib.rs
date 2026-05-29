@@ -1073,9 +1073,11 @@ fn parse_for_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
 
     let mut pair = pairs.next().unwrap();
 
+    let mut inner_env = env.clone();
+
     let mut init = None;
     if pair.as_rule() == Rule::for_init {
-        init = match parse_statement(pair.into_inner().next().unwrap(), env) {
+        init = match parse_statement(pair.into_inner().next().unwrap(), &mut inner_env) {
             Statement::VarDecl(stmt) => Some(ForLoopInit::VarDecl(stmt)),
             Statement::LetDecl(stmt) => Some(ForLoopInit::LetDecl(stmt)),
             Statement::ConstDecl(stmt) => Some(ForLoopInit::ConstDecl(stmt)),
@@ -1090,14 +1092,18 @@ fn parse_for_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
 
     let mut condition = None;
     if pair.as_rule() == Rule::expression {
-        condition = Some(parse_expression(pair, env, Some(&ScalarType::Bool.into())));
+        condition = Some(parse_expression(
+            pair,
+            &inner_env,
+            Some(&ScalarType::Bool.into()),
+        ));
         pair = pairs.next().unwrap();
     }
 
     let mut update = None;
     if pair.as_rule() == Rule::for_update {
         let inner = pair.into_inner().next().unwrap();
-        update = match parse_statement(inner, env) {
+        update = match parse_statement(inner, &mut inner_env) {
             Statement::Assignment(stmt) => Some(ForLoopUpdate::Assignment(stmt)),
             Statement::Increment(stmt) => Some(ForLoopUpdate::Increment(stmt)),
             Statement::Decrement(stmt) => Some(ForLoopUpdate::Decrement(stmt)),
@@ -1107,7 +1113,7 @@ fn parse_for_statement(pair: Pair<Rule>, env: &mut Environment) -> Statement {
         pair = pairs.next().unwrap();
     }
 
-    let body = parse_compound_statement(pair, env);
+    let body = parse_compound_statement(pair, &inner_env);
 
     let header = ForLoopHeader {
         init,
@@ -1835,7 +1841,11 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
             let mut pairs = pair.into_inner();
             let storage_class = parse_storage_class(pairs.next().unwrap());
             let inner = parse_type_decl(pairs.next().unwrap(), env);
-            DataType::Ptr(MemoryViewType::new(inner, storage_class))
+            let mut view = MemoryViewType::new(inner, storage_class);
+            if let Some(access_mode_pair) = pairs.next() {
+                view.access_mode = parse_access_mode(access_mode_pair.as_str());
+            }
+            DataType::Ptr(view)
         }
         Rule::t_texture => {
             let full_str = pair.as_str();
