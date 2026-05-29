@@ -39,6 +39,7 @@ reflection-types = { path = "../reflection-types" }
 spe = { path = "../spe" }
 tint = { path = "../tint", optional = true }
 validation-server-types = { path = "../validation-server-types" }
+concretizer = { path = "../concretizer" }
 
 [dependencies.clap]
 version = "3.1.17"

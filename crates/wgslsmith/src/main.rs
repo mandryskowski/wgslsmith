@@ -49,6 +49,16 @@ enum Cmd {
     Recondition(reconditioner::cli::Options),
     /// Format a shader.
     Fmt(fmt::Options),
+    /// Concretize a shader.
+    Concretize {
+        /// Path to a wgsl shader program to concretize (use '-' for stdin).
+        #[clap(action, default_value = "-")]
+        input: String,
+
+        /// Path at which to write output (use '-' for stdout).
+        #[clap(short, long, action, default_value = "-")]
+        output: String,
+    },
     Fuzz(fuzzer::Options),
     /// Reduce a shader.
     #[cfg(feature = "reducer")]
@@ -136,6 +146,30 @@ fn main() -> eyre::Result<()> {
         Cmd::Gen(options) => generator::run(options),
         Cmd::Recondition(options) => reconditioner::cli::run(options),
         Cmd::Fmt(options) => fmt::run(options),
+        Cmd::Concretize { input, output } => {
+            let source = read_shader_from_path(&input)?;
+            let ast = parser::parse(&source);
+            let concretized = concretizer::concretize(ast);
+
+            struct Output<'a>(&'a mut dyn std::io::Write);
+            impl std::fmt::Write for Output<'_> {
+                fn write_str(&mut self, s: &str) -> std::fmt::Result {
+                    self.0.write_all(s.as_bytes()).unwrap();
+                    Ok(())
+                }
+            }
+
+            let mut out: Box<dyn std::io::Write> = match output.as_str() {
+                "-" => Box::new(std::io::stdout()),
+                path => Box::new(fs::File::create(path)?),
+            };
+
+            ast::writer::Writer::default()
+                .write_module(&mut Output(&mut out), &concretized)
+                .unwrap();
+
+            Ok(())
+        }
         Cmd::Fuzz(options) => fuzzer::run(config, options),
         #[cfg(feature = "reducer")]
         Cmd::Reduce(options) => reducer::run(config, options),
