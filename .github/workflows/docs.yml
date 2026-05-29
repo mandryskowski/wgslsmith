@@ -19,7 +19,7 @@ jobs:
         with:
           repository: wgslsmith-spe/wgslsmith-spe.github.io
           path: wgslsmith-spe.github.io
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GH_PAGES_TOKEN }}
 
       - name: Install mdbook
         run: |
@@ -62,6 +62,6 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: wgslsmith-spe.github.io
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAGES_TOKEN }}
         run: |
-          git push https://github-actions[bot]:${{ secrets.GH_TOKEN }}@github.com/wgslsmith-spe/wgslsmith-spe.github.io
+          git push https://github-actions[bot]:${{ secrets.GH_PAGES_TOKEN }}@github.com/wgslsmith-spe/wgslsmith-spe.github.io
