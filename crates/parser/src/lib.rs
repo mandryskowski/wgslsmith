@@ -1835,7 +1835,11 @@ fn parse_type_decl(pair: Pair<Rule>, env: &Environment) -> DataType {
             let mut pairs = pair.into_inner();
             let storage_class = parse_storage_class(pairs.next().unwrap());
             let inner = parse_type_decl(pairs.next().unwrap(), env);
-            DataType::Ptr(MemoryViewType::new(inner, storage_class))
+            let mut view = MemoryViewType::new(inner, storage_class);
+            if let Some(access_mode_pair) = pairs.next() {
+                view.access_mode = parse_access_mode(access_mode_pair.as_str());
+            }
+            DataType::Ptr(view)
         }
         Rule::t_texture => {
             let full_str = pair.as_str();
