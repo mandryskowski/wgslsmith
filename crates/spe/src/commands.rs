@@ -12,9 +12,9 @@ pub mod enumerate {
             }
         };
 
-        let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
-            Ok(m) => m,
-            Err(_) => {
+        let module = match crate::util::parse_suppressing_panic(&content) {
+            Some(m) => m,
+            None => {
                 eprintln!("Parse panic on: {}", opt.shader_path.display());
                 return;
             }
@@ -190,7 +190,7 @@ pub mod fuse {
                 }
                 let path = Path::new(line);
                 if let Ok(src) = fs::read_to_string(path) {
-                    if let Ok(module) = std::panic::catch_unwind(|| parser::parse(&src)) {
+                    if let Some(module) = crate::util::parse_suppressing_panic(&src) {
                         working_modules.push((module, path.to_path_buf()));
                     }
                 }
@@ -221,9 +221,9 @@ pub mod fuse {
                     Err(_) => continue,
                 };
 
-                let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
-                    Ok(m) => m,
-                    Err(_) => continue,
+                let module = match crate::util::parse_suppressing_panic(&content) {
+                    Some(m) => m,
+                    None => continue,
                 };
 
                 let mut input_buffers = fs::read_to_string(path.with_extension("in.json")).ok();

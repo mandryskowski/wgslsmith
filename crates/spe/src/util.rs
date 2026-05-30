@@ -3,6 +3,14 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use time::{format_description, OffsetDateTime, UtcOffset};
 
+pub fn parse_suppressing_panic(src: &str) -> Option<ast::Module> {
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let res = std::panic::catch_unwind(|| parser::parse(src));
+    std::panic::set_hook(prev_hook);
+    res.ok()
+}
+
 pub fn generate_inputs_if_needed(module: &ast::Module) -> Option<String> {
     use ast::{StorageClass, VarQualifier};
     use rand::Rng;
