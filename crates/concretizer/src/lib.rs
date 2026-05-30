@@ -14,7 +14,7 @@ pub fn concretize_with(mut ast: Module, options: Options) -> Module {
     let mut concretizer = Concretizer::new(options);
 
     concretizer.register_global_consts(&ast.consts);
-    concretizer.register_global_overrides(&ast.overrides);
+    ast.overrides = concretizer.concretize_overrides(ast.overrides);
 
     let functions = ast
         .functions
