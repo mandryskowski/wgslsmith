@@ -196,15 +196,29 @@ impl Concretizer {
         }
     }
 
-    pub fn register_global_overrides(&mut self, overrides: &[OverrideDecl]) {
-        for decl in overrides {
+    pub fn concretize_overrides(&mut self, overrides: Vec<OverrideDecl>) -> Vec<OverrideDecl> {
+        let mut new_overrides = Vec::new();
+        for mut decl in overrides {
             if let Some(init) = &decl.initializer {
                 let con_node = self.concretize_expr(init.clone());
-                if let Some(val) = con_node.value {
-                    self.global_constants.insert(decl.name.clone(), val);
+                if let Some(val) = &con_node.value {
+                    self.global_constants.insert(decl.name.clone(), val.clone());
                 }
+                decl.initializer = Some(con_node.node);
+            } else if let Some(data_type) = &decl.data_type {
+                let prev =
+                    std::mem::replace(&mut self.error_handling, ErrorHandling::ReplaceWithDefault);
+                let con_node = self.default_node(data_type.clone());
+                self.error_handling = prev;
+
+                if let Some(val) = &con_node.value {
+                    self.global_constants.insert(decl.name.clone(), val.clone());
+                }
+                decl.initializer = Some(con_node.node);
             }
+            new_overrides.push(decl);
         }
+        new_overrides
     }
 
     pub fn register_const(&mut self, name: String, val: Value) {

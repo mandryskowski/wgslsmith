@@ -1,3 +1,4 @@
+mod context_aware;
 mod cx;
 mod expr;
 mod fns;
@@ -59,6 +60,8 @@ impl<'a> Generator<'a> {
             self.cx.types.insert(s.clone());
             self.cx.types.mark_imported(&s.name);
         }
+        let mut checker = context_aware::ContextChecker::new(module, &self.options);
+
         for f in &module.functions {
             let is_entry = f.attrs.iter().any(|a| matches!(a, ast::FnAttr::Stage(_)));
             let can_call = f
@@ -69,11 +72,73 @@ impl<'a> Generator<'a> {
                     .as_ref()
                     .is_none_or(|out| out.data_type.dereference().is_constructible());
 
-            if !is_entry && can_call {
+            if !is_entry && can_call && checker.is_callable(f) {
                 self.cx.fns.insert(f.clone());
                 self.cx.fns.mark_imported(&f.name);
             }
         }
+
+        for v in &module.vars {
+            let sc = v
+                .qualifier
+                .as_ref()
+                .map(|q| q.storage_class)
+                .unwrap_or(ast::StorageClass::Private);
+
+            let valid_sc = sc != ast::StorageClass::WorkGroup
+                || self.options.stage == crate::ShaderStage::Compute;
+            let valid_storage_access = if sc == ast::StorageClass::Storage
+                && self.options.stage == crate::ShaderStage::Vertex
+            {
+                let access_mode = v
+                    .qualifier
+                    .as_ref()
+                    .and_then(|q| q.access_mode)
+                    .unwrap_or_else(|| sc.default_access_mode());
+                !(access_mode == ast::AccessMode::ReadWrite
+                    || access_mode == ast::AccessMode::Write)
+            } else {
+                true
+            };
+
+            if !valid_sc || !valid_storage_access {
+                continue;
+            }
+
+            let access_mode = v
+                .qualifier
+                .as_ref()
+                .and_then(|q| q.access_mode)
+                .unwrap_or_else(|| sc.default_access_mode());
+
+            if sc == ast::StorageClass::Uniform || sc == ast::StorageClass::Handle {
+                self.global_scope
+                    .insert_readonly(v.name.clone(), v.data_type.clone());
+            } else {
+                let mem_view = ast::types::MemoryViewType {
+                    inner: std::rc::Rc::new(v.data_type.clone()),
+                    storage_class: sc,
+                    access_mode,
+                };
+                let ref_type = ast::types::DataType::Ref(mem_view);
+                if (access_mode == ast::AccessMode::ReadWrite
+                    || access_mode == ast::AccessMode::Write)
+                    && v.data_type.is_constructible()
+                {
+                    self.global_scope.insert_mutable(v.name.clone(), ref_type);
+                } else {
+                    self.global_scope
+                        .insert_unassignable_reference(v.name.clone(), ref_type);
+                }
+            }
+        }
+
+        for c in &module.consts {
+            let ty = c.inferred_type();
+            self.global_scope
+                .insert_readonly(c.ident.clone(), ty.clone());
+        }
+
         self.context_module = Some(module.clone());
         self
     }
@@ -367,7 +432,36 @@ impl<'a> Generator<'a> {
             overrides.extend(module.overrides);
             module.overrides = overrides;
 
-            let mut vars = ctx.vars.clone();
+            let mut vars: Vec<_> = ctx
+                .vars
+                .iter()
+                .filter(|v| {
+                    let sc = v
+                        .qualifier
+                        .as_ref()
+                        .map(|q| q.storage_class)
+                        .unwrap_or(ast::StorageClass::Private);
+
+                    let valid_sc = sc != ast::StorageClass::WorkGroup
+                        || self.options.stage == crate::ShaderStage::Compute;
+                    let valid_storage_access = if sc == ast::StorageClass::Storage
+                        && self.options.stage == crate::ShaderStage::Vertex
+                    {
+                        let access_mode = v
+                            .qualifier
+                            .as_ref()
+                            .and_then(|q| q.access_mode)
+                            .unwrap_or_else(|| sc.default_access_mode());
+                        !(access_mode == ast::AccessMode::ReadWrite
+                            || access_mode == ast::AccessMode::Write)
+                    } else {
+                        true
+                    };
+
+                    valid_sc && valid_storage_access
+                })
+                .cloned()
+                .collect();
             vars.extend(module.vars);
             module.vars = vars;
 

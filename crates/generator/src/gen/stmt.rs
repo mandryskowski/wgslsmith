@@ -109,9 +109,13 @@ impl super::Generator<'_> {
     }
 
     fn gen_barrier_stmt(&mut self) -> Statement {
-        let barriers = ["storageBarrier", "textureBarrier", "workgroupBarrier"];
+        let barriers = [
+            ast::BuiltinFn::StorageBarrier,
+            ast::BuiltinFn::TextureBarrier,
+            ast::BuiltinFn::WorkgroupBarrier,
+        ];
         let chosen = barriers.choose(self.rng).unwrap();
-        ast::FnCallStatement::new((*chosen).to_owned(), vec![]).into()
+        ast::FnCallStatement::new(chosen.as_ref().to_owned(), vec![]).into()
     }
 
     fn gen_let_stmt(&mut self) -> Statement {

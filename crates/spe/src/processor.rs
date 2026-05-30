@@ -33,9 +33,9 @@ impl<'a> ShaderProcessor<'a> {
 
         let mut input_buffers = std::fs::read_to_string(path.with_extension("in.json")).ok();
 
-        let module = match std::panic::catch_unwind(|| parser::parse(&content)) {
-            Ok(m) => m,
-            Err(_) => {
+        let module = match crate::util::parse_suppressing_panic(&content) {
+            Some(m) => m,
+            None => {
                 writeln!(
                     self.failures_log,
                     "[{}] [{}] Parse panic on: {}",
