@@ -203,7 +203,26 @@ impl<'a> ContextChecker<'a> {
                 .as_ref()
                 .map(|q| q.storage_class)
                 .unwrap_or(StorageClass::Private);
-            return sc != StorageClass::WorkGroup || self.options.stage == ShaderStage::Compute;
+
+            if sc == StorageClass::WorkGroup && self.options.stage != ShaderStage::Compute {
+                return false;
+            }
+
+            if sc == StorageClass::Storage && self.options.stage == ShaderStage::Vertex {
+                let access_mode = var
+                    .qualifier
+                    .as_ref()
+                    .and_then(|q| q.access_mode)
+                    .unwrap_or_else(|| sc.default_access_mode());
+
+                if access_mode == ast::AccessMode::ReadWrite
+                    || access_mode == ast::AccessMode::Write
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
         true
     }
