@@ -65,7 +65,7 @@ impl Enumerator {
         }
 
         self.recursive_calls = 0;
-        self.solve_recursive(current, false, 100_000);
+        self.solve_recursive(current, false, 100_000, false);
 
         if self.recursive_calls >= 100_000 {
             self.results.clear();
@@ -73,8 +73,24 @@ impl Enumerator {
             let limit = self.limit.unwrap_or(2000);
             for _ in 0..limit {
                 self.recursive_calls = 0;
-                if !self.solve_recursive(current, true, 10_000) {
+                if !self.solve_recursive(current, true, 10_000, false)
+                    && self.recursive_calls < 10_000
+                {
                     break;
+                }
+            }
+
+            if self.results.len() < limit {
+                for _ in 0..limit {
+                    if self.results.len() >= limit {
+                        break;
+                    }
+                    self.recursive_calls = 0;
+                    if !self.solve_recursive(current, true, 10_000, true)
+                        && self.recursive_calls < 10_000
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -85,6 +101,7 @@ impl Enumerator {
         current: &mut Vec<usize>,
         break_on_first: bool,
         recursive_limit: usize,
+        disallow_shadowing: bool,
     ) -> bool {
         self.recursive_calls += 1;
         if self.recursive_calls >= recursive_limit {
@@ -133,7 +150,7 @@ impl Enumerator {
 
             match &hole.hole_type {
                 HoleType::Decl(_) => {
-                    if prev_hole.scope_id != hole.scope_id {
+                    if prev_hole.scope_id != hole.scope_id && !disallow_shadowing {
                         valid_ids.push(id);
                     }
                 }
@@ -151,7 +168,8 @@ impl Enumerator {
 
         for id in valid_ids {
             current.push(id);
-            let found = self.solve_recursive(current, break_on_first, recursive_limit);
+            let found =
+                self.solve_recursive(current, break_on_first, recursive_limit, disallow_shadowing);
             current.pop();
 
             if found && break_on_first {
