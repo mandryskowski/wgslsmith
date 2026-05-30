@@ -3,10 +3,10 @@
 To execute a shader, run:
 
 ```sh
-$ wgslsmith run /path/to/shader.wgsl
+./wgslsmith run /path/to/shader.wgsl
 ```
 
-You can also supply input data to initialize any unfiform/storage buffers, by writing a json file of the form:
+You can also supply input data to initialize any uniform/storage buffers, by writing a json file of the form:
 
 ```json
 {

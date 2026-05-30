@@ -6,8 +6,8 @@ A configuration is defined as the combination of a WebGPU implementation (such a
 
 Use the `list` subcommand to get a list of available configurations on your machine.
 
-```sh
-$ wgslsmith harness list
+```shell
+$ ./wgslsmith harness list
 ID             | Adapter Name
 ---------------+------------------------------
 wgpu:vk:9348   | NVIDIA GeForce RTX 3070
@@ -24,8 +24,8 @@ By default, the harness will attempt to find the first available adapter for eac
 
 To specify configurations manually, you can pass them on the command line using the `-c` option.
 
-```sh
-$ wgslsmith run test.wgsl -c wgpu:dx12:140 -c dawn:dx12:140 -c dawn:vk:9348
+```shell
+$ ./wgslsmith run test.wgsl -c wgpu:dx12:140 -c dawn:dx12:140 -c dawn:vk:9348
 executing wgpu:dx12:140
 outputs:
   0: [2, 0, 0, 0]

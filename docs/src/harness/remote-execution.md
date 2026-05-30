@@ -11,14 +11,14 @@ You must ensure that the the client and server are both compiled from the same g
 Use the `serve` subcommand to start the server.
 
 ```sh
-$ wgslsmith harness serve -a 0.0.0.0:1234
+./wgslsmith harness serve -a 0.0.0.0:1234
 ```
 
 The `remote` subcommand can then be used to interact with the server. The command syntax is similar to the normal harness command.
 
 ```sh
-$ wgslsmith remote 192.168.1.23:1234 list
-$ wgslsmith remote 192.168.1.23:1234 run path/to/shader.wgsl
+./wgslsmith remote 192.168.1.23:1234 list
+./wgslsmith remote 192.168.1.23:1234 run path/to/shader.wgsl
 ```
 
 Note that the first argument to `remote` is the address of the server to connect to. For convenience, wgslsmith allows you to create friendly names for addresses and to set a default address. This is done through a configuration file (open it in your editor by running `wgslsmith config`).
@@ -37,7 +37,7 @@ remote = "android-phone" # Set 'android-phone' as the default remote
 This will allow you to connect to the remote using:
 
 ```sh
-$ wgslsmith remote android-phone run shader.wgsl
+./wgslsmith remote android-phone run shader.wgsl
 # or
-$ wgslsmith remote run shader.wgsl
+./wgslsmith remote run shader.wgsl
 ```

@@ -1,7 +1,7 @@
 # Building wgslsmith
 
 ```admonish info
-Building for Windows is supported by cross compiling from Linux (ideally using [WSL](https://docs.microsoft.com/en-us/windows/wsl/)). It shouldn't be too hard to build everything natively on Windows, but you're on your own.
+Building for Windows is **only** supported by cross compiling from Linux (ideally using [WSL](https://docs.microsoft.com/en-us/windows/wsl/)).
 ```
 
 <!-- toc -->
@@ -15,7 +15,7 @@ The test harness and program reduction tools depend on [dawn](https://dawn.googl
 If you don't already have it, run the following (for Ubuntu):
 
 ```sh
-$ sudo apt install cmake
+sudo apt install cmake
 ```
 
 Otherwise, download it from [https://cmake.org/download/](https://cmake.org/download/).
@@ -26,9 +26,9 @@ Dawn uses depot_tools to fetch its dependencies. Detailed usage instructions can
 
 ```sh
 # Clone the depot_tools repo somewhere on your system
-$ git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
 # Add it to your PATH
-$ export PATH=/path/to/depot_tools:$PATH
+export PATH=/path/to/depot_tools:$PATH
 ```
 
 ### Ninja
@@ -36,7 +36,7 @@ $ export PATH=/path/to/depot_tools:$PATH
 On Ubuntu:
 
 ```sh
-$ sudo apt install ninja-build
+sudo apt install ninja-build
 ```
 
 Otherwise, grab the binary from [https://github.com/ninja-build/ninja/releases](https://github.com/ninja-build/ninja/releases) and add it your `PATH`.
@@ -46,7 +46,7 @@ Otherwise, grab the binary from [https://github.com/ninja-build/ninja/releases](
 If you're building for Linux, you might need a few more dependencies. On Ubuntu, you can install the following packages:
 
 ```sh
-$ sudo apt install libxrandr-dev libxinerama-dev libx11-dev \
+sudo apt install libxrandr-dev libxinerama-dev libx11-dev \
     libxcursor-dev libxi-dev libxext-dev libxcb-shm0-dev libxtst-dev \
     libx11-xcb-dev
 ```
@@ -60,14 +60,14 @@ If cross-compiling for Windows, you'll also need to follow the instructions [her
 Make sure to clone wgslsmith recursively to fetch the submodules:
 
 ```sh
-$ git clone --recursive https://github.com/wgslsmith/wgslsmith
-$ cd wgslsmith
+git clone --recursive https://github.com/wgslsmith/wgslsmith
+cd wgslsmith
 ```
 
 To build everything, run the following:
 
 ```sh
-$ ./build.py
+./build.py
 ```
 
 This will automatically build dawn, and then build wgslsmith.
@@ -75,31 +75,24 @@ This will automatically build dawn, and then build wgslsmith.
 You can also disable some features if you don't want to build dawn and wgpu:
 
 ```sh
-$ ./build.py --no-reducer --no-harness
+./build.py --no-reducer --no-harness
 ```
 
 If cross compiling for Windows, you need to set the target explicitly:
 
 ```sh
-$ ./build.py --target x86_64-pc-windows-msvc
+./build.py --target x86_64-pc-windows-msvc
 ```
 
 It's possible to build the harness as a standalone tool:
 
 ```sh
-$ ./build.py harness
+./build.py harness
 ```
 
 Build output will be in `target/release` (or `cross-target/<target>/release` when cross compiling).
 
-## Installing
-
-To make the `wgslsmith` command available globally, run the following (after building):
-
+Compile with ASan and UBSan using these flags:
 ```sh
-$ ./build.py install [--install-prefix <path>]
+./build.py --asan --ubsan
 ```
-
-This will create a symlink to `target/release/wgslsmith`, so you don't need to rerun it every time you rebuild. Use the `--install-prefix` option to specify the directory to install in (defaults to `/usr/local/bin`).
-
-Alternatively you can just put the binary somewhere on your `PATH`.

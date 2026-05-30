@@ -4,7 +4,7 @@ wgslsmith uses a simple technique called reconditioning to remove certain unwant
 
 ```sh
 # Recondition a shader
-$ wgslsmith recondition path/to/shader.wgsl
+./wgslsmith recondition path/to/shader.wgsl
 ```
 
 The reconditioner can be used to guarantee loop termination, which is important for making sure that programs can be compiled as some compilers reject obvious infinite loops. If you only want to enforce loop terminate without any other runtime checks, pass `--enable loop-limiters` to the reconditioner.
