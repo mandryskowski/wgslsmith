@@ -1,3 +1,4 @@
+mod context_aware;
 mod cx;
 mod expr;
 mod fns;
@@ -59,6 +60,8 @@ impl<'a> Generator<'a> {
             self.cx.types.insert(s.clone());
             self.cx.types.mark_imported(&s.name);
         }
+        let mut checker = context_aware::ContextChecker::new(module, &self.options);
+
         for f in &module.functions {
             let is_entry = f.attrs.iter().any(|a| matches!(a, ast::FnAttr::Stage(_)));
             let can_call = f
@@ -69,7 +72,7 @@ impl<'a> Generator<'a> {
                     .as_ref()
                     .is_none_or(|out| out.data_type.dereference().is_constructible());
 
-            if !is_entry && can_call {
+            if !is_entry && can_call && checker.is_callable(f) {
                 self.cx.fns.insert(f.clone());
                 self.cx.fns.mark_imported(&f.name);
             }
