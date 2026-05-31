@@ -35,7 +35,7 @@ If you just want to try this out, grab the latest CI/CD release. File an issue i
 For Windows testing you might need to put [DXC](https://github.com/mandryskowski/DirectXShaderCompiler) dll's in the same folder as wgslsmith.
 
 ### Full build
-Clone with `--recursive`.
+Clone with `--recursive`. Or run `git submodule update --init --recursive` after cloning.
 
 Once you manage to set up all dependencies correctly (see [docs](https://wgslsmith-spe.github.io/building/index.html)), simply run:
 ```sh
