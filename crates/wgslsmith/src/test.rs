@@ -37,6 +37,9 @@ pub struct Options {
 
     #[clap(long, action, requires = "use_daemon_flag")]
     pub daemon_port: Option<u16>,
+
+    #[clap(long, action)]
+    pub attempts: Option<u32>,
 }
 
 #[derive(Parser)]
@@ -137,37 +140,55 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
         }
     }
 
-    match options.kind {
-        ReductionKind::Crash => reduce_crash(
-            config,
-            options.crash_options,
-            source,
-            metadata,
-            &targets,
-            options.quiet,
-            &params,
-        )?,
-        ReductionKind::Mismatch => {
-            reduce_mismatch(source, metadata, &targets, options.quiet, &params)?
+    let attempts = options.attempts.unwrap_or(1).max(1);
+
+    for attempt in 0..attempts {
+        let res = match options.kind {
+            ReductionKind::Crash => reduce_crash(
+                config,
+                &options.crash_options,
+                source.clone(),
+                metadata.clone(),
+                &targets,
+                options.quiet,
+                &params,
+            ),
+            ReductionKind::Mismatch => reduce_mismatch(
+                source.clone(),
+                metadata.clone(),
+                &targets,
+                options.quiet,
+                &params,
+            ),
+        };
+
+        match res {
+            Ok(()) => {
+                println!("interesting :)");
+                return Ok(());
+            }
+            Err(e) => {
+                if attempt == attempts - 1 {
+                    return Err(e);
+                }
+            }
         }
     }
-
-    println!("interesting :)");
 
     Ok(())
 }
 
 fn reduce_crash(
     config: &Config,
-    options: CrashOptions,
+    options: &CrashOptions,
     source: String,
     metadata: String,
     targets: &[Target],
     quiet: bool,
     params: &[String],
 ) -> eyre::Result<()> {
-    let regex = options.regex.unwrap();
-    let inverse_regex = options.inverse_regex;
+    let regex = options.regex.as_ref().unwrap();
+    let inverse_regex = options.inverse_regex.as_ref();
     let should_recondition = !options.no_recondition;
 
     let source = if should_recondition {
@@ -204,7 +225,7 @@ fn reduce_crash(
             let mut current_matches = matches!(
                 result,
                 ExecutionResult::Crash(ref output)
-                if regex.is_match(output) && !inverse_regex.clone().map(|r| r.is_match(output)).unwrap_or(false)
+                if regex.is_match(output) && !inverse_regex.map(|r| r.is_match(output)).unwrap_or(false)
             );
 
             if let Some(ref post) = options.post_cmd {
@@ -230,16 +251,16 @@ fn reduce_crash(
         }
         any_crash_matched
     } else {
-        let compiler = options.compiler.unwrap();
+        let compiler = options.compiler.clone().unwrap();
         let backend = options.backend.unwrap();
         let compiled = compiler.compile(&source, backend, false)?;
 
         match backend {
             Backend::Hlsl => {
-                remote_validate(config, &compiled, validator::Backend::Hlsl, &regex, quiet)?
+                remote_validate(config, &compiled, validator::Backend::Hlsl, regex, quiet)?
             }
             Backend::Msl => {
-                remote_validate(config, &compiled, validator::Backend::Msl, &regex, quiet)?
+                remote_validate(config, &compiled, validator::Backend::Msl, regex, quiet)?
             }
             Backend::Spirv => todo!(),
         }

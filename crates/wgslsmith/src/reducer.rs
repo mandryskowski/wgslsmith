@@ -109,6 +109,10 @@ pub struct Options {
 
     #[clap(long, action, requires = "use_daemon_flag")]
     pub daemon_port: Option<u16>,
+
+    /// Number of attempts to check if the bug reproduces (useful for flaky bugs).
+    #[clap(long, action)]
+    attempts: Option<u32>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -337,6 +341,10 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
 
             if let Some(server) = harness_server {
                 cmd.env("WGSLREDUCE_SERVER", server);
+            }
+
+            if let Some(attempts) = options.attempts {
+                cmd.env("WGSLREDUCE_ATTEMPTS", attempts.to_string());
             }
 
             if let Some(tmpdir) = &config.reducer.tmpdir {

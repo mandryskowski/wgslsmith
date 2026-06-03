@@ -21,6 +21,10 @@ pub struct Options {
     /// Address of harness server to use instead of local.
     #[clap(short, long, action)]
     pub server: Option<String>,
+
+    /// Number of attempts to check if the bug reproduces (useful for flaky bugs).
+    #[clap(long, action)]
+    pub attempts: Option<u32>,
 }
 
 #[derive(ValueEnum, Clone, PartialEq, Eq, Debug)]
@@ -232,6 +236,10 @@ fn process_dir(
 
             cmd.arg("--quiet");
 
+            if let Some(attempts) = options.attempts {
+                cmd.arg("--attempts").arg(attempts.to_string());
+            }
+
             let status = cmd.status()?;
             if status.success() {
                 target_config = Some(c.clone());
@@ -258,6 +266,10 @@ fn process_dir(
                 cmd.arg("--inverse-regex").arg(&inverse_regex_str);
             }
 
+            if let Some(attempts) = options.attempts {
+                cmd.arg("--attempts").arg(attempts.to_string());
+            }
+
             cmd.status()?;
         } else {
             println!("Could not reproduce crash with any config.");
@@ -279,6 +291,10 @@ fn process_dir(
                     .arg(format!("{}@{}", c2, harness_server))
                     .arg("--quiet");
 
+                if let Some(attempts) = options.attempts {
+                    cmd.arg("--attempts").arg(attempts.to_string());
+                }
+
                 let status = cmd.status()?;
                 if status.success() {
                     target_configs = Some((c1.clone(), c2.clone()));
@@ -298,6 +314,10 @@ fn process_dir(
                 .arg(format!("{}@{}", c1, harness_server))
                 .arg("-t")
                 .arg(format!("{}@{}", c2, harness_server));
+
+            if let Some(attempts) = options.attempts {
+                cmd.arg("--attempts").arg(attempts.to_string());
+            }
 
             cmd.status()?;
         } else {
