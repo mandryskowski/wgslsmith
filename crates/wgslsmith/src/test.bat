@@ -21,5 +21,6 @@ if "%WGSLREDUCE_KIND%"=="crash" (
     if defined WGSLREDUCE_PRE_CMD ( set args=!args! --pre-cmd "%WGSLREDUCE_PRE_CMD%" )
     if defined WGSLREDUCE_POST_CMD ( set args=!args! --post-cmd "%WGSLREDUCE_POST_CMD%" )
 )
+if defined WGSLREDUCE_ATTEMPTS ( set args=!args! --attempts %WGSLREDUCE_ATTEMPTS% )
 "[WGSLSMITH]" test -q !args!
 exit /b %errorlevel%

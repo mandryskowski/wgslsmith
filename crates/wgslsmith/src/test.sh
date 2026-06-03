@@ -55,4 +55,8 @@ if [[ "$WGSLREDUCE_KIND" == "crash" ]]; then
     fi
 fi
 
+if [[ -n "${WGSLREDUCE_ATTEMPTS-}" ]]; then
+    args+=("--attempts" "$WGSLREDUCE_ATTEMPTS")
+fi
+
 [WGSLSMITH] test -q "${args[@]}"
