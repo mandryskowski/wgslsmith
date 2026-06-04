@@ -320,8 +320,11 @@ pub mod cli {
 
         let mut buffers_to_configs: HashMap<Vec<u8>, Vec<ConfigId>> = HashMap::new();
         for (config, execution) in executions.iter() {
-            let normalized =
-                buffer_check::normalize_execution(execution, &pipeline_desc, &type_descs);
+            let normalized = if options.compile_only {
+                vec![]
+            } else {
+                buffer_check::normalize_execution(execution, &pipeline_desc, &type_descs)
+            };
             buffers_to_configs
                 .entry(normalized)
                 .or_default()
