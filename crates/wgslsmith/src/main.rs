@@ -227,6 +227,7 @@ fn main() -> eyre::Result<()> {
                             configs: &[ConfigId],
                             timeout: Option<Duration>,
                             _parallelism: usize,
+                            _compile_only: bool,
                             on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>
                                       + Send),
                         ) -> Result<(), ExecutionError> {

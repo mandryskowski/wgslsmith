@@ -102,4 +102,7 @@ pub struct DirOptions {
     /// File to append execution performance logs to
     #[clap(long, action)]
     pub perf_file: Option<PathBuf>,
+
+    #[clap(long, action, default_value = "false")]
+    pub compile_only: bool,
 }

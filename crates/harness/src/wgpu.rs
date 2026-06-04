@@ -100,6 +100,7 @@ pub async fn run(
     shader: &str,
     meta: &PipelineDescription,
     config: &ConfigId,
+    compile_only: bool,
     wgpu_state: Option<&mut WgpuState>,
 ) -> Result<Vec<Vec<u8>>> {
     let backend = match config.backend {
@@ -303,6 +304,10 @@ pub async fn run(
                 .await?;
             }
         }
+    }
+
+    if compile_only {
+        return Ok(vec![]);
     }
 
     let mut resource_buffers = vec![];

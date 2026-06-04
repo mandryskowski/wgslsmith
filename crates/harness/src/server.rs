@@ -106,6 +106,7 @@ fn handle_run_request<W: io::Write + Send>(
         &req.configs,
         req.timeout,
         config_parallelism,
+        false,
         on_event,
     )
     .map_err(|e| match e {

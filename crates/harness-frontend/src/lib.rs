@@ -151,6 +151,7 @@ impl From<eyre::Report> for ExecutionError {
 }
 
 pub trait Executor {
+    #[allow(clippy::too_many_arguments)]
     fn execute(
         &self,
         shader: &str,
@@ -158,6 +159,7 @@ pub trait Executor {
         configs: &[ConfigId],
         timeout: Option<Duration>,
         parallelism: usize,
+        compile_only: bool,
         on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
     ) -> Result<(), ExecutionError>;
 }
@@ -217,6 +219,9 @@ pub mod cli {
 
         #[clap(long, action)]
         pub perf_file: Option<String>,
+
+        #[clap(long, action)]
+        pub compile_only: bool,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {
@@ -297,6 +302,7 @@ pub mod cli {
                 &options.configs,
                 timeout,
                 options.parallelism,
+                options.compile_only,
                 &mut on_event,
             )
             .map_err(|e| match e {

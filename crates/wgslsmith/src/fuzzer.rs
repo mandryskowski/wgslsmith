@@ -137,6 +137,9 @@ pub struct Options {
 
     #[clap(long, action)]
     pub perf_file: Option<PathBuf>,
+
+    #[clap(long, action)]
+    pub compile_only: bool,
 }
 
 impl Options {
@@ -164,6 +167,10 @@ impl Options {
         if let Some(perf_file) = &self.perf_file {
             exec_params.push("--perf-file".to_string());
             exec_params.push(perf_file.to_string_lossy().into_owned());
+        }
+
+        if self.compile_only {
+            exec_params.push("--compile-only".to_string());
         }
 
         exec_params
