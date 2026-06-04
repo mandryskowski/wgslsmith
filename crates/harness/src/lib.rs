@@ -130,6 +130,7 @@ struct ExecutionArgs<'a> {
     pub pipeline_desc: &'a PipelineDescription,
     pub timeout: Option<Duration>,
     pub tid: usize,
+    pub compile_only: bool,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -138,6 +139,7 @@ struct ExecutionInput {
     pub pipeline_desc: PipelineDescription,
     pub timeout: Option<Duration>,
     pub tid: usize,
+    pub compile_only: bool,
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
@@ -154,6 +156,7 @@ pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
     configs: &[ConfigId],
     timeout: Option<Duration>,
     parallelism: usize,
+    compile_only: bool,
     mut on_event: E,
 ) -> Result<(), ExecutionError> {
     let default_configs;
@@ -213,6 +216,7 @@ pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send>(
                             pipeline_desc,
                             timeout,
                             tid,
+                            compile_only,
                         },
                         &mut stdin,
                         bincode::config::standard(),
@@ -262,6 +266,7 @@ pub fn execute_config(
     shader: &str,
     pipeline_desc: &PipelineDescription,
     config: &ConfigId,
+    compile_only: bool,
     state: Option<&mut WebGPUState>,
 ) -> eyre::Result<Vec<Vec<u8>>> {
     match config.implementation {
@@ -269,12 +274,14 @@ pub fn execute_config(
             shader,
             pipeline_desc,
             config,
+            compile_only,
             state.map(|s| &mut s.dawn_state),
         )),
         Implementation::Wgpu => block_on(wgpu::run(
             shader,
             pipeline_desc,
             config,
+            compile_only,
             state.map(|s| &mut s.wgpu_state),
         )),
     }

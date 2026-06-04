@@ -73,6 +73,7 @@ pub async fn run(
     shader: &str,
     meta: &PipelineDescription,
     config: &ConfigId,
+    compile_only: bool,
     dawn_state: Option<&mut DawnState>,
 ) -> color_eyre::Result<Vec<Vec<u8>>> {
     let backend = match config.backend {
@@ -187,6 +188,10 @@ pub async fn run(
                 )?;
             }
         }
+    }
+
+    if compile_only {
+        return Ok(vec![]);
     }
 
     let mut buffer_sets = vec![];

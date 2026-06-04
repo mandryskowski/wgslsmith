@@ -145,22 +145,32 @@ impl Printer {
         self.print_config(&mut stdout, config)?;
         writeln!(&mut stdout, "):")?;
 
-        let mut no_outputs = true;
-        for (index, resource) in pipeline_desc
+        let storage_buffers = pipeline_desc
             .resources
             .iter()
-            .filter(|it| it.kind == ResourceKind::StorageBuffer)
-            .enumerate()
-        {
-            let group = resource.group;
-            let binding = resource.binding;
-            let buffer = &buffers[index];
-            writeln!(&mut stdout, "  {group}:{binding} : {buffer:?}")?;
-            no_outputs = false;
-        }
+            .filter(|it| it.kind == ResourceKind::StorageBuffer);
 
-        if no_outputs {
+        if buffers.len() == storage_buffers.clone().count() {
+            let mut no_outputs = true;
+            for (index, resource) in storage_buffers.enumerate() {
+                let group = resource.group;
+                let binding = resource.binding;
+                let buffer = &buffers[index];
+                writeln!(&mut stdout, "  {group}:{binding} : {buffer:?}")?;
+                no_outputs = false;
+            }
+
+            if no_outputs {
+                writeln!(&mut stdout, "  none")?;
+            }
+        } else if buffers.is_empty() {
             writeln!(&mut stdout, "  none")?;
+        } else {
+            panic!(
+                "buffer length mismatch: {} vs {}",
+                buffers.len(),
+                storage_buffers.count()
+            );
         }
 
         writeln!(&mut stdout)?;

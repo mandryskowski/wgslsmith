@@ -240,6 +240,7 @@ impl DaemonServer {
                     &req.execution_input.shader,
                     &req.execution_input.pipeline_desc,
                     &req.config,
+                    req.execution_input.compile_only,
                     Some(&mut self.webgpu_state),
                 );
 

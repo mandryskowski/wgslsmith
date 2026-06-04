@@ -91,6 +91,7 @@ fn internal_run(config: ConfigId, dawn_flags: crate::DawnFlags) -> eyre::Result<
             &input.shader,
             &input.pipeline_desc,
             &config,
+            input.compile_only,
             Some(&mut state),
         )?,
         stderr: String::new(),
@@ -114,6 +115,7 @@ pub fn execute(cmd: HarnessCommand, options: RunOptions) -> eyre::Result<()> {
             configs: &[ConfigId],
             timeout: Option<Duration>,
             parallelism: usize,
+            compile_only: bool,
             on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError> + Send),
         ) -> Result<(), ExecutionError> {
             crate::execute::<_>(
@@ -123,6 +125,7 @@ pub fn execute(cmd: HarnessCommand, options: RunOptions) -> eyre::Result<()> {
                 configs,
                 timeout,
                 parallelism,
+                compile_only,
                 on_event,
             )
         }
