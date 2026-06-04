@@ -19,11 +19,11 @@ The other tools can be installed by following their respective documentation.
 To reduce WGSL programs use the `reduce` command:
 
 ```sh
-$ wgslsmith reduce --help
+./wgslsmith reduce --help
 ```
 
 ```admonish warning
-The reducer can only be run on Linux at the moment (although it can still reduce shaders for all supported platforms). Windows support is tracked in [#22](https://github.com/wgslsmith/wgslsmith/issues/22). To reduce shaders for another platform, use the harness in [server mode](../harness/remote-execution.md) or the validation tools described below.
+The reducer cannot be run on Android. To reduce shaders on it, use the harness in [server mode](../harness/remote-execution.md).
 ```
 
 For reducing mismatches, there are no extra required arguments other than the path to the shader and input data. For crashes, wgslsmith supports two approaches described below. In both cases you must provide the `--regex <REGEX>` option to specify a regex to match against the crash output (e.g. an error code that you're interested in).

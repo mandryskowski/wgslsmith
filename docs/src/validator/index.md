@@ -27,7 +27,7 @@ The validation server needs to be compiled for Windows. Following the instructio
 Start the validation server using the following command. This will compile the server and then build and start a docker container containing wine and the compiler tools.
 
 ```sh
-$ ./start-validation-server.sh
+./start-validation-server.sh
 ```
 
 The default server port is 9123. Add this to your wgslsmith config file (using the `wgslsmith config` command).
