@@ -167,7 +167,7 @@ impl Printer {
             writeln!(&mut stdout, "  none")?;
         } else {
             panic!(
-                "  (buffer length mismatch: {} vs {})",
+                "buffer length mismatch: {} vs {}",
                 buffers.len(),
                 storage_buffers.count()
             );
