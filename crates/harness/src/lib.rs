@@ -22,6 +22,7 @@ use types::{BackendType, Config, ConfigId, Implementation};
 pub struct DawnFlags {
     pub enabled: Vec<String>,
     pub disabled: Vec<String>,
+    pub backend_validation: types::BackendValidationLevel,
 }
 
 pub struct WebGPUState {

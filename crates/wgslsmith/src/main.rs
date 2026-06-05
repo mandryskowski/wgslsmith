@@ -198,6 +198,7 @@ fn main() -> eyre::Result<()> {
             harness::DawnFlags {
                 enabled: config.dawn.enabled_flags.clone(),
                 disabled: config.dawn.disabled_flags.clone(),
+                backend_validation: config.dawn.backend_validation,
             },
         ),
         Cmd::Remote { cmd, server } => {

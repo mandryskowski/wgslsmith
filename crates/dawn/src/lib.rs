@@ -21,7 +21,7 @@ mod dawn {
         unsafe extern "C" fn(*const webgpu::WGPUAdapterInfo, *mut c_void);
 
     extern "C" {
-        pub fn new_instance() -> *mut c_void;
+        pub fn new_instance(backend_validation_level: i32) -> *mut c_void;
 
         pub fn delete_instance(instance: *mut c_void);
 

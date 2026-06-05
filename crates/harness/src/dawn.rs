@@ -22,7 +22,7 @@ pub struct DawnState {
 
 impl DawnState {
     pub(crate) fn new(flags: crate::DawnFlags) -> Self {
-        let instance = Box::new(Instance::new());
+        let instance = Box::new(Instance::new(flags.backend_validation));
         let instance_ref = Box::leak(instance);
 
         DawnState {
@@ -50,7 +50,7 @@ enum BufferSet {
 }
 
 pub fn get_adapters() -> Vec<types::Adapter> {
-    Instance::new()
+    Instance::default()
         .enumerate_adapters()
         .into_iter()
         .filter_map(|it| {
@@ -89,6 +89,7 @@ pub async fn run(
             let default_flags = crate::DawnFlags {
                 enabled: vec!["use_dxc".to_owned()],
                 disabled: vec![],
+                backend_validation: Default::default(),
             };
             _owned_dawn_state = DawnState::new(default_flags);
             &mut _owned_dawn_state

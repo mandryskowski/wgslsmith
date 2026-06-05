@@ -5,6 +5,7 @@ use futures::channel::oneshot;
 use std::ffi::c_void;
 use std::mem::zeroed;
 use std::ptr::{null, null_mut};
+use harness_types::BackendValidationLevel;
 
 fn make_string_view(value: &str) -> WGPUStringView {
     WGPUStringView {
@@ -27,9 +28,10 @@ pub struct DawnToggles<'a> {
     pub disabled: &'a [&'a str],
 }
 
+
 impl Instance {
-    pub fn new() -> Instance {
-        Instance(unsafe { dawn::new_instance() })
+    pub fn new(level: BackendValidationLevel) -> Instance {
+        Instance(unsafe { dawn::new_instance(level as i32) })
     }
 
     pub fn process_events(&self) {
@@ -126,7 +128,7 @@ impl Instance {
 
 impl Default for Instance {
     fn default() -> Self {
-        Self::new()
+        Self::new(harness_types::BackendValidationLevel::default())
     }
 }
 
