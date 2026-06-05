@@ -47,9 +47,12 @@ pub struct DaemonServer {
 }
 
 impl DaemonServer {
-    pub fn new(dawn_flags: crate::DawnFlags) -> Self {
+    pub fn new(
+        dawn_flags: crate::DawnFlags,
+        backend_validation: types::BackendValidationLevel,
+    ) -> Self {
         DaemonServer {
-            webgpu_state: crate::WebGPUState::new(dawn_flags),
+            webgpu_state: crate::WebGPUState::new(dawn_flags, backend_validation),
             active_requests: Arc::new(AtomicUsize::new(0)),
             shutting_down: Arc::new(AtomicBool::new(false)),
         }

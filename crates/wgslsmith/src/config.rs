@@ -7,6 +7,7 @@ use color_eyre::Help;
 use directories::ProjectDirs;
 #[cfg(feature = "reducer")]
 use eyre::eyre;
+use harness_types::BackendValidationLevel;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -53,6 +54,8 @@ pub struct Harness {
     pub remote: Option<String>,
     #[serde(default, with = "serde_regex")]
     pub errors: Vec<Regex>,
+    #[serde(default)]
+    pub backend_validation: BackendValidationLevel,
 }
 
 #[derive(Default, Deserialize)]

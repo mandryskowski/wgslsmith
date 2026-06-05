@@ -20,5 +20,6 @@ fn main() -> eyre::Result<()> {
             enabled: vec!["use_dxc".to_owned()],
             disabled: vec![],
         },
+        types::BackendValidationLevel::default(),
     )
 }

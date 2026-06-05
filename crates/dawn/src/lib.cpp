@@ -26,14 +26,19 @@ static void DeviceLogCallback(WGPULoggingType type, WGPUStringView message, void
     fflush(stderr);
 }
 
-extern "C" dawn::native::Instance* new_instance() {
+extern "C" dawn::native::Instance* new_instance(int backend_validation_level) {
     // Initialize WebGPU proc table
     dawnProcSetProcs(&dawn::native::GetProcs());
 
     auto instance = new dawn::native::Instance;
 
-    // This makes things slow
-    // instance->SetBackendValidationLevel(dawn::native::BackendValidationLevel::Full);
+    if (backend_validation_level == 0) {
+        instance->SetBackendValidationLevel(dawn::native::BackendValidationLevel::Disabled);
+    } else if (backend_validation_level == 1) {
+        instance->SetBackendValidationLevel(dawn::native::BackendValidationLevel::Partial);
+    } else {
+        instance->SetBackendValidationLevel(dawn::native::BackendValidationLevel::Full);
+    }
 
     return instance;
 }

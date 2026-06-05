@@ -30,10 +30,10 @@ pub struct WebGPUState {
 }
 
 impl WebGPUState {
-    pub fn new(dawn_flags: DawnFlags) -> Self {
+    pub fn new(dawn_flags: DawnFlags, backend_validation: types::BackendValidationLevel) -> Self {
         Self {
-            dawn_state: DawnState::new(dawn_flags),
-            wgpu_state: WgpuState::new(),
+            dawn_state: DawnState::new(dawn_flags, backend_validation),
+            wgpu_state: WgpuState::new(backend_validation),
         }
     }
 }
