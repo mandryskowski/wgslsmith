@@ -24,12 +24,15 @@ std::string get_entry_point_name(const tint::Program& program) {
     return entry_points[0].name;
 }
 
-bool validate_shader(const char* source) {
+std::unique_ptr<std::string> validate_shader(const char* source) {
     tint::wgsl::reader::Options options = {};
     options.allowed_features = tint::wgsl::AllowedFeatures::Everything();
     auto source_file = std::make_unique<tint::Source::File>("[memory]", source);
     auto program = tint::wgsl::reader::Parse(source_file.get(), options);
-    return program.IsValid();
+    if (!program.IsValid()) {
+        return std::make_unique<std::string>(program.Diagnostics().Str());
+    }
+    return nullptr;
 }
 
 std::unique_ptr<std::string> compile_shader_to_hlsl(const char* source) {

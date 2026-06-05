@@ -4,16 +4,19 @@ use std::ffi::CString;
 mod ffi {
     unsafe extern "C++" {
         include!("tint/src/lib.h");
-        unsafe fn validate_shader(source: *const c_char) -> bool;
+        unsafe fn validate_shader(source: *const c_char) -> UniquePtr<CxxString>;
         unsafe fn compile_shader_to_hlsl(source: *const c_char) -> UniquePtr<CxxString>;
         unsafe fn compile_shader_to_msl(source: *const c_char) -> UniquePtr<CxxString>;
         unsafe fn compile_shader_to_spirv(source: *const c_char) -> UniquePtr<CxxVector<u32>>;
     }
 }
 
-pub fn validate_shader(source: &str) -> bool {
+pub fn validate_shader(source: &str) -> Result<(), String> {
     let source = CString::new(source).unwrap();
-    unsafe { ffi::validate_shader(source.as_ptr()) }
+    match unsafe { ffi::validate_shader(source.as_ptr()) }.as_ref() {
+        Some(err) => Err(err.to_string()),
+        None => Ok(()),
+    }
 }
 
 pub fn compile_shader_to_hlsl(source: &str) -> Option<String> {
