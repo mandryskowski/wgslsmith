@@ -19,6 +19,7 @@ pub fn execute(
     pipeline_desc: PipelineDescription,
     configs: Vec<ConfigId>,
     timeout: Option<Duration>,
+    compile_only: bool,
     on_event: &mut dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>,
 ) -> Result<(), ExecutionError> {
     let mut stream = req(
@@ -28,6 +29,7 @@ pub fn execute(
             pipeline_desc,
             configs,
             timeout,
+            compile_only,
         }),
     )?;
 

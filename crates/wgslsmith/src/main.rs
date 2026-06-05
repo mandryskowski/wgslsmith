@@ -227,7 +227,7 @@ fn main() -> eyre::Result<()> {
                             configs: &[ConfigId],
                             timeout: Option<Duration>,
                             _parallelism: usize,
-                            _compile_only: bool,
+                            compile_only: bool,
                             on_event: &mut (dyn FnMut(ExecutionEvent) -> Result<(), ExecutionError>
                                       + Send),
                         ) -> Result<(), ExecutionError> {
@@ -237,6 +237,7 @@ fn main() -> eyre::Result<()> {
                                 pipeline_desc.clone(),
                                 configs.to_owned(),
                                 timeout,
+                                compile_only,
                                 on_event,
                             )
                         }

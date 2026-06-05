@@ -8,6 +8,7 @@ if defined WGSLREDUCE_USE_DAEMON (
     set args=!args! --use-daemon
     if defined WGSLREDUCE_DAEMON_PORT ( set args=!args! --daemon-port %WGSLREDUCE_DAEMON_PORT% )
 )
+if defined WGSLREDUCE_UNSTABLE_FLOAT ( set args=!args! --unstable-float )
 if defined WGSLREDUCE_CONFIGS (
     for %%C in (%WGSLREDUCE_CONFIGS%) do set args=!args! --config %%C
 )
