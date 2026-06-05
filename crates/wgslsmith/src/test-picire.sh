@@ -23,6 +23,10 @@ if [[ -n "${WGSLREDUCE_UNSTABLE_FLOAT-}" ]]; then
     args+=("--unstable-float")
 fi
 
+if [[ -n "${WGSLREDUCE_COMPILE_ONLY-}" ]]; then
+    args+=("--compile-only")
+fi
+
 if [[ -n "${WGSLREDUCE_CONFIGS-}" ]]; then
     for conf in $WGSLREDUCE_CONFIGS; do
         args+=("--config" "$conf")

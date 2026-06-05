@@ -116,6 +116,9 @@ pub struct Options {
 
     #[clap(long, action)]
     pub unstable_float: bool,
+
+    #[clap(long, action)]
+    pub compile_only: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -352,6 +355,10 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
 
             if options.unstable_float {
                 cmd.env("WGSLREDUCE_UNSTABLE_FLOAT", "1");
+            }
+
+            if options.compile_only {
+                cmd.env("WGSLREDUCE_COMPILE_ONLY", "1");
             }
 
             if let Some(tmpdir) = &config.reducer.tmpdir {
