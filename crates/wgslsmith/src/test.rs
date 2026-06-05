@@ -297,8 +297,29 @@ fn reduce_mismatch(
     let module = parser::parse(&source);
     let reconditioned = recondition(module, unstable_float);
 
-    Compiler::Naga.validate(&reconditioned)?;
-    Compiler::Tint.validate(&reconditioned)?;
+    let mut uses_naga = false;
+    let mut uses_tint = false;
+
+    for target in targets {
+        if target.configs.is_empty() {
+            uses_naga = true;
+            uses_tint = true;
+            break;
+        }
+        for config in &target.configs {
+            match config.implementation {
+                harness_types::Implementation::Wgpu => uses_naga = true,
+                harness_types::Implementation::Dawn => uses_tint = true,
+            }
+        }
+    }
+
+    if uses_naga {
+        Compiler::Naga.validate(&reconditioned)?;
+    }
+    if uses_tint {
+        Compiler::Tint.validate(&reconditioned)?;
+    }
 
     let mut consensus: Option<Vec<u8>> = None;
     let mut mismatch_found = false;
