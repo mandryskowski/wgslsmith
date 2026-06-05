@@ -90,9 +90,7 @@ fn validate_naga(source: &str) -> eyre::Result<()> {
 }
 
 fn validate_tint(source: &str) -> eyre::Result<()> {
-    tint::validate_shader(source)
-        .then_some(())
-        .ok_or_else(|| eyre!("invalid wgsl"))
+    tint::validate_shader(source).map_err(|e| eyre!("{e}"))
 }
 
 fn compile_naga(source: &str, backend: Backend, validate_output: bool) -> eyre::Result<String> {

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-bool validate_shader(const char* source);
+std::unique_ptr<std::string> validate_shader(const char* source);
 
 std::unique_ptr<std::string> compile_shader_to_hlsl(const char* source);
 
