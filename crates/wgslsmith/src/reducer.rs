@@ -113,6 +113,9 @@ pub struct Options {
     /// Number of attempts to check if the bug reproduces (useful for flaky bugs).
     #[clap(long, action)]
     attempts: Option<u32>,
+
+    #[clap(long, action)]
+    pub unstable_float: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -345,6 +348,10 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
 
             if let Some(attempts) = options.attempts {
                 cmd.env("WGSLREDUCE_ATTEMPTS", attempts.to_string());
+            }
+
+            if options.unstable_float {
+                cmd.env("WGSLREDUCE_UNSTABLE_FLOAT", "1");
             }
 
             if let Some(tmpdir) = &config.reducer.tmpdir {

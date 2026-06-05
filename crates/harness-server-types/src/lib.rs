@@ -21,6 +21,7 @@ pub struct RunRequest {
     pub pipeline_desc: PipelineDescription,
     pub configs: Vec<ConfigId>,
     pub timeout: Option<Duration>,
+    pub compile_only: bool,
 }
 
 #[derive(Debug, Decode, Encode)]

@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use ast::Module;
 use clap::Parser;
 use eyre::eyre;
 use harness_types::ConfigId;
@@ -40,6 +39,9 @@ pub struct Options {
 
     #[clap(long, action)]
     pub attempts: Option<u32>,
+
+    #[clap(long, action)]
+    pub unstable_float: bool,
 }
 
 #[derive(Parser)]
@@ -152,6 +154,7 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
                 &targets,
                 options.quiet,
                 &params,
+                options.unstable_float,
             ),
             ReductionKind::Mismatch => reduce_mismatch(
                 source.clone(),
@@ -159,6 +162,7 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
                 &targets,
                 options.quiet,
                 &params,
+                options.unstable_float,
             ),
         };
 
@@ -178,6 +182,7 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reduce_crash(
     config: &Config,
     options: &CrashOptions,
@@ -186,13 +191,14 @@ fn reduce_crash(
     targets: &[Target],
     quiet: bool,
     params: &[String],
+    unstable_float: bool,
 ) -> eyre::Result<()> {
     let regex = options.regex.as_ref().unwrap();
     let inverse_regex = options.inverse_regex.as_ref();
     let should_recondition = !options.no_recondition;
 
     let source = if should_recondition {
-        recondition(parser::parse(&source))
+        recondition(parser::parse(&source), unstable_float)
     } else {
         source
     };
@@ -279,9 +285,10 @@ fn reduce_mismatch(
     targets: &[Target],
     quiet: bool,
     params: &[String],
+    unstable_float: bool,
 ) -> eyre::Result<()> {
     let module = parser::parse(&source);
-    let reconditioned = recondition(module);
+    let reconditioned = recondition(module, unstable_float);
 
     Compiler::Naga.validate(&reconditioned)?;
     Compiler::Tint.validate(&reconditioned)?;
@@ -332,8 +339,14 @@ fn reduce_mismatch(
     Ok(())
 }
 
-fn recondition(module: Module) -> String {
-    let reconditioned = reconditioner::recondition(module);
+fn recondition(module: ast::Module, unstable_float: bool) -> String {
+    let reconditioned = reconditioner::recondition_with(
+        module,
+        reconditioner::Options {
+            only_loops: false,
+            unstable_float,
+        },
+    );
     let mut formatted = String::new();
 
     ast::writer::Writer::default()
