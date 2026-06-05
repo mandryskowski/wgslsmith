@@ -42,6 +42,9 @@ pub struct Options {
 
     #[clap(long, action)]
     pub unstable_float: bool,
+
+    #[clap(long, action)]
+    pub compile_only: bool,
 }
 
 #[derive(Parser)]
@@ -140,6 +143,10 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
             params.push("--daemon-port".to_string());
             params.push(port.to_string());
         }
+    }
+
+    if options.compile_only {
+        params.push("--compile-only".to_string());
     }
 
     let attempts = options.attempts.unwrap_or(1).max(1);
