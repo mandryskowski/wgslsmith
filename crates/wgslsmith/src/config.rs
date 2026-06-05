@@ -7,9 +7,9 @@ use color_eyre::Help;
 use directories::ProjectDirs;
 #[cfg(feature = "reducer")]
 use eyre::eyre;
+use harness_types::BackendValidationLevel;
 use regex::Regex;
 use serde::Deserialize;
-use harness_types::BackendValidationLevel;
 
 #[derive(Default, Deserialize)]
 pub struct Config {
@@ -33,8 +33,6 @@ pub struct Dawn {
     pub enabled_flags: Vec<String>,
     #[serde(default)]
     pub disabled_flags: Vec<String>,
-    #[serde(default)]
-    pub backend_validation: BackendValidationLevel,
 }
 
 fn default_dawn_flags() -> Vec<String> {
@@ -46,7 +44,6 @@ impl Default for Dawn {
         Self {
             enabled_flags: default_dawn_flags(),
             disabled_flags: vec![],
-            backend_validation: BackendValidationLevel::default(),
         }
     }
 }
@@ -57,6 +54,8 @@ pub struct Harness {
     pub remote: Option<String>,
     #[serde(default, with = "serde_regex")]
     pub errors: Vec<Regex>,
+    #[serde(default)]
+    pub backend_validation: BackendValidationLevel,
 }
 
 #[derive(Default, Deserialize)]

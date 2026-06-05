@@ -2,10 +2,10 @@ use crate::dawn;
 use crate::webgpu::*;
 use eyre::{eyre, Result};
 use futures::channel::oneshot;
+use harness_types::BackendValidationLevel;
 use std::ffi::c_void;
 use std::mem::zeroed;
 use std::ptr::{null, null_mut};
-use harness_types::BackendValidationLevel;
 
 fn make_string_view(value: &str) -> WGPUStringView {
     WGPUStringView {
@@ -27,7 +27,6 @@ pub struct DawnToggles<'a> {
     pub enabled: &'a [&'a str],
     pub disabled: &'a [&'a str],
 }
-
 
 impl Instance {
     pub fn new(level: BackendValidationLevel) -> Instance {

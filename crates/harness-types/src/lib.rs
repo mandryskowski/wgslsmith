@@ -3,7 +3,19 @@ use std::str::FromStr;
 
 use bincode::{Decode, Encode};
 
-#[derive(Clone, Copy, Debug, Default, Decode, Encode, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Decode,
+    Encode,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum BackendValidationLevel {
     #[default]

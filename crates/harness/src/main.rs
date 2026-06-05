@@ -19,7 +19,7 @@ fn main() -> eyre::Result<()> {
         harness::DawnFlags {
             enabled: vec!["use_dxc".to_owned()],
             disabled: vec![],
-            backend_validation: Default::default(),
         },
+        types::BackendValidationLevel::default(),
     )
 }

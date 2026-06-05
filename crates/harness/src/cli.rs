@@ -42,6 +42,7 @@ pub fn run(
     harness_cmd: HarnessCommand,
     command: Command,
     dawn_flags: crate::DawnFlags,
+    backend_validation: types::BackendValidationLevel,
 ) -> eyre::Result<()> {
     match command {
         Command::List => list(),
@@ -53,7 +54,7 @@ pub fn run(
             });
             execute(harness_cmd, options)
         }
-        Command::Exec { config } => internal_run(config, dawn_flags),
+        Command::Exec { config } => internal_run(config, dawn_flags, backend_validation),
         Command::Serve(options) => {
             let mut harness_cmd = harness_cmd.arg(if options.use_daemon {
                 "daemon-exec"
@@ -67,7 +68,9 @@ pub fn run(
             }
             crate::server::run(harness_cmd, options)
         }
-        Command::Daemon(options) => DaemonServer::new(dawn_flags).main_loop(options),
+        Command::Daemon(options) => {
+            DaemonServer::new(dawn_flags, backend_validation).main_loop(options)
+        }
         Command::DaemonExec {
             config,
             daemon_port,
@@ -81,11 +84,15 @@ fn list() -> eyre::Result<()> {
     Ok(())
 }
 
-fn internal_run(config: ConfigId, dawn_flags: crate::DawnFlags) -> eyre::Result<()> {
+fn internal_run(
+    config: ConfigId,
+    dawn_flags: crate::DawnFlags,
+    backend_validation: types::BackendValidationLevel,
+) -> eyre::Result<()> {
     let input: ExecutionInput =
         bincode::decode_from_std_read(&mut std::io::stdin(), bincode::config::standard())?;
 
-    let mut state = crate::WebGPUState::new(dawn_flags);
+    let mut state = crate::WebGPUState::new(dawn_flags, backend_validation);
     let output = ExecutionOutput {
         buffers: crate::execute_config(
             &input.shader,

@@ -22,14 +22,22 @@ pub struct WgpuState {
 }
 
 impl WgpuState {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(validation: types::BackendValidationLevel) -> Self {
         WgpuState {
-            instance: Instance::new(Self::instance_descriptor()),
+            instance: Instance::new(Self::instance_descriptor(validation)),
             device_cache: HashMap::new(),
         }
     }
 
-    fn instance_descriptor() -> wgpu::InstanceDescriptor {
+    fn instance_descriptor(validation: types::BackendValidationLevel) -> wgpu::InstanceDescriptor {
+        let mut flags = wgpu::InstanceFlags::default();
+        if validation != types::BackendValidationLevel::Disabled {
+            flags |= wgpu::InstanceFlags::VALIDATION;
+        }
+        if validation == types::BackendValidationLevel::Full {
+            flags |= wgpu::InstanceFlags::GPU_BASED_VALIDATION;
+        }
+
         wgpu::InstanceDescriptor {
             backends: Backends::all(),
             backend_options: wgpu::BackendOptions {
@@ -38,7 +46,7 @@ impl WgpuState {
                 noop: Default::default(),
             },
             display: Default::default(),
-            flags: Default::default(),
+            flags,
             memory_budget_thresholds: Default::default(),
         }
     }
@@ -72,7 +80,7 @@ impl WgpuState {
 }
 
 pub fn get_adapters() -> Vec<types::Adapter> {
-    let wgpu_state = WgpuState::new();
+    let wgpu_state = WgpuState::new(types::BackendValidationLevel::default());
     let instance = wgpu_state.instance;
 
     let adapters = futures::executor::block_on(instance.enumerate_adapters(Backends::all()));
@@ -113,7 +121,7 @@ pub async fn run(
     let wgpu_state: &mut WgpuState = match wgpu_state {
         Some(state) => state,
         None => {
-            _owned_wgpu_state = WgpuState::new();
+            _owned_wgpu_state = WgpuState::new(types::BackendValidationLevel::default());
             &mut _owned_wgpu_state
         }
     };

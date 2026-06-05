@@ -21,8 +21,11 @@ pub struct DawnState {
 }
 
 impl DawnState {
-    pub(crate) fn new(flags: crate::DawnFlags) -> Self {
-        let instance = Box::new(Instance::new(flags.backend_validation));
+    pub(crate) fn new(
+        flags: crate::DawnFlags,
+        backend_validation: types::BackendValidationLevel,
+    ) -> Self {
+        let instance = Box::new(Instance::new(backend_validation));
         let instance_ref = Box::leak(instance);
 
         DawnState {
@@ -89,9 +92,9 @@ pub async fn run(
             let default_flags = crate::DawnFlags {
                 enabled: vec!["use_dxc".to_owned()],
                 disabled: vec![],
-                backend_validation: Default::default(),
             };
-            _owned_dawn_state = DawnState::new(default_flags);
+            _owned_dawn_state =
+                DawnState::new(default_flags, types::BackendValidationLevel::default());
             &mut _owned_dawn_state
         }
     };
