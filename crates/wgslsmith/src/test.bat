@@ -10,6 +10,7 @@ if defined WGSLREDUCE_USE_DAEMON (
 )
 if defined WGSLREDUCE_UNSTABLE_FLOAT ( set args=!args! --unstable-float )
 if defined WGSLREDUCE_COMPILE_ONLY ( set args=!args! --compile-only )
+if defined WGSLREDUCE_TIMEOUT ( set args=!args! --timeout %WGSLREDUCE_TIMEOUT% )
 if defined WGSLREDUCE_CONFIGS (
     for %%C in (%WGSLREDUCE_CONFIGS%) do set args=!args! --config %%C
 )

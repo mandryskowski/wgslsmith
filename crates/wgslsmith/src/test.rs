@@ -45,6 +45,9 @@ pub struct Options {
 
     #[clap(long, action)]
     pub compile_only: bool,
+
+    #[clap(long, action)]
+    pub timeout: Option<u64>,
 }
 
 #[derive(Parser)]
@@ -149,6 +152,11 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
         params.push("--compile-only".to_string());
     }
 
+    if let Some(timeout) = options.timeout {
+        params.push("--timeout".to_string());
+        params.push(timeout.to_string());
+    }
+
     let attempts = options.attempts.unwrap_or(1).max(1);
 
     for attempt in 0..attempts {
@@ -174,7 +182,26 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
         };
 
         match res {
-            Ok(()) => {
+            Ok(matched_line) => {
+                if let Ok(port_str) = std::env::var("WGSLREDUCE_TCP_PORT") {
+                    if let Ok(port) = port_str.parse::<u16>() {
+                        if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+                            #[derive(serde::Serialize)]
+                            struct Report {
+                                size: usize,
+                                matched_line: String,
+                                shader: String,
+                            }
+                            let report = Report {
+                                size: source.len(),
+                                matched_line,
+                                shader: source.clone(),
+                            };
+                            let _ = serde_json::to_writer(&mut stream, &report);
+                        }
+                    }
+                }
+
                 println!("interesting :)");
                 return Ok(());
             }
@@ -199,7 +226,7 @@ fn reduce_crash(
     quiet: bool,
     params: &[String],
     unstable_float: bool,
-) -> eyre::Result<()> {
+) -> eyre::Result<String> {
     let regex = options.regex.as_ref().unwrap();
     let inverse_regex = options.inverse_regex.as_ref();
     let should_recondition = !options.no_recondition;
@@ -209,6 +236,8 @@ fn reduce_crash(
     } else {
         source
     };
+
+    let mut matched_line = None;
 
     let interesting = if !options.configs.is_empty() {
         let mut any_crash_matched = false;
@@ -235,30 +264,50 @@ fn reduce_crash(
                 eprintln!("{result:?}");
             }
 
-            let mut current_matches = matches!(
-                result,
-                ExecutionResult::Crash(ref output)
-                if regex.is_match(output) && !inverse_regex.map(|r| r.is_match(output)).unwrap_or(false)
-            );
+            let mut current_matches = false;
+            let mut current_matched_line = None;
+
+            if let ExecutionResult::Crash(ref output) = result {
+                if let Some(mat) = regex.find(output) {
+                    if !inverse_regex.map(|r| r.is_match(output)).unwrap_or(false) {
+                        current_matches = true;
+                        let start = output[..mat.start()]
+                            .rfind('\n')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        let end = output[mat.end()..]
+                            .find('\n')
+                            .map(|i| mat.end() + i)
+                            .unwrap_or(output.len());
+                        current_matched_line = Some(output[start..end].trim().to_owned());
+                    }
+                }
+            }
 
             if let Some(ref post) = options.post_cmd {
-                let status = if cfg!(windows) {
+                let output = if cfg!(windows) {
                     std::process::Command::new("cmd")
                         .arg("/C")
                         .arg(post)
-                        .status()?
+                        .output()?
                 } else {
                     std::process::Command::new("sh")
                         .arg("-c")
                         .arg(post)
-                        .status()?
+                        .output()?
                 };
 
-                current_matches = status.success();
+                current_matches = output.status.success();
+                if current_matches {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    current_matched_line = Some(format!("{}{}", stdout, stderr).trim().to_owned());
+                }
             }
 
             if current_matches {
                 any_crash_matched = true;
+                matched_line = current_matched_line;
                 break;
             }
         }
@@ -269,12 +318,22 @@ fn reduce_crash(
         let compiled = compiler.compile(&source, backend, false)?;
 
         match backend {
-            Backend::Hlsl => {
-                remote_validate(config, &compiled, validator::Backend::Hlsl, regex, quiet)?
-            }
-            Backend::Msl => {
-                remote_validate(config, &compiled, validator::Backend::Msl, regex, quiet)?
-            }
+            Backend::Hlsl => remote_validate(
+                config,
+                &compiled,
+                validator::Backend::Hlsl,
+                regex,
+                quiet,
+                &mut matched_line,
+            )?,
+            Backend::Msl => remote_validate(
+                config,
+                &compiled,
+                validator::Backend::Msl,
+                regex,
+                quiet,
+                &mut matched_line,
+            )?,
             Backend::Spirv => todo!(),
         }
     };
@@ -283,7 +342,7 @@ fn reduce_crash(
         return Err(eyre!("shader is not interesting"));
     }
 
-    Ok(())
+    Ok(matched_line.unwrap_or_else(|| "Crash found".to_string()))
 }
 
 fn reduce_mismatch(
@@ -293,7 +352,7 @@ fn reduce_mismatch(
     quiet: bool,
     params: &[String],
     unstable_float: bool,
-) -> eyre::Result<()> {
+) -> eyre::Result<String> {
     let module = parser::parse(&source);
     let reconditioned = recondition(module, unstable_float);
 
@@ -364,7 +423,7 @@ fn reduce_mismatch(
         return Err(eyre!("shader is not interesting (no mismatch found)"));
     }
 
-    Ok(())
+    Ok("Mismatch found".to_string())
 }
 
 fn recondition(module: ast::Module, unstable_float: bool) -> String {
@@ -390,6 +449,7 @@ fn remote_validate(
     backend: validator::Backend,
     regex: &Regex,
     quiet: bool,
+    matched_line: &mut Option<String>,
 ) -> eyre::Result<bool> {
     if !quiet {
         println!("[SOURCE]");
@@ -406,7 +466,17 @@ fn remote_validate(
                 println!("-----");
                 println!("{err}");
             }
-            regex.is_match(&err)
+            if let Some(mat) = regex.find(&err) {
+                let start = err[..mat.start()].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let end = err[mat.end()..]
+                    .find('\n')
+                    .map(|i| mat.end() + i)
+                    .unwrap_or(err.len());
+                *matched_line = Some(err[start..end].trim().to_owned());
+                true
+            } else {
+                false
+            }
         }
     };
 
