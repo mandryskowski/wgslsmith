@@ -222,6 +222,7 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
     std::env::set_var("WGSLREDUCE_PORT", port.to_string());
 
     let verbosity = options.verbosity;
+    let post_cmd_is_some = options.post_cmd.is_some();
 
     let tcp_listener = if verbosity > 0 {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -277,7 +278,11 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
                     if report.size < smallest_size {
                         smallest_size = report.size;
                         println!("=== New Minimal ({} bytes) ===", report.size);
-                        println!("Regex matched: {}", report.matched_line);
+                        if post_cmd_is_some {
+                            println!("Post-cmd output:\n{}", report.matched_line);
+                        } else {
+                            println!("Regex matched: {}", report.matched_line);
+                        }
                         if verbosity >= 2 {
                             println!("Shader code:\n{}", report.shader);
                         }

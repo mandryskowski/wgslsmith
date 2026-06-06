@@ -285,19 +285,24 @@ fn reduce_crash(
             }
 
             if let Some(ref post) = options.post_cmd {
-                let status = if cfg!(windows) {
+                let output = if cfg!(windows) {
                     std::process::Command::new("cmd")
                         .arg("/C")
                         .arg(post)
-                        .status()?
+                        .output()?
                 } else {
                     std::process::Command::new("sh")
                         .arg("-c")
                         .arg(post)
-                        .status()?
+                        .output()?
                 };
 
-                current_matches = status.success();
+                current_matches = output.status.success();
+                if current_matches {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    current_matched_line = Some(format!("{}{}", stdout, stderr).trim().to_owned());
+                }
             }
 
             if current_matches {
