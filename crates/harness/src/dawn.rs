@@ -369,16 +369,16 @@ pub async fn run(
             if let Some(pos) = left_canary.iter().position(|&b| b != CANARY_VAL) {
                 unmap_device(dawn_state, config);
                 return Err(eyre!(
-                    "OOB write detected in config {}: left canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
-                    config, pos, CANARY_VAL, left_canary[pos]
+                    "Possible OOB in config {}: left canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}.\nLeft\n{}\nRight\n{}",
+                    config, pos, CANARY_VAL, left_canary[pos], common::format_hex_dump(left_canary), common::format_hex_dump(right_canary)
                 ));
             }
 
             if let Some(pos) = right_canary.iter().position(|&b| b != CANARY_VAL) {
                 unmap_device(dawn_state, config);
                 return Err(eyre!(
-                    "OOB write detected in config {}: right canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}",
-                    config, pos, CANARY_VAL, right_canary[pos]
+                    "Possible OOB in config {}: right canary corrupted at relative offset {}. Expected 0x{:02X}, found 0x{:02X}.\nLeft\n{}\nRight\n{}",
+                    config, pos, CANARY_VAL, right_canary[pos], common::format_hex_dump(left_canary), common::format_hex_dump(right_canary)
                 ));
             }
 

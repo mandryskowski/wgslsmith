@@ -257,3 +257,16 @@ impl TryFrom<&ast::DataType> for Type {
         }
     }
 }
+
+pub fn format_hex_dump(data: &[u8]) -> String {
+    data.chunks(16)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
