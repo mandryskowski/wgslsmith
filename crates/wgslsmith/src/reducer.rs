@@ -119,6 +119,10 @@ pub struct Options {
 
     #[clap(long, action)]
     pub compile_only: bool,
+
+    /// Verbosity level: 0 = quiet, 1 = print matched line, 2 = print matched line and shader code.
+    #[clap(short, long, default_value = "1")]
+    pub verbosity: u8,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -214,9 +218,23 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
     let port = socket.local_addr()?.port();
     std::env::set_var("WGSLREDUCE_PORT", port.to_string());
 
+    let verbosity = options.verbosity;
+
+    let tcp_listener = if verbosity > 0 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        Some(listener)
+    } else {
+        None
+    };
+
+    let tcp_port = tcp_listener
+        .as_ref()
+        .map(|l| l.local_addr().unwrap().port());
+
     let (tx, rx) = crossbeam_channel::bounded(1);
     let worker = thread::spawn(move || {
-        let result = thread_main(&config, options);
+        let result = thread_main(&config, options, tcp_port);
         let _ = tx.send(result);
     });
 
@@ -224,6 +242,15 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
     let mut buf = [0; 1];
 
     socket.set_read_timeout(Some(std::time::Duration::from_millis(100)))?;
+
+    #[derive(serde::Deserialize)]
+    struct Report {
+        size: usize,
+        matched_line: String,
+        shader: String,
+    }
+
+    let mut smallest_size = usize::MAX;
 
     loop {
         match socket.recv_from(&mut buf) {
@@ -233,6 +260,26 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
                     && e.kind() != std::io::ErrorKind::TimedOut
                 {
                     // ignore other errors
+                }
+            }
+        }
+
+        if let Some(ref listener) = tcp_listener {
+            while let Ok((stream, _)) = listener.accept() {
+                stream.set_nonblocking(false).ok();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+                    .ok();
+                if let Ok(report) = serde_json::from_reader::<_, Report>(stream) {
+                    if report.size < smallest_size {
+                        smallest_size = report.size;
+                        println!("=== New Minimal ({} bytes) ===", report.size);
+                        println!("Regex matched: {}", report.matched_line);
+                        if verbosity >= 2 {
+                            println!("Shader code:\n{}", report.shader);
+                        }
+                        println!("===================================");
+                    }
                 }
             }
         }
@@ -252,7 +299,7 @@ pub fn run(config: Config, options: Options) -> eyre::Result<()> {
     Ok(())
 }
 
-fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
+fn thread_main(config: &Config, options: Options, tcp_port: Option<u16>) -> eyre::Result<()> {
     let shader_path = Path::new(&options.shader);
     if !shader_path.exists() {
         return Err(eyre!("shader at {shader_path:?} does not exist"));
@@ -333,6 +380,10 @@ fn thread_main(config: &Config, options: Options) -> eyre::Result<()> {
         .tap_mut(|cmd| {
             cmd.current_dir(&out_dir)
                 .env("WGSLREDUCE_SHADER_NAME", shader_path.file_name().unwrap());
+
+            if let Some(port) = tcp_port {
+                cmd.env("WGSLREDUCE_TCP_PORT", port.to_string());
+            }
 
             if let Some(path) = &metadata_path {
                 cmd.env("WGSLREDUCE_METADATA_PATH", path);
