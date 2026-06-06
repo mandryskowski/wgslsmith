@@ -120,6 +120,9 @@ pub struct Options {
     #[clap(long, action)]
     pub compile_only: bool,
 
+    #[clap(long, action)]
+    pub timeout: Option<u64>,
+
     /// Verbosity level: 0 = quiet, 1 = print matched line, 2 = print matched line and shader code.
     #[clap(short, long, default_value = "1")]
     pub verbosity: u8,
@@ -410,6 +413,10 @@ fn thread_main(config: &Config, options: Options, tcp_port: Option<u16>) -> eyre
 
             if options.compile_only {
                 cmd.env("WGSLREDUCE_COMPILE_ONLY", "1");
+            }
+
+            if let Some(timeout) = options.timeout {
+                cmd.env("WGSLREDUCE_TIMEOUT", timeout.to_string());
             }
 
             if let Some(tmpdir) = &config.reducer.tmpdir {

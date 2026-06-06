@@ -45,6 +45,9 @@ pub struct Options {
 
     #[clap(long, action)]
     pub compile_only: bool,
+
+    #[clap(long, action)]
+    pub timeout: Option<u64>,
 }
 
 #[derive(Parser)]
@@ -147,6 +150,11 @@ pub fn run(config: &Config, options: Options) -> eyre::Result<()> {
 
     if options.compile_only {
         params.push("--compile-only".to_string());
+    }
+
+    if let Some(timeout) = options.timeout {
+        params.push("--timeout".to_string());
+        params.push(timeout.to_string());
     }
 
     let attempts = options.attempts.unwrap_or(1).max(1);

@@ -31,6 +31,10 @@ if [[ -n "${WGSLREDUCE_COMPILE_ONLY-}" ]]; then
     args+=("--compile-only")
 fi
 
+if [[ -n "${WGSLREDUCE_TIMEOUT-}" ]]; then
+    args+=("--timeout" "$WGSLREDUCE_TIMEOUT")
+fi
+
 if [[ -n "${WGSLREDUCE_CONFIGS-}" ]]; then
     for conf in $WGSLREDUCE_CONFIGS; do
         args+=("--config" "$conf")
