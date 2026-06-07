@@ -178,8 +178,16 @@ impl Options {
 }
 
 fn gen_shader(options: &Options) -> eyre::Result<String> {
+    use rand::Rng;
+    let stage = match rand::thread_rng().gen_range(0..4) {
+        0 | 1 => "compute",
+        2 => "vertex",
+        _ => "fragment",
+    };
+
     let output = Command::new(std::env::current_exe().unwrap())
         .arg("gen")
+        .args(["--stage", stage])
         .args(["--block-min-stmts", "1"])
         .args(["--block-max-stmts", "2"])
         .args(["--max-fns", "3"])
