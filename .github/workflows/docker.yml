@@ -1,0 +1,39 @@
+name: Docker Image
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout git repo
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: pietrobolcato/action-read-yaml@1.1.0
+        id: read_versions
+        with:
+          config: ${{ github.workspace }}/.github/dependency_versions.yaml
+
+      - name: Download dawn libs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          release_tag="${{ steps.read_versions.outputs['dawn'] }}"
+          gh release download $release_tag -p dawn-static-linux64.tar.gz -R wgslsmith/dawn-build
+          tar -xvf dawn-static-linux64.tar.gz
+          mv dawn-static-linux64 dawn-build-linux
+
+      - name: Build Docker image
+        run: docker build -t wgslsmith-docker .
+
+      - name: Save Docker image to tar
+        run: docker save wgslsmith-docker -o wgslsmith-docker.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wgslsmith-docker-image
+          path: wgslsmith-docker.tar
