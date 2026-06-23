@@ -32,9 +32,6 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN curl -L -o /opt/perses_deploy.jar https://github.com/mandryskowski/perses/releases/latest/download/perses_deploy.jar
 
-RUN mkdir -p ~/.config/wgslsmith && \
-    echo "[reducer.perses]\njar = \"/opt/perses_deploy.jar\"" > ~/.config/wgslsmith/wgslsmith.toml
-
 WORKDIR /app
 
 COPY . .
