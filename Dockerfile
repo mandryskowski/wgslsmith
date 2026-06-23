@@ -34,6 +34,8 @@ RUN curl -L -o /opt/perses_deploy.jar https://github.com/mandryskowski/perses/re
 
 WORKDIR /app
 
+COPY crates/harness/test.wgsl crates/harness/test.json ./
+
 COPY . .
 
 ENV DAWN_BUILD_DIR=/app/dawn-build-linux
