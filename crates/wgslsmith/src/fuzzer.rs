@@ -85,9 +85,9 @@ pub struct Options {
 fn gen_shader(options: &Options) -> eyre::Result<String> {
     let output = Command::new(std::env::current_exe().unwrap())
         .arg("gen")
-        .args(["--block-min-stmts", "1"])
-        .args(["--block-max-stmts", "1"])
-        .args(["--max-fns", "3"])
+        // .args(["--block-min-stmts", "1"])
+        // .args(["--block-max-stmts", "1"])
+        // .args(["--max-fns", "3"])
         .tap_mut(|cmd| {
             if options.enable_pointers {
                 cmd.arg("--enable-pointers");
