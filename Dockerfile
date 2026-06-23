@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
   clang \
   cmake \
   curl \
+  default-jre-headless \
   git \
   python3 \
   ninja-build \
@@ -27,6 +28,8 @@ ENV PATH="/opt/depot_tools:${PATH}"
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN curl -L -o /opt/perses_deploy.jar https://github.com/mandryskowski/perses/releases/latest/download/perses_deploy.jar
 
 WORKDIR /app
 
