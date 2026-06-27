@@ -3,18 +3,69 @@ mod server;
 mod wgpu;
 
 pub mod cli;
+mod daemon;
 
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use crate::dawn::DawnState;
+use crate::wgpu::WgpuState;
 use frontend::{ExecutionError, ExecutionEvent};
 use futures::executor::block_on;
 use process_control::{ChildExt, Control};
 use reflection::PipelineDescription;
 use types::{BackendType, Config, ConfigId, Implementation};
 
-pub trait HarnessHost {
-    fn exec_command() -> Command;
+pub struct WebGPUState {
+    pub dawn_state: DawnState,
+    pub wgpu_state: WgpuState,
+}
+
+impl WebGPUState {
+    pub fn new() -> Self {
+        Self {
+            dawn_state: DawnState::new(),
+            wgpu_state: WgpuState::new(),
+        }
+    }
+}
+
+impl Default for WebGPUState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone)]
+pub struct HarnessCommand {
+    pub program: PathBuf,
+    args: Vec<String>,
+}
+
+impl HarnessCommand {
+    pub fn new(program: PathBuf) -> Self {
+        HarnessCommand {
+            program,
+            args: vec![],
+        }
+    }
+    pub fn build(&self) -> Command {
+        let mut cmd = Command::new(&self.program);
+        cmd.args(&self.args);
+        cmd
+    }
+
+    #[must_use]
+    pub fn arg(&self, arg: impl Into<String>) -> HarnessCommand {
+        let mut args = self.args.clone();
+        args.push(arg.into());
+
+        HarnessCommand {
+            program: self.program.clone(),
+            args,
+        }
+    }
 }
 
 pub fn query_configs() -> Vec<Config> {
@@ -66,7 +117,7 @@ struct ExecutionArgs<'a> {
     pub pipeline_desc: &'a PipelineDescription,
 }
 
-#[derive(bincode::Decode)]
+#[derive(bincode::Decode, bincode::Encode)]
 struct ExecutionInput {
     pub shader: String,
     pub pipeline_desc: PipelineDescription,
@@ -77,7 +128,8 @@ struct ExecutionOutput {
     pub buffers: Vec<Vec<u8>>,
 }
 
-pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), ExecutionError>>(
+pub fn execute<E: FnMut(ExecutionEvent) -> Result<(), ExecutionError>>(
+    cmd: &HarnessCommand,
     shader: &str,
     pipeline_desc: &PipelineDescription,
     configs: &[ConfigId],
@@ -102,7 +154,8 @@ pub fn execute<Host: HarnessHost, E: FnMut(ExecutionEvent) -> Result<(), Executi
     configs.iter().try_for_each(|config| {
         on_event(ExecutionEvent::Start(config.clone()))?;
 
-        let mut child = Host::exec_command()
+        let mut child = cmd
+            .build()
             .arg(config.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -144,9 +197,20 @@ pub fn execute_config(
     shader: &str,
     pipeline_desc: &PipelineDescription,
     config: &ConfigId,
+    state: Option<&mut WebGPUState>,
 ) -> eyre::Result<Vec<Vec<u8>>> {
     match config.implementation {
-        Implementation::Dawn => block_on(dawn::run(shader, pipeline_desc, config)),
-        Implementation::Wgpu => block_on(wgpu::run(shader, pipeline_desc, config)),
+        Implementation::Dawn => block_on(dawn::run(
+            shader,
+            pipeline_desc,
+            config,
+            state.map(|s| &mut s.dawn_state),
+        )),
+        Implementation::Wgpu => block_on(wgpu::run(
+            shader,
+            pipeline_desc,
+            config,
+            state.map(|s| &mut s.wgpu_state),
+        )),
     }
 }

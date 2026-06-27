@@ -3,20 +3,20 @@ use std::str::FromStr;
 
 use bincode::{Decode, Encode};
 
-#[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq, Hash)]
 pub enum Implementation {
     Dawn,
     Wgpu,
 }
 
-#[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq, Hash)]
 pub enum BackendType {
     Dx12 = 3,
     Metal = 4,
     Vulkan = 5,
 }
 
-#[derive(Clone, Debug, Decode, Encode)]
+#[derive(Clone, Debug, Decode, Encode, PartialEq, Eq, Hash)]
 pub struct ConfigId {
     pub implementation: Implementation,
     pub backend: BackendType,

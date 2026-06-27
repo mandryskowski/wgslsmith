@@ -1,13 +1,12 @@
-use std::io::{self, BufReader, BufWriter};
-use std::net::TcpListener;
-
 use clap::Parser;
 use color_eyre::eyre::{self, eyre};
 use frontend::{ExecutionError, ExecutionEvent};
 use server_types::{ListResponse, Request, RunError, RunMessage, RunRequest};
+use std::io::{self, BufReader, BufWriter};
+use std::net::TcpListener;
 use threadpool::ThreadPool;
 
-use crate::HarnessHost;
+use crate::HarnessCommand;
 
 #[derive(Parser)]
 pub struct Options {
@@ -20,9 +19,15 @@ pub struct Options {
     /// Defaults to the number of available CPUs.
     #[clap(long, action)]
     parallelism: Option<usize>,
+
+    #[clap(long, action, default_value = "false")]
+    pub use_daemon: bool,
+
+    #[clap(long, action, requires = "use_daemon_flag")]
+    pub daemon_port: Option<u16>,
 }
 
-pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
+pub fn run(cmd: HarnessCommand, options: Options) -> eyre::Result<()> {
     let parallelism = options
         .parallelism
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
@@ -35,6 +40,7 @@ pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
     println!("Server listening at {address}");
 
     for stream in listener.incoming() {
+        let cmd = cmd.clone();
         pool.execute(move || {
             let stream = stream.unwrap();
 
@@ -46,7 +52,7 @@ pub fn run<Host: HarnessHost>(options: Options) -> eyre::Result<()> {
             let writer = BufWriter::new(&stream);
             match req {
                 Request::List => handle_list_request(writer).unwrap(),
-                Request::Run(req) => handle_run_request::<Host, _>(req, writer).unwrap(),
+                Request::Run(req) => handle_run_request(&cmd, req, writer).unwrap(),
             }
         });
     }
@@ -61,7 +67,8 @@ fn handle_list_request(mut writer: impl io::Write) -> eyre::Result<()> {
     Ok(())
 }
 
-fn handle_run_request<Host: HarnessHost, W: io::Write>(
+fn handle_run_request<W: io::Write + Send>(
+    cmd: &HarnessCommand,
     req: RunRequest,
     mut writer: W,
 ) -> eyre::Result<()> {
@@ -80,7 +87,8 @@ fn handle_run_request<Host: HarnessHost, W: io::Write>(
         Ok(())
     };
 
-    let result = crate::execute::<Host, _>(
+    let result = crate::execute::<_>(
+        cmd,
         &req.shader,
         &req.pipeline_desc,
         &req.configs,

@@ -1,6 +1,6 @@
 use clap::Parser;
 use harness::cli::{self, Command};
-use harness::HarnessHost;
+use harness::HarnessCommand;
 
 fn main() -> eyre::Result<()> {
     if std::env::var("NO_COLOR") == Err(std::env::VarError::NotPresent) {
@@ -13,15 +13,8 @@ fn main() -> eyre::Result<()> {
 
     env_logger::init();
 
-    struct Host;
-
-    impl HarnessHost for Host {
-        fn exec_command() -> std::process::Command {
-            let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
-            cmd.arg("exec");
-            cmd
-        }
-    }
-
-    cli::run::<Host>(Command::parse())
+    cli::run(
+        HarnessCommand::new(std::env::current_exe().unwrap()),
+        Command::parse(),
+    )
 }

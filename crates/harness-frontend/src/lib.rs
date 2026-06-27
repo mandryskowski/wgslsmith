@@ -190,6 +190,12 @@ pub mod cli {
         /// Use 0 to disable the timeout. Note that the timeout is per-execution rather than a global timeout.
         #[clap(long, action, default_value = "30")]
         pub timeout: u64,
+
+        #[clap(long, action, default_value = "false", name = "use_daemon_flag")]
+        pub use_daemon: bool,
+
+        #[clap(long, action, requires = "use_daemon_flag")]
+        pub daemon_port: Option<u16>,
     }
 
     pub fn run(options: RunOptions, executor: &dyn Executor) -> eyre::Result<()> {

@@ -1,21 +1,43 @@
 use color_eyre::eyre::eyre;
 use dawn::webgpu::{
     WGPUBackendType_WGPUBackendType_D3D12, WGPUBackendType_WGPUBackendType_Metal,
-    WGPUBackendType_WGPUBackendType_Vulkan, WGPUBool,
+    WGPUBackendType_WGPUBackendType_Vulkan,
 };
 use dawn::*;
 use reflection::{PipelineDescription, ResourceKind};
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::ConfigId;
 
+type DeviceCacheEntry = (Rc<Device<'static>>, Rc<DeviceQueue>);
+pub struct DawnState {
+    instance: &'static Instance,
+    device_cache: HashMap<ConfigId, DeviceCacheEntry>,
+}
+
+impl DawnState {
+    pub(crate) fn new() -> Self {
+        let instance = Box::new(Instance::new());
+        let instance_ref = Box::leak(instance);
+
+        DawnState {
+            instance: instance_ref,
+            device_cache: HashMap::new(),
+        }
+    }
+}
+
 enum BufferSet {
     Storage {
+        group: u32,
         binding: u32,
         size: usize,
         storage: DeviceBuffer,
         read: DeviceBuffer,
     },
     Uniform {
+        group: u32,
         binding: u32,
         size: usize,
         buffer: DeviceBuffer,
@@ -46,6 +68,7 @@ pub async fn run(
     shader: &str,
     meta: &PipelineDescription,
     config: &ConfigId,
+    dawn_state: Option<&mut DawnState>,
 ) -> color_eyre::Result<Vec<Vec<u8>>> {
     let backend = match config.backend {
         crate::BackendType::Dx12 => WGPUBackendType_WGPUBackendType_D3D12,
@@ -53,48 +76,80 @@ pub async fn run(
         crate::BackendType::Vulkan => WGPUBackendType_WGPUBackendType_Vulkan,
     };
 
-    let enabled_features: Vec<_> = meta
-        .extensions
-        .iter()
-        .map(|enable| match enable {
-            reflection::Extension::F16 => dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16,
-        })
-        .collect();
+    let mut _owned_dawn_state;
+    let dawn_state: &mut DawnState = match dawn_state {
+        Some(state) => state,
+        None => {
+            _owned_dawn_state = DawnState::new();
+            &mut _owned_dawn_state
+        }
+    };
 
-    let instance = Instance::new();
+    let (device, queue) = {
+        if let Some((cached_device, cached_queue)) = dawn_state.device_cache.get(config) {
+            (cached_device.clone(), cached_queue.clone())
+        } else {
+            let enabled_features: Vec<_> = meta
+                .extensions
+                .iter()
+                .map(|enable| match enable {
+                    reflection::Extension::F16 => {
+                        dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16
+                    }
+                })
+                .collect();
+            let device = dawn_state
+                .instance
+                .create_device(backend, config.device_id, &enabled_features)
+                .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
 
-    let device = instance
-        .create_device(backend, config.device_id, &enabled_features)
-        .ok_or_else(|| eyre!("no adapter found matching id: {config}"))?;
+            let queue = device.create_queue();
 
-    let queue = device.create_queue();
-    let shader_module = device.create_shader_module(shader);
-    let pipeline = device.create_compute_pipeline(&shader_module, "main");
+            let device_rc = Rc::new(device);
+            let queue_rc = Rc::new(queue);
 
-    // this will catch compilation errors
-    instance.process_events();
+            dawn_state
+                .device_cache
+                .insert(config.clone(), (device_rc.clone(), queue_rc.clone()));
+
+            eprintln!("Device {config} initialized");
+
+            (device_rc, queue_rc)
+        }
+    };
+
+    let instance = dawn_state.instance;
+
+    let shader_module = device.create_shader_module(shader)?;
+
+    let pipeline = device.create_compute_pipeline(&shader_module, "main")?;
 
     let mut buffer_sets = vec![];
-
-    let mapped: WGPUBool = 0;
 
     for resource in &meta.resources {
         let size = resource.size as usize;
         match resource.kind {
             ResourceKind::StorageBuffer => {
-                let storage = device.create_buffer(
-                    mapped,
+                let mut storage = device.create_buffer(
+                    1, // mapped: 1
                     size,
                     DeviceBufferUsage::STORAGE | DeviceBufferUsage::COPY_SRC,
-                );
+                )?;
+
+                if let Some(init) = resource.init.as_deref() {
+                    storage.get_mapped_range(size).copy_from_slice(init);
+                    storage.unmap();
+                }
+                storage.unmap();
 
                 let read = device.create_buffer(
-                    mapped,
+                    0,
                     size,
                     DeviceBufferUsage::COPY_DST | DeviceBufferUsage::MAP_READ,
-                );
+                )?;
 
                 buffer_sets.push(BufferSet::Storage {
+                    group: resource.group,
                     binding: resource.binding,
                     size,
                     storage,
@@ -102,17 +157,21 @@ pub async fn run(
                 });
             }
             ResourceKind::UniformBuffer => {
-                let mapped: WGPUBool = 1;
+                let mut buffer = device.create_buffer(1, size, DeviceBufferUsage::UNIFORM)?;
 
-                let mut buffer = device.create_buffer(mapped, size, DeviceBufferUsage::UNIFORM);
-
-                if let Some(init) = resource.init.as_deref() {
-                    buffer.get_mapped_range(size).copy_from_slice(init);
+                {
+                    let view = buffer.get_mapped_range(size);
+                    if let Some(init) = resource.init.as_deref() {
+                        view.copy_from_slice(init);
+                    } else {
+                        view.fill(0);
+                    }
                 }
 
                 buffer.unmap();
 
                 buffer_sets.push(BufferSet::Uniform {
+                    group: resource.group,
                     binding: resource.binding,
                     size,
                     buffer,
@@ -121,40 +180,53 @@ pub async fn run(
         }
     }
 
-    let bind_group_entries = buffer_sets
-        .iter()
-        .map(|buffers| match buffers {
+    let mut bind_groups = HashMap::new();
+    let mut groups = HashSet::new();
+
+    for buffer in &buffer_sets {
+        let (group, binding, buffer_obj, size) = match buffer {
             BufferSet::Storage {
+                group,
                 binding,
-                size,
                 storage,
-                ..
-            } => BindGroupEntry {
-                binding: *binding,
-                buffer: storage,
-                size: *size,
-            },
-            BufferSet::Uniform {
-                binding,
                 size,
+                ..
+            } => (*group, *binding, storage, *size),
+            BufferSet::Uniform {
+                group,
+                binding,
                 buffer,
-            } => BindGroupEntry {
-                binding: *binding,
-                buffer,
-                size: *size,
-            },
-        })
-        .collect::<Vec<_>>();
+                size,
+            } => (*group, *binding, buffer, *size),
+        };
 
-    let bind_group =
-        device.create_bind_group(&pipeline.get_bind_group_layout(0), &bind_group_entries);
+        groups.insert(group);
+        bind_groups
+            .entry(group)
+            .or_insert_with(Vec::new)
+            .push(BindGroupEntry {
+                binding,
+                buffer: buffer_obj,
+                size,
+            });
+    }
 
-    let encoder = device.create_command_encoder();
+    let mut final_bind_groups = HashMap::new();
+
+    for (group, entries) in bind_groups {
+        let layout = pipeline.get_bind_group_layout(group);
+        let bind_group = device.create_bind_group(&layout, &entries)?;
+        final_bind_groups.insert(group, bind_group);
+    }
+
+    let encoder = device.create_command_encoder()?;
 
     {
         let compute_pass = encoder.begin_compute_pass();
         compute_pass.set_pipeline(&pipeline);
-        compute_pass.set_bind_group(0, &bind_group);
+        for (group, bind_group) in &final_bind_groups {
+            compute_pass.set_bind_group(*group, bind_group);
+        }
         compute_pass.dispatch(1, 1, 1);
     }
 
@@ -170,25 +242,40 @@ pub async fn run(
         }
     }
 
-    let commands = encoder.finish();
+    let commands = encoder.finish()?;
 
     queue.submit(&commands);
 
     let mut results = vec![];
     for buffers in &buffer_sets {
         if let BufferSet::Storage { read, size, .. } = buffers {
-            let mut rx = read.map_async(DeviceBufferMapMode::READ, *size);
+            let size = *size;
+            let mut rx = read.map_async(DeviceBufferMapMode::READ, size);
 
-            while rx.try_recv().unwrap().is_none() {
-                instance.process_events();
-                std::thread::sleep(std::time::Duration::from_millis(16));
+            loop {
+                match rx.try_recv() {
+                    Ok(Some(_)) => break,
+                    Ok(None) => {
+                        instance.process_events();
+                        std::thread::sleep(std::time::Duration::from_millis(16));
+                    }
+                    Err(_) => {
+                        unmap_device(dawn_state, config);
+                        return Err(eyre!("Buffer mapping failed"));
+                    }
+                }
             }
 
-            let bytes = read.get_const_mapped_range(*size);
+            let bytes = read.get_const_mapped_range(size);
 
             results.push(bytes.to_vec());
         }
     }
 
     Ok(results)
+}
+
+fn unmap_device(dawn_state: &mut DawnState, config: &ConfigId) {
+    eprintln!("Removing device {config}");
+    dawn_state.device_cache.remove(config);
 }
