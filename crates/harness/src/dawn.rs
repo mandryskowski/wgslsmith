@@ -96,6 +96,9 @@ pub async fn run(
                     reflection::Extension::F16 => {
                         dawn::webgpu::WGPUFeatureName_WGPUFeatureName_ShaderF16
                     }
+                    reflection::Extension::Subgroups => {
+                        dawn::webgpu::WGPUFeatureName_WGPUFeatureName_Subgroups
+                    }
                 })
                 .collect();
             let device = dawn_state
