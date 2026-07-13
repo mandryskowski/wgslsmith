@@ -28,7 +28,17 @@ use harness_frontend::{read_shader_from_path, ExecutionError, ExecutionEvent};
 use harness_types::ConfigId;
 use reflection_types::PipelineDescription;
 
+const HASH_INFO: &str = concat!(
+    "wgslsmith: ",
+    env!("WGSLSMITH_GIT_HASH"),
+    "\ndawn: ",
+    env!("DAWN_GIT_HASH"),
+    "\nwgpu: ",
+    env!("WGPU_GIT_HASH")
+);
+
 #[derive(Parser)]
+#[clap(version, about = HASH_INFO)]
 struct Options {
     #[clap(long, action)]
     config_file: Option<PathBuf>,
