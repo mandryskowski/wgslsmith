@@ -441,7 +441,8 @@ jobs:
           for dir in wgslsmith-*/; do
             if [ -d "$dir" ]; then
               dir_name=${dir%/}
-              zip -r "../release_assets/${dir_name}.zip" "$dir_name"
+              chmod +x "$dir_name"/wgslsmith* 2>/dev/null || true
+              (cd "$dir_name" && zip -r "../../release_assets/${dir_name}.zip" .)
             fi
           done
 
