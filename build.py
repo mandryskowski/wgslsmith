@@ -158,10 +158,21 @@ def cargo_build(package, target=None, cwd=None, features=[]):
                 wrapper_path.write_text("#!/bin/bash\nargs=()\nfor arg in \"$@\"; do\n  if [ \"$arg\" != \"-nodefaultlibs\" ]; then\n    args+=(\"$arg\")\n  fi\ndone\nexec clang++ \"${args[@]}\"\n")
                 wrapper_path.chmod(0o755)
 
+            dummy_c_path = Path(cwd if cwd else ".").absolute().joinpath("asan_dummy.c")
+            if not dummy_c_path.exists():
+                dummy_c_path.write_text("void __asan_dummy() {}\n")
+            
+            dummy_obj = Path(cwd if cwd else ".").absolute().joinpath("asan_dummy.o")
+            if args.asan or args.ubsan:
+                subprocess.run(["clang", *san_flags, "-c", str(dummy_c_path), "-o", str(dummy_obj)]).check_returncode()
+
             rustflags = env.get("RUSTFLAGS", "")
             rustflags += f" -C linker={wrapper_path}"
+            if args.asan or args.ubsan:
+                rustflags += f" -C link-arg={dummy_obj}"
             if args.asan:
                 rustflags += " -C link-arg=-fsanitize=address"
+                rustflags += " -C link-arg=-Wl,-rpath,@executable_path"
             if args.ubsan:
                 rustflags += " -C link-arg=-fsanitize=undefined"
             rustflags += " -C link-arg=-lc++"

@@ -241,6 +241,26 @@ jobs:
             cp /usr/lib/llvm-19/lib/clang/19/lib/windows/clang_rt.asan_dynamic-x86_64.dll staging_harness/
             cp /usr/lib/llvm-19/lib/clang/19/lib/windows/clang_rt.asan_dynamic-x86_64.dll staging_wgslsmith/
           fi
+          
+          # If macOS + ASan, ship the dynamic compiler-rt library next to the executable
+          if [ "${{ matrix.target }}" == "macos64" ] && [ "${{ matrix.sanitizer }}" == "asan-ubsan" ]; then
+            MAC_CLANG_RT="$(clang -print-resource-dir)/lib/darwin/libclang_rt.asan_osx_dynamic.dylib"
+            cp "$MAC_CLANG_RT" staging_harness/
+            cp "$MAC_CLANG_RT" staging_wgslsmith/
+            
+            echo '<?xml version="1.0" encoding="UTF-8"?>' > entitlements.plist
+            echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> entitlements.plist
+            echo '<plist version="1.0"><dict>' >> entitlements.plist
+            echo '<key>com.apple.security.cs.disable-library-validation</key><true/>' >> entitlements.plist
+            echo '</dict></plist>' >> entitlements.plist
+            
+            # Ensure binaries and dylibs are ad-hoc signed so macOS Gatekeeper / dyld doesn't kill them
+            # Disable library validation so dyld allows loading the local ASan dylib even with ad-hoc signature
+            codesign -s - -f --entitlements entitlements.plist staging_harness/wgslsmith-harness
+            codesign -s - -f staging_harness/libclang_rt.asan_osx_dynamic.dylib
+            codesign -s - -f --entitlements entitlements.plist staging_wgslsmith/wgslsmith
+            codesign -s - -f staging_wgslsmith/libclang_rt.asan_osx_dynamic.dylib
+          fi
 
       - name: Upload harness artifact
         uses: actions/upload-artifact@v4
